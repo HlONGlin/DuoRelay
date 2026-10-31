@@ -3,7 +3,6 @@ package ir
 import (
 	"encoding/json"
 	"testing"
-	"time"
 )
 
 func TestNodeSerialization(t *testing.T) {
@@ -144,9 +143,11 @@ func TestNodeJSON_LosslessRoundTrip(t *testing.T) {
 
 func TestNodeProtoValidation_Shadowsocks(t *testing.T) {
 	tests := []struct {
-		name      string
-		proto     map[string]any
-		wantError bool
+		name          string
+		proto         map[string]any
+		hasMethod     bool
+		hasPassword   bool
+		shouldBeValid bool
 	}{
 		{
 			name: "valid basic config",
@@ -154,7 +155,9 @@ func TestNodeProtoValidation_Shadowsocks(t *testing.T) {
 				"method":   "aes-256-gcm",
 				"password": "test-password",
 			},
-			wantError: false,
+			hasMethod:     true,
+			hasPassword:   true,
+			shouldBeValid: true,
 		},
 		{
 			name: "valid with plugin",
@@ -164,15 +167,27 @@ func TestNodeProtoValidation_Shadowsocks(t *testing.T) {
 				"plugin":      "obfs-local",
 				"plugin_opts": "obfs=http",
 			},
-			wantError: false,
+			hasMethod:     true,
+			hasPassword:   true,
+			shouldBeValid: true,
 		},
 		{
-			name: "missing required field",
+			name: "missing password",
 			proto: map[string]any{
 				"method": "aes-256-gcm",
-				// missing password
 			},
-			wantError: true,
+			hasMethod:     true,
+			hasPassword:   false,
+			shouldBeValid: false,
+		},
+		{
+			name: "missing method",
+			proto: map[string]any{
+				"password": "test-password",
+			},
+			hasMethod:     false,
+			hasPassword:   true,
+			shouldBeValid: false,
 		},
 	}
 
@@ -184,25 +199,35 @@ func TestNodeProtoValidation_Shadowsocks(t *testing.T) {
 				Proto:    tt.proto,
 			}
 
-			// Validate by marshaling/unmarshaling
+			// Serialize and deserialize
 			data, err := json.Marshal(node)
 			if err != nil {
 				t.Fatalf("Marshal failed: %v", err)
 			}
 
 			var decoded Node
-			err = json.Unmarshal(data, &decoded)
-			if tt.wantError && err == nil {
-				t.Error("Expected error but got none")
+			if err := json.Unmarshal(data, &decoded); err != nil {
+				t.Fatalf("Unmarshal failed: %v", err)
 			}
 
-			// Check required fields exist
-			if !tt.wantError {
-				if _, ok := tt.proto["method"]; !ok {
-					t.Error("method field required but not present")
+			// Check field presence
+			_, methodExists := tt.proto["method"]
+			_, passwordExists := tt.proto["password"]
+
+			if methodExists != tt.hasMethod {
+				t.Errorf("method field presence: got %v, want %v", methodExists, tt.hasMethod)
+			}
+			if passwordExists != tt.hasPassword {
+				t.Errorf("password field presence: got %v, want %v", passwordExists, tt.hasPassword)
+			}
+
+			// Validate required fields for valid configs
+			if tt.shouldBeValid {
+				if !methodExists {
+					t.Error("Valid Shadowsocks config requires 'method' field")
 				}
-				if _, ok := tt.proto["password"]; !ok {
-					t.Error("password field required but not present")
+				if !passwordExists {
+					t.Error("Valid Shadowsocks config requires 'password' field")
 				}
 			}
 		})

@@ -17,10 +17,6 @@ secret: "test123"
 
 # Minimal proxy configuration
 proxies:
-  - name: "DIRECT"
-    type: direct
-  - name: "REJECT"
-    type: reject
   - name: "test-ss"
     type: ss
     server: 127.0.0.1

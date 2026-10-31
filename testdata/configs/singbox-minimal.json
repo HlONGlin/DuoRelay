@@ -2,19 +2,11 @@
   "log": {
     "level": "info"
   },
-  "dns": {
-    "servers": [
-      {
-        "tag": "google",
-        "address": "8.8.8.8"
-      }
-    ]
-  },
   "inbounds": [
     {
       "type": "mixed",
       "tag": "mixed-in",
-      "listen": "::",
+      "listen": "127.0.0.1",
       "listen_port": 10802
     }
   ],
