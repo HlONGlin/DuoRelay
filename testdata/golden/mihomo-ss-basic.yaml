@@ -1,0 +1,25 @@
+allow-lan: false
+dns:
+    enable: true
+    nameserver:
+        - 223.5.5.5
+        - 8.8.8.8
+log-level: info
+mixed-port: 7890
+mode: rule
+proxies:
+    - cipher: aes-256-gcm
+      name: HK-SS-01
+      password: example-password-123
+      port: 8388
+      server: hk.example.com
+      type: ss
+      udp: true
+proxy-groups:
+    - name: PROXY
+      proxies:
+        - DIRECT
+        - HK-SS-01
+      type: select
+rules:
+    - MATCH,DIRECT

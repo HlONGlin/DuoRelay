@@ -1,0 +1,76 @@
+{
+  "dns": {
+    "servers": [
+      {
+        "server": "223.5.5.5",
+        "tag": "dns-0",
+        "type": "udp"
+      },
+      {
+        "server": "8.8.8.8",
+        "tag": "dns-1",
+        "type": "udp"
+      }
+    ]
+  },
+  "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "listen_port": 1080,
+      "tag": "mixed-in",
+      "type": "mixed"
+    }
+  ],
+  "log": {
+    "level": "info"
+  },
+  "outbounds": [
+    {
+      "tag": "DIRECT",
+      "type": "direct"
+    },
+    {
+      "tag": "REJECT",
+      "type": "block"
+    },
+    {
+      "alter_id": 0,
+      "security": "auto",
+      "server": "sg.example.com",
+      "server_port": 443,
+      "tag": "SG-VMess-WS",
+      "tls": {
+        "alpn": [
+          "h2",
+          "http/1.1"
+        ],
+        "enabled": true,
+        "server_name": "www.example.com"
+      },
+      "transport": {
+        "early_data_header_name": "Sec-WebSocket-Protocol",
+        "headers": {
+          "Host": "www.example.com"
+        },
+        "max_early_data": 2048,
+        "path": "/vmess",
+        "type": "ws"
+      },
+      "type": "vmess",
+      "uuid": "12345678-1234-1234-1234-123456789abc"
+    }
+  ],
+  "route": {
+    "default_domain_resolver": "dns-0",
+    "final": "DIRECT",
+    "rules": [
+      {
+        "inbound": [
+          "tun-in",
+          "mixed-in"
+        ],
+        "outbound": "DIRECT"
+      }
+    ]
+  }
+}
