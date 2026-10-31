@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "VLESS Protocol Fields",
+  "description": "Protocol-specific fields for VLESS nodes",
+  "type": "object",
+  "required": ["uuid"],
+  "properties": {
+    "uuid": {
+      "type": "string",
+      "description": "User UUID",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "flow": {
+      "type": "string",
+      "description": "Flow control mode (for XTLS)",
+      "enum": [
+        "",
+        "xtls-rprx-vision",
+        "xtls-rprx-vision-udp443"
+      ]
+    },
+    "encryption": {
+      "type": "string",
+      "description": "Encryption method (VLESS uses 'none')",
+      "enum": ["none"],
+      "default": "none"
+    },
+    "packet_encoding": {
+      "type": "string",
+      "description": "Packet encoding method (sing-box)",
+      "enum": ["", "packet", "xudp"]
+    }
+  },
+  "additionalProperties": false
+}

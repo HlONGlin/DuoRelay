@@ -1,0 +1,53 @@
+{
+  "log": {
+    "level": "info"
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "google",
+        "address": "8.8.8.8"
+      }
+    ]
+  },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "mixed-in",
+      "listen": "::",
+      "listen_port": 10802
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    },
+    {
+      "type": "block",
+      "tag": "block"
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "test-ss",
+      "server": "127.0.0.1",
+      "server_port": 8388,
+      "method": "aes-256-gcm",
+      "password": "test-password"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "outbound": "direct"
+      }
+    ]
+  },
+  "experimental": {
+    "clash_api": {
+      "external_controller": "127.0.0.1:19094",
+      "secret": "test123",
+      "default_mode": "rule"
+    }
+  }
+}

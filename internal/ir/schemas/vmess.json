@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "VMess Protocol Fields",
+  "description": "Protocol-specific fields for VMess nodes",
+  "type": "object",
+  "required": ["uuid", "security"],
+  "properties": {
+    "uuid": {
+      "type": "string",
+      "description": "User UUID",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "alter_id": {
+      "type": "integer",
+      "description": "Alter ID (deprecated, use 0 for AEAD)",
+      "minimum": 0,
+      "maximum": 65535,
+      "default": 0
+    },
+    "security": {
+      "type": "string",
+      "description": "Encryption method",
+      "enum": [
+        "auto",
+        "none",
+        "aes-128-gcm",
+        "chacha20-poly1305",
+        "zero"
+      ],
+      "default": "auto"
+    },
+    "global_padding": {
+      "type": "boolean",
+      "description": "Enable global padding"
+    },
+    "authenticated_length": {
+      "type": "boolean",
+      "description": "Enable authenticated length"
+    },
+    "packet_encoding": {
+      "type": "string",
+      "description": "Packet encoding method (sing-box)",
+      "enum": ["", "packet", "xudp"]
+    }
+  },
+  "additionalProperties": false
+}

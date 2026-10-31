@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Trojan Protocol Fields",
+  "description": "Protocol-specific fields for Trojan nodes",
+  "type": "object",
+  "required": ["password"],
+  "properties": {
+    "password": {
+      "type": "string",
+      "description": "Password for authentication",
+      "minLength": 1
+    },
+    "network": {
+      "type": "string",
+      "description": "Network type (mihomo)",
+      "enum": ["tcp", "udp", "ws", "grpc"]
+    },
+    "udp": {
+      "type": "boolean",
+      "description": "Enable UDP relay",
+      "default": true
+    }
+  },
+  "additionalProperties": false
+}

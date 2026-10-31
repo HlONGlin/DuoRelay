@@ -1,20 +1,14 @@
 # DuoRelay Kernel Lock File
-# This file locks the kernel versions used by DuoRelay
-# Generated during P0-02
+# Generated at 2026-10-31 11:05:42 UTC
 
 singbox:
-  version: "1.8.0"
-  url_template: "https://github.com/SagerNet/sing-box/releases/download/v{version}/sing-box-{version}-{os}-{arch}.tar.gz"
+  version: "1.14.4"
+  url_template: "https://github.com/SagerNet/sing-box/releases/download/v{version}/sing-box-{version}-{os}-{arch}.{ext}"
   sha256:
-    linux-amd64: ""  # To be filled after verification
-    linux-arm64: ""
+    windows-amd64: "8f30682ee198855440d2a7fe070d5d3653793b2d01bb8c85eea88f93bbe7c8b9"
 
 mihomo:
-  version: "1.18.0"
-  url_template: "https://github.com/MetaCubeX/mihomo/releases/download/v{version}/mihomo-{os}-{arch}-v{version}.gz"
+  version: "1.19.33"
+  url_template: "https://github.com/MetaCubeX/mihomo/releases/download/v{version}/mihomo-{os}-{arch}-v{version}.{ext}"
   sha256:
-    linux-amd64: ""  # To be filled after verification
-    linux-arm64: ""
-
-# Note: Actual version numbers will be determined and locked during P0-02
-# after protocol matrix verification in P0-03
+    windows-amd64: "1cde41cfffd3de0aedad63c0a8515e1ce5eea507e8133aed0f637d316c93800a"
