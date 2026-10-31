@@ -6,132 +6,36 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 )
 
-// Client is a Clash API client
+// Client is the HTTP client for Clash API
 type Client struct {
 	baseURL    string
 	secret     string
 	httpClient *http.Client
+	kernelType KernelType
 }
 
 // NewClient creates a new Clash API client
-func NewClient(baseURL, secret string) *Client {
+func NewClient(baseURL, secret string, kernelType KernelType) *Client {
 	return &Client{
-		baseURL: baseURL,
-		secret:  secret,
+		baseURL:    baseURL,
+		secret:     secret,
+		kernelType: kernelType,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
 	}
 }
 
-// Version represents version information
-type Version struct {
-	Premium bool   `json:"premium"`
-	Version string `json:"version"`
-	Meta    bool   `json:"meta"`
-}
-
-// GetVersion gets kernel version
-func (c *Client) GetVersion(ctx context.Context) (*Version, error) {
-	var ver Version
-	if err := c.get(ctx, "/version", &ver); err != nil {
-		return nil, err
-	}
-	return &ver, nil
-}
-
-// Proxy represents a proxy node
-type Proxy struct {
-	Name    string   `json:"name"`
-	Type    string   `json:"type"`
-	UDP     bool     `json:"udp"`
-	Delay   int      `json:"delay,omitempty"`
-	History []Delay  `json:"history,omitempty"`
-	All     []string `json:"all,omitempty"`
-	Now     string   `json:"now,omitempty"`
-}
-
-// Delay represents delay test result
-type Delay struct {
-	Time  time.Time `json:"time"`
-	Delay int       `json:"delay"`
-}
-
-// GetProxies gets all proxies
-func (c *Client) GetProxies(ctx context.Context) (map[string]*Proxy, error) {
-	var result struct {
-		Proxies map[string]*Proxy `json:"proxies"`
-	}
-	if err := c.get(ctx, "/proxies", &result); err != nil {
-		return nil, err
-	}
-	return result.Proxies, nil
-}
-
-// TestDelay tests proxy delay
-func (c *Client) TestDelay(ctx context.Context, name string, url string, timeout int) (int, error) {
-	path := fmt.Sprintf("/proxies/%s/delay?url=%s&timeout=%d", name, url, timeout)
-	var result struct {
-		Delay int `json:"delay"`
-	}
-	if err := c.get(ctx, path, &result); err != nil {
-		return 0, err
-	}
-	return result.Delay, nil
-}
-
-// Connection represents a connection
-type Connection struct {
-	ID          string    `json:"id"`
-	Metadata    Metadata  `json:"metadata"`
-	Upload      int64     `json:"upload"`
-	Download    int64     `json:"download"`
-	Start       time.Time `json:"start"`
-	Chains      []string  `json:"chains"`
-	Rule        string    `json:"rule"`
-	RulePayload string    `json:"rulePayload"`
-}
-
-// Metadata represents connection metadata
-type Metadata struct {
-	Network         string `json:"network"`
-	Type            string `json:"type"`
-	SourceIP        string `json:"sourceIP"`
-	DestinationIP   string `json:"destinationIP"`
-	SourcePort      string `json:"sourcePort"`
-	DestinationPort string `json:"destinationPort"`
-	Host            string `json:"host"`
-	DNSMode         string `json:"dnsMode"`
-	ProcessPath     string `json:"processPath"`
-}
-
-// GetConnections gets all connections
-func (c *Client) GetConnections(ctx context.Context) ([]Connection, error) {
-	var result struct {
-		Connections []Connection `json:"connections"`
-		DownloadTotal int64      `json:"downloadTotal"`
-		UploadTotal   int64      `json:"uploadTotal"`
-	}
-	if err := c.get(ctx, "/connections", &result); err != nil {
-		return nil, err
-	}
-	return result.Connections, nil
-}
-
-// Traffic represents traffic statistics
-type Traffic struct {
-	Up   int64 `json:"up"`
-	Down int64 `json:"down"`
-}
-
-// get performs a GET request
-func (c *Client) get(ctx context.Context, path string, result interface{}) error {
-	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+path, nil)
+// doRequest performs an HTTP request with authentication
+func (c *Client) doRequest(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
+	url := c.baseURL + path
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("create request: %w", err)
 	}
 
 	if c.secret != "" {
@@ -140,24 +44,100 @@ func (c *Client) get(ctx context.Context, path string, result interface{}) error
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
+		return nil, fmt.Errorf("do request: %w", err)
+	}
+
+	return resp, nil
+}
+
+// GetVersion gets the kernel version
+func (c *Client) GetVersion(ctx context.Context) (*Version, error) {
+	resp, err := c.doRequest(ctx, http.MethodGet, "/version", nil)
+	if err != nil {
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(result); err != nil {
-		return fmt.Errorf("failed to decode response: %w", err)
+	var version Version
+	if err := json.NewDecoder(resp.Body).Decode(&version); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
 	}
 
-	return nil
+	return &version, nil
 }
 
-// put performs a PUT request
-func (c *Client) put(ctx context.Context, path string, body interface{}) error {
-	// TODO: Implement for switching proxies
-	return fmt.Errorf("not implemented")
+// GetProxies gets all proxies
+func (c *Client) GetProxies(ctx context.Context) (*ProxiesResponse, error) {
+	resp, err := c.doRequest(ctx, http.MethodGet, "/proxies", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	var proxies ProxiesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&proxies); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	return &proxies, nil
+}
+
+// GetConnections gets active connections
+func (c *Client) GetConnections(ctx context.Context) (*ConnectionsResponse, error) {
+	resp, err := c.doRequest(ctx, http.MethodGet, "/connections", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	var connections ConnectionsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&connections); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	return &connections, nil
+}
+
+// TestDelay tests the delay of a proxy
+func (c *Client) TestDelay(ctx context.Context, proxyName string, testURL string, timeout int) (*DelayTestResponse, error) {
+	path := fmt.Sprintf("/proxies/%s/delay?timeout=%d&url=%s",
+		url.PathEscape(proxyName),
+		timeout,
+		url.QueryEscape(testURL))
+
+	resp, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result DelayTestResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	// Check if the response contains an error message
+	if result.Message != "" && result.Delay == 0 {
+		return nil, fmt.Errorf("delay test failed: %s", result.Message)
+	}
+
+	return &result, nil
+}
+
+// Close closes the HTTP client
+func (c *Client) Close() error {
+	c.httpClient.CloseIdleConnections()
+	return nil
 }

@@ -10,7 +10,7 @@ func TestClient(t *testing.T) {
 	// This is a placeholder test
 	// Real tests will be added in P0-04 when we have actual kernels running
 
-	client := NewClient("http://127.0.0.1:9090", "")
+	client := NewClient("http://127.0.0.1:9090", "", KernelMihomo)
 	if client == nil {
 		t.Fatal("Failed to create client")
 	}
@@ -21,7 +21,7 @@ func TestClient(t *testing.T) {
 }
 
 func TestClientTimeout(t *testing.T) {
-	client := NewClient("http://127.0.0.1:9999", "")
+	client := NewClient("http://127.0.0.1:9999", "", KernelMihomo)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
