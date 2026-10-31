@@ -1,0 +1,93 @@
+# Trojan Sample Collection
+
+## Protocol: Trojan
+
+### Sample 1: Basic TLS
+```json
+{
+  "name": "trojan-tls",
+  "format": "uri",
+  "link": "trojan://test-password@example.com:443?sni=example.com#Trojan-TLS",
+  "description": "Standard Trojan with TLS",
+  "expected_ir": {
+    "protocol": "trojan",
+    "name": "Trojan-TLS",
+    "server": {
+      "host": "example.com",
+      "port": 443
+    },
+    "transport": {
+      "type": "tcp"
+    },
+    "security": {
+      "type": "tls",
+      "sni": "example.com"
+    },
+    "proto": {
+      "password": "test-password",
+      "udp": true
+    }
+  }
+}
+```
+
+### Sample 2: WebSocket with TLS
+```json
+{
+  "name": "trojan-ws-tls",
+  "format": "uri",
+  "link": "trojan://test-password@ws.example.com:443?type=ws&path=%2Ftrojan&host=ws.example.com&sni=ws.example.com#Trojan-WS",
+  "description": "Trojan over WebSocket with TLS",
+  "expected_ir": {
+    "protocol": "trojan",
+    "name": "Trojan-WS",
+    "server": {
+      "host": "ws.example.com",
+      "port": 443
+    },
+    "transport": {
+      "type": "ws",
+      "path": "/trojan",
+      "host": "ws.example.com"
+    },
+    "security": {
+      "type": "tls",
+      "sni": "ws.example.com"
+    },
+    "proto": {
+      "password": "test-password",
+      "udp": true
+    }
+  }
+}
+```
+
+### Sample 3: gRPC with TLS
+```json
+{
+  "name": "trojan-grpc-tls",
+  "format": "uri",
+  "link": "trojan://test-password@grpc.example.com:443?type=grpc&serviceName=trojan-grpc&sni=grpc.example.com#Trojan-gRPC",
+  "description": "Trojan over gRPC with TLS",
+  "expected_ir": {
+    "protocol": "trojan",
+    "name": "Trojan-gRPC",
+    "server": {
+      "host": "grpc.example.com",
+      "port": 443
+    },
+    "transport": {
+      "type": "grpc",
+      "service_name": "trojan-grpc"
+    },
+    "security": {
+      "type": "tls",
+      "sni": "grpc.example.com"
+    },
+    "proto": {
+      "password": "test-password",
+      "udp": true
+    }
+  }
+}
+```

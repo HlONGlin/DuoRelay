@@ -1,0 +1,92 @@
+# VMess Sample Collection
+
+## Protocol: VMess
+
+### Sample 1: Basic TCP
+```json
+{
+  "name": "vmess-tcp",
+  "format": "uri",
+  "link": "vmess://eyJ2IjoiMiIsInBzIjoiVGVzdC1WTWVzcyIsImFkZCI6ImV4YW1wbGUuY29tIiwicG9ydCI6IjQ0MyIsImlkIjoiYjhjYTU3YzItZWIzOS00OTFhLTg0MjUtYmJhODI4ZmJhZDJkIiwiYWlkIjoiMCIsInNjeSI6ImF1dG8iLCJuZXQiOiJ0Y3AiLCJ0eXBlIjoibm9uZSIsImhvc3QiOiIiLCJwYXRoIjoiIiwidGxzIjoidGxzIiwic25pIjoiIiwiYWxwbiI6IiJ9",
+  "description": "VMess over TCP with TLS",
+  "expected_ir": {
+    "protocol": "vmess",
+    "name": "Test-VMess",
+    "server": {
+      "host": "example.com",
+      "port": 443
+    },
+    "security": {
+      "type": "tls"
+    },
+    "proto": {
+      "uuid": "b8ca57c2-eb39-491a-8425-bba828fbad2d",
+      "alter_id": 0,
+      "security": "auto"
+    }
+  }
+}
+```
+
+### Sample 2: WebSocket
+```json
+{
+  "name": "vmess-ws",
+  "format": "uri",
+  "link": "vmess://eyJ2IjoiMiIsInBzIjoiVk1lc3MtV1MiLCJhZGQiOiJ3cy5leGFtcGxlLmNvbSIsInBvcnQiOiI0NDMiLCJpZCI6ImI4Y2E1N2MyLWViMzktNDkxYS04NDI1LWJiYTgyOGZiYWQyZCIsImFpZCI6IjAiLCJzY3kiOiJhdXRvIiwibmV0Ijoid3MiLCJ0eXBlIjoibm9uZSIsImhvc3QiOiJ3cy5leGFtcGxlLmNvbSIsInBhdGgiOiIvdm1lc3MiLCJ0bHMiOiJ0bHMiLCJzbmkiOiJ3cy5leGFtcGxlLmNvbSIsImFscG4iOiIifQ==",
+  "description": "VMess over WebSocket with TLS",
+  "expected_ir": {
+    "protocol": "vmess",
+    "name": "VMess-WS",
+    "server": {
+      "host": "ws.example.com",
+      "port": 443
+    },
+    "transport": {
+      "type": "ws",
+      "path": "/vmess",
+      "host": "ws.example.com"
+    },
+    "security": {
+      "type": "tls",
+      "sni": "ws.example.com"
+    },
+    "proto": {
+      "uuid": "b8ca57c2-eb39-491a-8425-bba828fbad2d",
+      "alter_id": 0,
+      "security": "auto"
+    }
+  }
+}
+```
+
+### Sample 3: gRPC
+```json
+{
+  "name": "vmess-grpc",
+  "format": "uri",
+  "link": "vmess://eyJ2IjoiMiIsInBzIjoiVk1lc3MtZ1JQQyIsImFkZCI6ImdycGMuZXhhbXBsZS5jb20iLCJwb3J0IjoiNDQzIiwiaWQiOiJiOGNhNTdjMi1lYjM5LTQ5MWEtODQyNS1iYmE4MjhmYmFkMmQiLCJhaWQiOiIwIiwic2N5IjoiYXV0byIsIm5ldCI6ImdycGMiLCJ0eXBlIjoiZ3VuIiwiaG9zdCI6ImdycGMuZXhhbXBsZS5jb20iLCJwYXRoIjoidm1lc3MtZ3JwYyIsInRscyI6InRscyIsInNuaSI6ImdycGMuZXhhbXBsZS5jb20iLCJhbHBuIjoiIn0=",
+  "description": "VMess over gRPC with TLS",
+  "expected_ir": {
+    "protocol": "vmess",
+    "name": "VMess-gRPC",
+    "server": {
+      "host": "grpc.example.com",
+      "port": 443
+    },
+    "transport": {
+      "type": "grpc",
+      "service_name": "vmess-grpc"
+    },
+    "security": {
+      "type": "tls",
+      "sni": "grpc.example.com"
+    },
+    "proto": {
+      "uuid": "b8ca57c2-eb39-491a-8425-bba828fbad2d",
+      "alter_id": 0,
+      "security": "auto"
+    }
+  }
+}
+```

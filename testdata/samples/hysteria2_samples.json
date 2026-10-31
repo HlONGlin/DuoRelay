@@ -1,0 +1,84 @@
+# Hysteria2 Sample Collection
+
+## Protocol: Hysteria2
+
+### Sample 1: Basic Configuration
+```json
+{
+  "name": "hysteria2-basic",
+  "format": "uri",
+  "link": "hysteria2://test-password@example.com:443?sni=example.com#Hysteria2-Basic",
+  "description": "Standard Hysteria2 configuration",
+  "expected_ir": {
+    "protocol": "hysteria2",
+    "name": "Hysteria2-Basic",
+    "server": {
+      "host": "example.com",
+      "port": 443
+    },
+    "security": {
+      "type": "tls",
+      "sni": "example.com"
+    },
+    "proto": {
+      "password": "test-password",
+      "udp": true
+    }
+  }
+}
+```
+
+### Sample 2: With Obfuscation
+```json
+{
+  "name": "hysteria2-obfs",
+  "format": "uri",
+  "link": "hysteria2://test-password@example.com:443?sni=example.com&obfs=salamander&obfs-password=obfs-secret#Hysteria2-Obfs",
+  "description": "Hysteria2 with salamander obfuscation",
+  "expected_ir": {
+    "protocol": "hysteria2",
+    "name": "Hysteria2-Obfs",
+    "server": {
+      "host": "example.com",
+      "port": 443
+    },
+    "security": {
+      "type": "tls",
+      "sni": "example.com"
+    },
+    "proto": {
+      "password": "test-password",
+      "obfs": "salamander",
+      "obfs_password": "obfs-secret",
+      "udp": true
+    }
+  }
+}
+```
+
+### Sample 3: With Port Hopping
+```json
+{
+  "name": "hysteria2-ports",
+  "format": "uri",
+  "link": "hysteria2://test-password@example.com:10000-20000?sni=example.com#Hysteria2-Ports",
+  "description": "Hysteria2 with port hopping",
+  "expected_ir": {
+    "protocol": "hysteria2",
+    "name": "Hysteria2-Ports",
+    "server": {
+      "host": "example.com",
+      "port": 443
+    },
+    "security": {
+      "type": "tls",
+      "sni": "example.com"
+    },
+    "proto": {
+      "password": "test-password",
+      "port_hopping": "10000-20000",
+      "udp": true
+    }
+  }
+}
+```

@@ -1,0 +1,84 @@
+# TUIC Sample Collection
+
+## Protocol: TUIC
+
+### Sample 1: TUIC v5
+```json
+{
+  "name": "tuic-v5",
+  "format": "uri",
+  "link": "tuic://b8ca57c2-eb39-491a-8425-bba828fbad2d:test-password@example.com:443?congestion_control=bbr&udp_relay_mode=native&sni=example.com#TUIC-v5",
+  "description": "TUIC v5 with BBR congestion control",
+  "expected_ir": {
+    "protocol": "tuic",
+    "name": "TUIC-v5",
+    "server": {
+      "host": "example.com",
+      "port": 443
+    },
+    "security": {
+      "type": "tls",
+      "sni": "example.com"
+    },
+    "proto": {
+      "uuid": "b8ca57c2-eb39-491a-8425-bba828fbad2d",
+      "password": "test-password",
+      "congestion_control": "bbr",
+      "udp_relay_mode": "native",
+      "udp": true
+    }
+  }
+}
+```
+
+### Sample 2: TUIC with ALPN
+```json
+{
+  "name": "tuic-alpn",
+  "format": "uri",
+  "link": "tuic://b8ca57c2-eb39-491a-8425-bba828fbad2d:test-password@example.com:443?congestion_control=cubic&alpn=h3&sni=example.com#TUIC-ALPN",
+  "description": "TUIC with H3 ALPN",
+  "expected_ir": {
+    "protocol": "tuic",
+    "name": "TUIC-ALPN",
+    "server": {
+      "host": "example.com",
+      "port": 443
+    },
+    "security": {
+      "type": "tls",
+      "sni": "example.com",
+      "alpn": ["h3"]
+    },
+    "proto": {
+      "uuid": "b8ca57c2-eb39-491a-8425-bba828fbad2d",
+      "password": "test-password",
+      "congestion_control": "cubic",
+      "udp": true
+    }
+  }
+}
+```
+
+### Sample 3: TUIC Minimal
+```json
+{
+  "name": "tuic-minimal",
+  "format": "uri",
+  "link": "tuic://b8ca57c2-eb39-491a-8425-bba828fbad2d:test-password@test.example.com:8443#TUIC-Minimal",
+  "description": "Minimal TUIC configuration",
+  "expected_ir": {
+    "protocol": "tuic",
+    "name": "TUIC-Minimal",
+    "server": {
+      "host": "test.example.com",
+      "port": 8443
+    },
+    "proto": {
+      "uuid": "b8ca57c2-eb39-491a-8425-bba828fbad2d",
+      "password": "test-password",
+      "udp": true
+    }
+  }
+}
+```

@@ -1,0 +1,96 @@
+# VLESS Sample Collection
+
+## Protocol: VLESS
+
+### Sample 1: Basic TCP with TLS
+```json
+{
+  "name": "vless-tcp-tls",
+  "format": "uri",
+  "link": "vless://b8ca57c2-eb39-491a-8425-bba828fbad2d@example.com:443?security=tls&sni=example.com&type=tcp#VLESS-TLS",
+  "description": "VLESS over TCP with TLS",
+  "expected_ir": {
+    "protocol": "vless",
+    "name": "VLESS-TLS",
+    "server": {
+      "host": "example.com",
+      "port": 443
+    },
+    "transport": {
+      "type": "tcp"
+    },
+    "security": {
+      "type": "tls",
+      "sni": "example.com"
+    },
+    "proto": {
+      "uuid": "b8ca57c2-eb39-491a-8425-bba828fbad2d",
+      "flow": "",
+      "encryption": "none"
+    }
+  }
+}
+```
+
+### Sample 2: WebSocket with TLS
+```json
+{
+  "name": "vless-ws-tls",
+  "format": "uri",
+  "link": "vless://b8ca57c2-eb39-491a-8425-bba828fbad2d@ws.example.com:443?type=ws&security=tls&path=%2Fvless&host=ws.example.com&sni=ws.example.com#VLESS-WS",
+  "description": "VLESS over WebSocket with TLS",
+  "expected_ir": {
+    "protocol": "vless",
+    "name": "VLESS-WS",
+    "server": {
+      "host": "ws.example.com",
+      "port": 443
+    },
+    "transport": {
+      "type": "ws",
+      "path": "/vless",
+      "host": "ws.example.com"
+    },
+    "security": {
+      "type": "tls",
+      "sni": "ws.example.com"
+    },
+    "proto": {
+      "uuid": "b8ca57c2-eb39-491a-8425-bba828fbad2d",
+      "encryption": "none"
+    }
+  }
+}
+```
+
+### Sample 3: Reality
+```json
+{
+  "name": "vless-reality",
+  "format": "uri",
+  "link": "vless://b8ca57c2-eb39-491a-8425-bba828fbad2d@reality.example.com:443?security=reality&sni=www.microsoft.com&pbk=test-public-key&sid=test-short-id&type=tcp&flow=xtls-rprx-vision#VLESS-Reality",
+  "description": "VLESS with Reality (XTLS Vision)",
+  "expected_ir": {
+    "protocol": "vless",
+    "name": "VLESS-Reality",
+    "server": {
+      "host": "reality.example.com",
+      "port": 443
+    },
+    "transport": {
+      "type": "tcp"
+    },
+    "security": {
+      "type": "reality",
+      "sni": "www.microsoft.com",
+      "public_key": "test-public-key",
+      "short_id": "test-short-id"
+    },
+    "proto": {
+      "uuid": "b8ca57c2-eb39-491a-8425-bba828fbad2d",
+      "flow": "xtls-rprx-vision",
+      "encryption": "none"
+    }
+  }
+}
+```
