@@ -1,0 +1,55 @@
+version: '3.8'
+
+# DuoRelay Test Range
+# Docker Compose setup for protocol testing
+# This will be expanded during P2-12
+
+services:
+  # Shadowsocks server for testing
+  shadowsocks:
+    image: shadowsocks/shadowsocks-libev:latest
+    container_name: duorelay-test-ss
+    ports:
+      - "8388:8388"
+    environment:
+      - METHOD=aes-256-gcm
+      - PASSWORD=test-password
+    command: ss-server -s 0.0.0.0 -p 8388 -m aes-256-gcm -k test-password
+    restart: unless-stopped
+    networks:
+      - testnet
+
+  # VMess/VLESS server (using Xray)
+  # xray:
+  #   image: teddysun/xray:latest
+  #   container_name: duorelay-test-xray
+  #   ports:
+  #     - "10086:10086"
+  #   volumes:
+  #     - ./testrange/configs/xray.json:/etc/xray/config.json:ro
+  #   restart: unless-stopped
+  #   networks:
+  #     - testnet
+
+  # Trojan server
+  # trojan:
+  #   image: trojangfw/trojan:latest
+  #   container_name: duorelay-test-trojan
+  #   ports:
+  #     - "443:443"
+  #   volumes:
+  #     - ./testrange/configs/trojan.json:/etc/trojan/config.json:ro
+  #   restart: unless-stopped
+  #   networks:
+  #     - testnet
+
+  # Note: More protocol servers will be added during P2-12
+  # Some protocols (Naive, Tor, etc.) may require external setup
+
+networks:
+  testnet:
+    driver: bridge
+
+# Usage:
+# docker-compose -f testrange/docker-compose.yml up -d
+# Test connectivity: curl -x socks5://127.0.0.1:8388 http://example.com
