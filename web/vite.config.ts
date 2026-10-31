@@ -12,22 +12,16 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
-    minify: 'terser',
-    terserOptions: {
-      compress: {
-        drop_console: true,
-        drop_debugger: true
-      }
-    },
+    chunkSizeWarningLimit: 1500,
     rollupOptions: {
       output: {
         manualChunks: {
           'vue-vendor': ['vue', 'vue-router', 'pinia'],
-          'utils': ['axios']
+          'element-plus': ['element-plus', '@element-plus/icons-vue'],
+          utils: ['axios']
         }
       }
-    },
-    chunkSizeWarningLimit: 1500 // 1.5MB limit as per spec
+    }
   },
   server: {
     port: 5173,

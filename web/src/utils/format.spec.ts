@@ -1,0 +1,60 @@
+import { describe, expect, it } from 'vitest'
+import {
+  delayType,
+  formatBytes,
+  formatDelay,
+  formatUptime,
+  ownerKernels,
+  ownerLabel,
+  protocolLabel,
+  statusType,
+  usagePercent
+} from './format'
+
+describe('format helpers', () => {
+  it('formats delay values', () => {
+    expect(formatDelay(0)).toBe('—')
+    expect(formatDelay(120)).toBe('120 ms')
+    expect(delayType(120)).toBe('success')
+    expect(delayType(500)).toBe('warning')
+    expect(delayType(1200)).toBe('danger')
+    expect(delayType(undefined)).toBe('info')
+  })
+
+  it('formats byte sizes', () => {
+    expect(formatBytes(0)).toBe('0 B')
+    expect(formatBytes(512)).toBe('512 B')
+    expect(formatBytes(2048)).toBe('2.0 KB')
+    expect(formatBytes(5 * 1024 * 1024)).toBe('5.0 MB')
+  })
+
+  it('formats uptime', () => {
+    expect(formatUptime(0)).toBe('—')
+    expect(formatUptime(45)).toBe('45 秒')
+    expect(formatUptime(125)).toBe('2 分 5 秒')
+    expect(formatUptime(7300)).toBe('2 小时 1 分')
+    expect(formatUptime(90000)).toBe('1 天 1 小时')
+  })
+
+  it('maps kernel ownership', () => {
+    expect(ownerKernels(1)).toEqual(['sing-box'])
+    expect(ownerKernels(2)).toEqual(['mihomo'])
+    expect(ownerKernels(3)).toEqual(['sing-box', 'mihomo'])
+    expect(ownerLabel(3)).toBe('双内核')
+    expect(ownerLabel(0)).toBe('未知')
+  })
+
+  it('maps protocol and status labels', () => {
+    expect(protocolLabel('vmess')).toBe('VMess')
+    expect(protocolLabel('custom')).toBe('custom')
+    expect(statusType('active')).toBe('success')
+    expect(statusType('error')).toBe('danger')
+    expect(statusType('unknown')).toBe('info')
+  })
+
+  it('calculates usage percent safely', () => {
+    expect(usagePercent(50, 100)).toBe(50)
+    expect(usagePercent(200, 100)).toBe(100)
+    expect(usagePercent(0, 0)).toBe(0)
+  })
+})

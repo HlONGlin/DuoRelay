@@ -1,23 +1,26 @@
 package store
 
 import (
+	"crypto/cipher"
 	"database/sql"
 	"fmt"
-	"time"
+	"strings"
 
 	_ "modernc.org/sqlite" // Pure Go SQLite driver
 )
 
 // Store represents the database store
 type Store struct {
-	db *sql.DB
+	db   *sql.DB
+	aead cipher.AEAD
 }
 
 // Config holds database configuration
 type Config struct {
 	Path string
 	// WAL mode for better concurrency
-	WAL bool
+	WAL           bool
+	EncryptionKey []byte
 }
 
 // New creates a new store instance
@@ -30,8 +33,16 @@ func New(cfg *Config) (*Store, error) {
 	}
 
 	dsn := cfg.Path
+	if dsn == "" {
+		dsn = "duorelay.db"
+	}
+	separator := "?"
+	if strings.Contains(dsn, "?") {
+		separator = "&"
+	}
+	dsn += separator + "_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)"
 	if cfg.WAL {
-		dsn += "?_journal_mode=WAL&_busy_timeout=5000"
+		dsn += "&_pragma=journal_mode(WAL)"
 	}
 
 	db, err := sql.Open("sqlite", dsn)
@@ -41,19 +52,25 @@ func New(cfg *Config) (*Store, error) {
 
 	// Test connection
 	if err := db.Ping(); err != nil {
+		db.Close()
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
 	// Set connection pool settings
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(5)
-	db.SetConnMaxLifetime(5 * time.Minute)
+	// Serialize SQLite writes and keep :memory: on its single owning connection.
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
 
 	store := &Store{db: db}
 
 	// Run migrations
 	if err := store.migrate(); err != nil {
+		db.Close()
 		return nil, fmt.Errorf("migration failed: %w", err)
+	}
+	if err := store.initEncryption(cfg); err != nil {
+		db.Close()
+		return nil, err
 	}
 
 	return store, nil
@@ -97,8 +114,10 @@ func (s *Store) migrate() error {
 	);
 	`
 
-	_, err := s.db.Exec(schema)
-	return err
+	if _, err := s.db.Exec(schema); err != nil {
+		return err
+	}
+	return s.migrateBackend()
 }
 
 // DB returns the underlying database connection

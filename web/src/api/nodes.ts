@@ -1,0 +1,32 @@
+import { request } from './client'
+import type { ProxyNode } from '@/types'
+
+export interface NodeQuery {
+  protocol?: string
+  subscription_id?: string
+  search?: string
+}
+
+export function listNodes(params: NodeQuery = {}): Promise<ProxyNode[]> {
+  return request<ProxyNode[]>({ url: '/nodes', method: 'get', params })
+}
+
+export function activateNode(id: string): Promise<ProxyNode> {
+  return request<ProxyNode>({ url: `/nodes/${encodeURIComponent(id)}/activate`, method: 'post' })
+}
+
+export interface DelayResult {
+  delay_ms: number
+}
+
+export function testNodeDelay(id: string, timeout = 5000): Promise<DelayResult> {
+  return request<DelayResult>({
+    url: `/nodes/${encodeURIComponent(id)}/test`,
+    method: 'post',
+    data: { timeout }
+  })
+}
+
+export function deleteNode(id: string): Promise<void> {
+  return request<void>({ url: `/nodes/${encodeURIComponent(id)}`, method: 'delete' })
+}

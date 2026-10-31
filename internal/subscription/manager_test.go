@@ -1,0 +1,204 @@
+package subscription
+
+import (
+	"context"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/holi/duorelay/internal/ir"
+	"github.com/holi/duorelay/internal/store"
+)
+
+func newTestManager(t *testing.T) *Manager {
+	t.Helper()
+	s, err := store.New(&store.Config{Path: ":memory:"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	return NewManager(s)
+}
+
+const shareLink = "ss://YWVzLTI1Ni1nY206cGFzcw@127.0.0.1:8388#alpha"
+const clashOne = "proxies:\n  - {name: alpha, type: ss, server: example.com, port: 8388, cipher: aes-256-gcm, password: pass}\n"
+
+func TestParseSubscriptionFormats(t *testing.T) {
+	m := newTestManager(t)
+	for _, tc := range []struct{ name, body, format string }{
+		{"links", shareLink, "links"},
+		{"base64", base64.StdEncoding.EncodeToString([]byte(shareLink + "\n")), "base64"},
+		{"raw-base64", base64.RawURLEncoding.EncodeToString([]byte(shareLink)), "base64"},
+		{"clash", clashOne, "clash"},
+		{"sing-box", `{"outbounds":[{"type":"direct"},{"type":"shadowsocks","tag":"alpha","server":"example.com","server_port":8388,"method":"aes-256-gcm","password":"pass"}]}`, "sing-box"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			format, err := ParseFormat([]byte(tc.body))
+			if err != nil || format != tc.format {
+				t.Fatalf("format: %s %v", format, err)
+			}
+			nodes, err := m.Parse([]byte(tc.body))
+			if err != nil || len(nodes) != 1 || nodes[0].Protocol != ir.ProtocolShadowsocks || nodes[0].Proto["password"] != "pass" {
+				t.Fatalf("nodes: %#v %v", nodes, err)
+			}
+		})
+	}
+	for _, body := range []string{"", "garbage", "proxies: [{name: bad, type: ss, server: host, port: 0}]", shareLink + "\nunsupported://host:80"} {
+		if _, err := m.Parse([]byte(body)); err == nil {
+			t.Fatalf("invalid input accepted: %s", body)
+		}
+	}
+}
+
+func TestUpdateDiffFailureAndCRUD(t *testing.T) {
+	m := newTestManager(t)
+	ctx := context.Background()
+	var content atomic.Value
+	content.Store(clashOne)
+	var status atomic.Int32
+	status.Store(200)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.UserAgent() != "custom-agent" {
+			t.Error("user agent not forwarded")
+		}
+		w.Header().Set("subscription-userinfo", "upload=10; download=20; total=100; expire=2000000000")
+		w.WriteHeader(int(status.Load()))
+		fmt.Fprint(w, content.Load().(string))
+	}))
+	defer server.Close()
+	sub := &Subscription{Name: "test", URL: server.URL + "/?token=private", UserAgent: "custom-agent", Group: "group"}
+	if err := m.Add(ctx, sub); err != nil {
+		t.Fatal(err)
+	}
+	var encrypted, payload string
+	if err := m.Store.DB().QueryRow("SELECT url_enc,payload FROM subscriptions WHERE id=?", sub.ID).Scan(&encrypted, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(encrypted, "private") || strings.Contains(payload, "private") {
+		t.Fatal("URL token leaked to stored payload")
+	}
+	manual := &ir.Node{Name: "manual", Protocol: ir.ProtocolHTTP, Owner: ir.KernelSetBoth, Server: ir.Server{Host: "127.0.0.1", Port: 80}, Source: ir.Source{Type: "manual"}}
+	if err := m.Store.SaveNode(ctx, manual); err != nil {
+		t.Fatal(err)
+	}
+	nodes, err := m.Update(ctx, sub.ID)
+	if err != nil || len(nodes) != 1 {
+		t.Fatalf("update: %v %v", nodes, err)
+	}
+	firstID := nodes[0].ID
+	nodes[0].Favorite = true
+	nodes[0].Tags = []string{"keep"}
+	if err := m.Store.SaveNode(ctx, nodes[0]); err != nil {
+		t.Fatal(err)
+	}
+	got, err := m.Get(ctx, sub.ID)
+	if err != nil || got.Used != 30 || got.Total != 100 || got.Diff.Added != 1 || got.Expire.Unix() != 2000000000 {
+		t.Fatalf("bad metadata: %#v %v", got, err)
+	}
+	content.Store(strings.Replace(clashOne, "password: pass", "password: changed", 1) + "  - {name: beta, type: http, server: example.net, port: 80}\n")
+	nodes, err = m.Update(ctx, sub.ID)
+	if err != nil || len(nodes) != 2 {
+		t.Fatalf("second update: %v", err)
+	}
+	preserved, err := m.Store.Node(ctx, firstID)
+	if err != nil || !preserved.Favorite || len(preserved.Tags) != 1 {
+		t.Fatal("lost node identity/metadata")
+	}
+	got, _ = m.Get(ctx, sub.ID)
+	if got.Diff.Changed != 1 || got.Diff.Added != 1 {
+		t.Fatalf("bad diff: %v", got.Diff)
+	}
+	content.Store(clashOne)
+	if _, err := m.Update(ctx, sub.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = m.Get(ctx, sub.ID)
+	if got.Diff.Removed != 1 {
+		t.Fatal("removal not counted")
+	}
+	lastUpdate := got.LastUpdate
+	status.Store(503)
+	if _, err := m.Update(ctx, sub.ID); !errors.Is(err, ErrUpdate) {
+		t.Fatalf("expected fetch failure: %v", err)
+	}
+	got, _ = m.Get(ctx, sub.ID)
+	if got.LastStatus != "error" || got.Failures != 1 || !got.LastUpdate.Equal(lastUpdate) || !got.NextUpdate.After(time.Now()) || strings.Contains(got.LastError, "private") {
+		t.Fatalf("bad failure metadata: %#v", got)
+	}
+	if nodes, _ := m.Store.Nodes(ctx, sub.ID); len(nodes) != 1 {
+		t.Fatal("failure removed old nodes")
+	}
+	groups, err := m.Groups(ctx)
+	if err != nil || len(groups) != 1 || groups[0] != "group" {
+		t.Fatalf("groups: %v %v", groups, err)
+	}
+	if list, err := m.List(ctx, "other"); err != nil || len(list) != 0 {
+		t.Fatal("group filter failed")
+	}
+	input := &Subscription{Name: "renamed", URL: server.URL, UserAgent: "custom-agent", Interval: 2, Group: "other"}
+	if _, err := m.Edit(ctx, sub.ID, input); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Delete(ctx, sub.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Get(ctx, sub.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatal(err)
+	}
+	if nodes, _ := m.Store.Nodes(ctx, ""); len(nodes) != 1 || nodes[0].ID != manual.ID {
+		t.Fatal("delete touched manual node or retained owned node")
+	}
+}
+
+func TestSchedulerAndCancellation(t *testing.T) {
+	m := newTestManager(t)
+	updated := make(chan struct{}, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, clashOne)
+		select {
+		case updated <- struct{}{}:
+		default:
+		}
+	}))
+	defer server.Close()
+	sub := &Subscription{Name: "scheduled", URL: server.URL}
+	if err := m.Add(context.Background(), sub); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- m.Run(ctx, 10*time.Millisecond) }()
+	select {
+	case <-updated:
+	case <-time.After(3 * time.Second):
+		t.Fatal("scheduler did not update")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("scheduler did not stop")
+	}
+}
+
+func TestValidationAndUsage(t *testing.T) {
+	m := newTestManager(t)
+	for _, sub := range []*Subscription{nil, {Name: "bad", URL: "file:///etc/test"}, {Name: "bad", URL: "https://example.com", Interval: -1}, {Name: "bad", URL: "https://example.com", UserAgent: "bad\r\nheader"}} {
+		if err := m.Add(context.Background(), sub); !errors.Is(err, store.ErrInvalid) {
+			t.Fatalf("bad subscription accepted: %v", err)
+		}
+	}
+	used, total, expire := ExtractUsageInfo(map[string][]string{"Subscription-Userinfo": {"upload=bad;download=30;total=40;expire=2000000000"}})
+	if used != 30 || total != 40 || expire.Unix() != 2000000000 {
+		t.Fatalf("bad usage: %d %d %v", used, total, expire)
+	}
+}

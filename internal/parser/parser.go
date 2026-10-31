@@ -1,8 +1,14 @@
 package parser
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/url"
+	"strconv"
+	"strings"
+
+	"github.com/holi/duorelay/internal/ir"
 )
 
 var (
@@ -22,6 +28,138 @@ type Parser interface {
 
 	// Protocol returns the protocol name this parser handles
 	Protocol() string
+}
+
+// Format identifies the outer representation of an imported node or subscription.
+type Format string
+
+const (
+	FormatURI     Format = "uri"
+	FormatBase64  Format = "base64"
+	FormatJSON    Format = "json"
+	FormatYAML    Format = "yaml"
+	FormatUnknown Format = "unknown"
+)
+
+// DetectFormat detects the common import envelope without parsing protocol fields.
+func DetectFormat(input string) Format {
+	s := strings.TrimSpace(input)
+	if s == "" {
+		return FormatUnknown
+	}
+	if strings.Contains(s, "://") {
+		return FormatURI
+	}
+	if strings.HasPrefix(s, "{") || strings.HasPrefix(s, "[") {
+		return FormatJSON
+	}
+	if strings.HasPrefix(s, "---") || strings.Contains(s, "\n") && strings.Contains(s, ":") {
+		return FormatYAML
+	}
+	if _, err := DecodeBase64(s); err == nil {
+		return FormatBase64
+	}
+	return FormatUnknown
+}
+
+// DecodeBase64 accepts standard, raw and URL-safe Base64 encodings.
+func DecodeBase64(value string) ([]byte, error) {
+	value = strings.TrimSpace(value)
+	decoders := []*base64.Encoding{base64.StdEncoding, base64.RawStdEncoding, base64.URLEncoding, base64.RawURLEncoding}
+	for _, decoder := range decoders {
+		if decoded, err := decoder.DecodeString(value); err == nil {
+			return decoded, nil
+		}
+	}
+	return nil, ErrInvalidFormat
+}
+
+// ParseShareURI parses and validates the common URI envelope.
+func ParseShareURI(input, scheme string) (*url.URL, error) {
+	u, err := url.Parse(strings.TrimSpace(input))
+	if err != nil || !strings.EqualFold(u.Scheme, scheme) || u.Host == "" {
+		return nil, fmt.Errorf("%w: expected %s URI", ErrInvalidFormat, scheme)
+	}
+	if u.Port() == "" {
+		return nil, fmt.Errorf("%w: missing port", ErrMissingField)
+	}
+	port, err := strconv.Atoi(u.Port())
+	if err != nil || port < 1 || port > 65535 {
+		return nil, fmt.Errorf("%w: invalid port", ErrInvalidField)
+	}
+	return u, nil
+}
+
+func NewNode(protocol, name string, u *url.URL) *ir.Node {
+	return &ir.Node{
+		Name: name, Protocol: protocol, Owner: ir.GetProtocolOwner(protocol),
+		Server:    ir.Server{Host: u.Hostname(), Port: mustPort(u.Port())},
+		Transport: ir.Transport{Type: "tcp"}, Security: ir.Security{Type: "none"},
+		Proto: map[string]any{}, Extra: map[string]any{}, Source: ir.Source{Type: "import", URL: u.String()},
+	}
+}
+
+func mustPort(value string) int { n, _ := strconv.Atoi(value); return n }
+
+func SetName(node *ir.Node, fragment string) {
+	if name, err := url.QueryUnescape(fragment); err == nil {
+		node.Name = name
+	}
+	if node.Name == "" {
+		node.Name = node.Protocol
+	}
+}
+
+func SetTLS(node *ir.Node, q url.Values) {
+	security := strings.ToLower(q.Get("security"))
+	if security == "tls" || security == "reality" || q.Get("sni") != "" || q.Get("allowInsecure") != "" {
+		node.Security.Type = security
+		if node.Security.Type == "" {
+			node.Security.Type = "tls"
+		}
+		node.Security.SNI = q.Get("sni")
+		if q.Get("alpn") != "" {
+			node.Security.ALPN = strings.Split(q.Get("alpn"), ",")
+		}
+		if security == "reality" {
+			node.Security.Opts = map[string]any{"public_key": q.Get("pbk"), "short_id": q.Get("sid")}
+		}
+	}
+}
+
+func SetTransport(node *ir.Node, q url.Values) error {
+	t := strings.ToLower(q.Get("type"))
+	if t == "" {
+		return nil
+	}
+	switch t {
+	case "tcp", "ws", "grpc", "http", "h2", "quic":
+	default:
+		return fmt.Errorf("%w: unsupported transport %q", ErrInvalidField, t)
+	}
+	node.Transport.Type = t
+	node.Transport.Path = q.Get("path")
+	node.Transport.Host = q.Get("host")
+	if t == "grpc" {
+		node.Transport.Opts = map[string]any{"service_name": firstNonEmpty(q.Get("serviceName"), q.Get("service_name"))}
+	}
+	return nil
+}
+
+func Require(value, field string) error {
+	if strings.TrimSpace(value) == "" {
+		return fmt.Errorf("%w: %s", ErrMissingField, field)
+	}
+	return nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // Registry holds all protocol parsers

@@ -113,6 +113,24 @@ func (m *Manager) StartMihomo(configPath string) error  { return m.start("mihomo
 func (m *Manager) StopSingBox() error                   { return m.stop("sing-box") }
 func (m *Manager) StopMihomo() error                    { return m.stop("mihomo") }
 
+// Validate checks a configuration without disrupting any running process.
+func (m *Manager) Validate(name, configPath string) error {
+	if name != "sing-box" && name != "mihomo" {
+		return fmt.Errorf("unknown kernel %q", name)
+	}
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
+	binary, err := m.binaryPath(name)
+	if err != nil {
+		return err
+	}
+	config, err := filepath.Abs(configPath)
+	if err != nil {
+		return err
+	}
+	return m.validate(name, binary, config)
+}
+
 func (m *Manager) process(name string) *Process {
 	if name == "sing-box" {
 		return m.singboxProc

@@ -1,6 +1,6 @@
 # Binaries
-duorelay
-duorelay.exe
+/duorelay
+/duorelay.exe
 *.exe
 *.dll
 *.so
@@ -44,6 +44,7 @@ web/.output/
 *.db
 *.db-shm
 *.db-wal
+*.db.key
 kernels/
 data/
 
