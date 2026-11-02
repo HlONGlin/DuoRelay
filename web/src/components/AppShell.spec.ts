@@ -28,7 +28,8 @@ function makeRouter() {
       { path: '/nodes', component: { template: '<div>nodes-view</div>' } },
       { path: '/subscriptions', component: { template: '<div>subs-view</div>' } },
       { path: '/kernel', component: { template: '<div>kernel-view</div>' } },
-      { path: '/settings', component: { template: '<div>settings-view</div>' } }
+      { path: '/settings', component: { template: '<div>settings-view</div>' } },
+      { path: '/login', component: { template: '<div>login-view</div>' }, meta: { public: true } }
     ]
   })
 }
@@ -37,6 +38,7 @@ describe('AppShell', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
+    localStorage.removeItem('duorelay-theme')
 
     vi.stubGlobal('ResizeObserver', ResizeObserverMock)
     Object.defineProperty(window, 'matchMedia', {
@@ -80,6 +82,26 @@ describe('AppShell', () => {
     wrapper.unmount()
   })
 
+  it('hides application navigation on public authentication pages', async () => {
+    const router = makeRouter()
+    await router.push('/login')
+    await router.isReady()
+
+    const wrapper = mount(AppShell, {
+      global: { plugins: [createPinia(), router, ElementPlus] }
+    })
+    await flushPromises()
+
+    expect(wrapper.classes()).toContain('auth-page')
+    expect(wrapper.find('.sidebar').exists()).toBe(false)
+    expect(wrapper.find('.topbar').exists()).toBe(false)
+    expect(wrapper.find('.bottom-nav').exists()).toBe(false)
+    expect(wrapper.text()).toContain('login-view')
+    expect(kernelApi.getKernelStatus).not.toHaveBeenCalled()
+
+    wrapper.unmount()
+  })
+
   it('navigates through the sidebar menu', async () => {
     vi.mocked(kernelApi.getKernelStatus).mockResolvedValue({
       running: false,
@@ -104,6 +126,29 @@ describe('AppShell', () => {
 
     expect(router.currentRoute.value.path).toBe('/nodes')
     expect(wrapper.text()).toContain('nodes-view')
+
+    wrapper.unmount()
+  })
+
+  it('switches and persists the visual theme', async () => {
+    vi.mocked(kernelApi.getKernelStatus).mockResolvedValue({
+      running: false,
+      active_kernel: ''
+    })
+
+    const router = makeRouter()
+    await router.push('/')
+    await router.isReady()
+
+    const wrapper = mount(AppShell, {
+      global: { plugins: [createPinia(), router, ElementPlus] }
+    })
+    await flushPromises()
+
+    expect(document.documentElement.dataset.theme).toBe('light')
+    await wrapper.find('.theme-toggle').trigger('click')
+    expect(document.documentElement.dataset.theme).toBe('dark')
+    expect(localStorage.getItem('duorelay-theme')).toBe('dark')
 
     wrapper.unmount()
   })

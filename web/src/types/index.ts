@@ -131,6 +131,34 @@ export interface KernelLog {
   time: string
   level: string
   message: string
+  timestamp?: string
+  source?: string
+  line?: string
+}
+
+export type KernelLogLevel = 'debug' | 'info' | 'warn' | 'error'
+
+export interface KernelLogQuery {
+  kernel?: KernelType
+  limit?: number
+  level?: KernelLogLevel | 'all'
+  source?: 'stdout' | 'stderr'
+  search?: string
+}
+
+export interface KernelLogCluster {
+  message: string
+  level: KernelLogLevel
+  count: number
+  last_seen: string
+}
+
+export interface KernelLogSummary {
+  kernel: KernelType
+  total: number
+  levels: Record<KernelLogLevel, number>
+  sources: Record<string, number>
+  clusters: KernelLogCluster[]
 }
 
 export interface ConnectionMetadata {
@@ -162,19 +190,95 @@ export interface ConnectionsSnapshot {
   connections: Connection[]
 }
 
+export interface TrafficSnapshot {
+  up: number
+  down: number
+  sampled_at: string
+}
+
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 export type TunStack = 'system' | 'gvisor' | 'mixed'
+export type RoutingMode = 'bypass_mainland' | 'global' | 'blacklist'
+
+export type RoutingMatch =
+  | 'domain'
+  | 'domain_suffix'
+  | 'domain_keyword'
+  | 'ip_cidr'
+  | 'source_ip_cidr'
+  | 'port'
+  | 'network'
+  | 'protocol'
+  | 'geosite'
+  | 'geoip'
+
+export interface RoutingRule {
+  match: RoutingMatch
+  values: string[]
+  outbound: string
+}
 
 export interface AppConfig {
   kernel: KernelType
   inbound_host: string
   inbound_port: number
   mixed_port: number
+  socks_only: boolean
+  socks_port: number
+  load_balance: LoadBalanceOptions
   allow_lan: boolean
   log_level: LogLevel
   dns_servers: string[]
   dns_fake_ip: boolean
   enable_tun: boolean
   tun_stack: TunStack
+  system_proxy: boolean
+  system_proxy_supported: boolean
+  routing_mode: RoutingMode
   default_outbound: string
+  routing_rules: RoutingRule[]
+}
+
+export type ProxyGroupMode = 'load_balance' | 'chain'
+export interface LoadBalanceOptions {
+  strategy: 'round-robin' | 'consistent-hashing' | 'sticky-sessions' | 'url-test' | 'fallback'
+  url: string
+  interval: number
+  timeout: number
+  lazy: boolean
+}
+export interface ApplyConfigRequest {
+  kernel?: KernelType
+  node_ids: string[]
+  mode: ProxyGroupMode
+  load_balance?: LoadBalanceOptions
+}
+export interface ConfigurationState {
+  id: string
+  kernel: KernelType
+  node_ids: string[]
+  mode: ProxyGroupMode | 'single' | 'select'
+  load_balance?: LoadBalanceOptions
+  applied_at: string
+  chain?: ChainPlan
+}
+export interface ProxyGroupMemberStatus {
+  name: string
+  alive: boolean
+  delay_ms?: number
+}
+export interface ProxyGroupStatus {
+  active: boolean
+  now?: string
+  members?: ProxyGroupMemberStatus[]
+}
+
+export interface ChainPlan {
+  supported: boolean
+  reason?: string
+  kernel?: KernelType
+  cross_kernel: boolean
+  udp: boolean
+  hops: { id: string; name: string; protocol: string; kernel: KernelType; network: string; udp: boolean }[]
+  warnings: string[]
 }

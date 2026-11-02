@@ -38,6 +38,30 @@ func TestProtocolOwnership(t *testing.T) {
 	}
 }
 
+func TestShadowTLSStandaloneKernelEligibility(t *testing.T) {
+	// sing-box v1.14.4 registers a standalone ShadowTLS outbound. In mihomo
+	// v1.19.33, shadow-tls is nested under Shadowsocks/Snell options only.
+	// See docs/protocol-verification-report.md for the pinned source evidence.
+	node := &Node{
+		Protocol: ProtocolShadowTLS,
+		Owner:    GetProtocolOwner(ProtocolShadowTLS),
+	}
+
+	for _, tt := range []struct {
+		kernel KernelType
+		want   bool
+	}{
+		{KernelSingBox, true},
+		{KernelMihomo, false},
+	} {
+		t.Run(string(tt.kernel), func(t *testing.T) {
+			if got := node.CanRunOn(tt.kernel); got != tt.want {
+				t.Errorf("standalone ShadowTLS CanRunOn(%s) = %v, want %v", tt.kernel, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestNodeCanRunOn(t *testing.T) {
 	tests := []struct {
 		name     string

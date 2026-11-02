@@ -30,12 +30,13 @@ go.work
 Thumbs.db
 
 # Build output
-dist/
+/dist/
 build/
 
 # Frontend
 web/node_modules/
-web/dist/
+web/dist/*
+!web/dist/.gitkeep
 web/.nuxt/
 web/.output/
 *.local
@@ -58,3 +59,31 @@ config.yaml
 # Test coverage
 coverage.txt
 coverage.html
+
+# Orca local Docker SSH environment (contains private keys & state)
+/scripts/orca-vm/
+
+# Local agent state & process notes (not published)
+/.opencode/
+orca.yaml
+/企划书_v2.0.md
+/提示池.md
+/P0_COMPLETE.md
+/P2-17~21-remaining-protocols-analysis.md
+/FINAL_SUMMARY.md
+/PROGRESS.md
+/PROGRESS_UPDATE.md
+/STATUS.md
+/STATUS_SUMMARY.md
+/SUMMARY.md
+/TASKS.md
+/DEVLOG.md
+/openconnect-endpoint-correction-report.md
+/docs/P0-*.md
+/docs/P1-*.md
+/docs/P2-*.md
+/docs/P3-*.md
+/docs/UI-v2-重构验收.md
+/docs/ui-prompts.md
+/docs/并行开发计划.md
+

@@ -91,7 +91,7 @@ func ExampleVMessNode() *Node {
 			Path: "/vmess",
 			Host: "www.example.com",
 			Opts: map[string]any{
-				"max_early_data": 2048,
+				"max_early_data":         2048,
 				"early_data_header_name": "Sec-WebSocket-Protocol",
 			},
 		},
@@ -131,8 +131,8 @@ func ExampleVMessNodeGRPC() *Node {
 			Type: "grpc",
 			Path: "vmess-grpc",
 			Opts: map[string]any{
-				"idle_timeout":  60,
-				"health_check":  false,
+				"idle_timeout":          60,
+				"health_check":          false,
 				"permit_without_stream": false,
 			},
 		},

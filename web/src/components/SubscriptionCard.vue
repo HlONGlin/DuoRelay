@@ -12,32 +12,33 @@
       </span>
     </div>
 
-    <div class="sub-url" :title="subscription.url">{{ maskUrl(subscription.url) }}</div>
+    <div class="sub-url">{{ maskUrl(subscription.url) }}</div>
 
     <div class="sub-usage">
       <div class="usage-row">
         <span>流量使用</span>
-        <span>{{ formatBytes(subscription.used) }} / {{ formatBytes(subscription.total) }}</span>
+        <span class="mono">{{ subscription.total ? formatBytes(subscription.used) + ' / ' + formatBytes(subscription.total) : '未提供流量配额' }}</span>
       </div>
       <el-progress
         :percentage="usagePercent(subscription.used, subscription.total)"
         :show-text="false"
-        :stroke-width="8"
+        :stroke-width="3"
         :color="progressColor"
       />
     </div>
 
     <div class="sub-meta">
-      <span>更新: {{ formatDate(subscription.last_update) }}</span>
-      <span>到期: {{ formatDate(subscription.expire) }}</span>
+      <span>节点 <span class="mono">{{ nodeCount ?? '—' }}</span></span>
+      <span>更新: <span class="mono">{{ formatDate(subscription.last_update) }}</span></span>
+      <span :class="{ expired }">{{ expired ? '已到期: ' : '到期: ' }}<span class="mono">{{ formatDate(subscription.expire) }}</span></span>
     </div>
 
     <div class="sub-actions">
-      <el-button size="small" type="primary" plain :loading="updating" @click="$emit('refresh', subscription)">
+      <el-button size="small" text :loading="updating" @click="$emit('refresh', subscription)">
         更新
       </el-button>
-      <el-button size="small" @click="$emit('edit', subscription)">编辑</el-button>
-      <el-button size="small" type="danger" plain @click="$emit('remove', subscription)">
+      <el-button size="small" text @click="$emit('edit', subscription)">编辑</el-button>
+      <el-button size="small" text @click="$emit('remove', subscription)">
         删除
       </el-button>
     </div>
@@ -56,6 +57,7 @@ import type { Subscription } from '@/types'
 
 const props = defineProps<{
   subscription: Subscription
+  nodeCount?: number
   updating?: boolean
 }>()
 
@@ -80,10 +82,10 @@ const statusLabel = computed(() => {
 
 const progressColor = computed(() => {
   const percent = usagePercent(props.subscription.used, props.subscription.total)
-  if (percent >= 90) return '#f56c6c'
-  if (percent >= 70) return '#e6a23c'
-  return '#409eff'
+  if (percent > 85) return 'var(--semantic-warning)'
+  return 'var(--primary)'
 })
+const expired = computed(() => Boolean(props.subscription.expire && new Date(props.subscription.expire).getTime() > 0 && new Date(props.subscription.expire).getTime() < Date.now()))
 
 function maskUrl(url?: string): string {
   if (!url) return '—'
@@ -102,10 +104,10 @@ function maskUrl(url?: string): string {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 10px;
-  background: #fff;
-  padding: 16px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--rounded-lg);
+  background: var(--surface-1);
+  padding: 20px;
 }
 
 .sub-head {
@@ -123,23 +125,23 @@ function maskUrl(url?: string): string {
 }
 
 .sub-name {
-  font-weight: 600;
-  color: var(--text-primary);
+  color: var(--ink);
+  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .sub-interval {
-  color: var(--text-secondary);
-  font-size: 12px;
+  color: var(--ink-subtle);
+  font-size: var(--typography-p-caption-font-size);
   white-space: nowrap;
 }
 
 .sub-url {
-  font-size: 12px;
-  color: var(--text-secondary);
-  font-family: Consolas, monospace;
+  color: var(--ink-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--typography-p-caption-font-size);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -148,8 +150,8 @@ function maskUrl(url?: string): string {
 .usage-row {
   display: flex;
   justify-content: space-between;
-  font-size: 13px;
-  color: var(--text-regular);
+  font-size: var(--typography-p-body-sm-font-size);
+  color: var(--ink-muted);
   margin-bottom: 6px;
 }
 
@@ -157,12 +159,16 @@ function maskUrl(url?: string): string {
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  font-size: 12px;
-  color: var(--text-secondary);
+  font-size: var(--typography-p-caption-font-size);
+  color: var(--ink-subtle);
 }
 
 .sub-actions {
   display: flex;
   gap: 6px;
 }
+.expired { color: var(--semantic-danger); }
+.sub-meta { flex-wrap: wrap; }
+.sub-actions { border-top: 1px solid var(--hairline); padding-top: 12px; margin-top: auto; }
+.sub-actions :deep(.el-button + .el-button) { margin-left: 0; }
 </style>

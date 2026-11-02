@@ -12,7 +12,7 @@ SOCKS5,yes,no,yes,common outbound,"server; port; username/password; UDP",socks5:
 HTTP/HTTPS,yes,no,yes,common outbound,"server; port; username/password; TLS",http(s):// or config,"sing-box http.md; mihomo http.go"
 SSH,yes,no,yes,common outbound,"server; port; username; password/key",ssh:// or config,"sing-box ssh.md; mihomo ssh.go"
 WireGuard,yes,no,yes,common outbound,"private key; peers; endpoint; allowed IPs",config,"sing-box wireguard.md; mihomo wireguard.go"
-ShadowTLS,yes,no,yes,common outbound,"server; port; password; handshake server",config,"sing-box shadowtls.md; mihomo shadowtls.go"
+ShadowTLS,yes,no,no,sing-box outbound only,"server; port; TLS; optional version; password (v2/v3)",config,"sing-box v1.14.4 protocol/shadowtls/outbound.go and docs/configuration/outbound/shadowtls.md; mihomo v1.19.33 adapter/parser.go has no standalone type; shadow-tls is nested in adapter/outbound/shadowsocks.go and snell.go"
 OpenVPN,no,yes,yes,cross-layer capability,"profile/certificates; credentials; TLS/static key",.ovpn or config,"sing-box endpoint/openvpn-client.md; mihomo openvpn.go"
 MASQUE,no,no,yes,mihomo outbound only,"server; port; authentication; QUIC/HTTP3",config,"mihomo masque.go; no sing-box outbound/endpoint entry"
 Tailscale,no,yes,yes,cross-layer capability,"state; auth key/control URL; routes/exit node",account/auth key or config,"sing-box endpoint/tailscale.md; mihomo tailscale.go"

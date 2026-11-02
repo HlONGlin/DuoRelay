@@ -1,4 +1,4 @@
-.PHONY: all build clean test lint fmt dev install-tools web web-build
+.PHONY: all build clean test lint fmt dev install-tools web web-build package-windows package-linux acceptance-linux install-linux uninstall-linux
 
 # Build variables
 BINARY_NAME=duorelay
@@ -79,6 +79,23 @@ web-build:
 		mkdir -p web/dist; \
 	fi
 
+# Package a Windows amd64 release (PowerShell required).
+package-windows:
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows.ps1 -Version $(VERSION)
+
+# Package a Linux release for the current architecture (or pass ARCH=arm64).
+package-linux:
+	bash scripts/package-linux.sh $(VERSION) $(if $(ARCH),$(ARCH),$$(uname -m))
+
+acceptance-linux:
+	bash scripts/acceptance-linux.sh
+
+install-linux:
+	bash scripts/install-linux.sh --package $(PACKAGE)
+
+uninstall-linux:
+	bash scripts/uninstall-linux.sh
+
 # Frontend: Development mode
 web-dev:
 	@echo "Starting frontend dev server..."
@@ -104,3 +121,7 @@ help:
 	@echo "  make web-dev       - Start frontend dev server"
 	@echo "  make run           - Build and run the application"
 	@echo "  make install-tools - Install development tools"
+	@echo "  make package-linux VERSION=0.3.0 [ARCH=amd64|arm64]"
+	@echo "  make acceptance-linux - Check a running Linux service"
+	@echo "  make install-linux PACKAGE=./dist/..."
+	@echo "  make uninstall-linux - Remove the Linux system service"

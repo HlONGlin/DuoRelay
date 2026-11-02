@@ -1,0 +1,5 @@
+[
+  {
+    "link": "{\"type\":\"tailscale\",\"tag\":\"tailnet\",\"state-directory\":\"C:/tailscale\",\"auth-key\":\"tskey-auth-example\",\"hostname\":\"duorelay\",\"accept-routes\":true,\"exit-node\":\"100.64.0.2\"}"
+  }
+]

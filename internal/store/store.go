@@ -86,9 +86,6 @@ func (s *Store) Close() error {
 
 // migrate runs database migrations
 func (s *Store) migrate() error {
-	// TODO: Implement proper migration system in P1-01
-	// For now, just create a version tracking table
-
 	schema := `
 	CREATE TABLE IF NOT EXISTS schema_migrations (
 		version INTEGER PRIMARY KEY,
@@ -112,6 +109,8 @@ func (s *Store) migrate() error {
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
+
+	INSERT OR IGNORE INTO schema_migrations(version) VALUES(1);
 	`
 
 	if _, err := s.db.Exec(schema); err != nil {

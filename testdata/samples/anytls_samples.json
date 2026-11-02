@@ -1,0 +1,68 @@
+[
+  {
+    "name": "default",
+    "description": "Sanitized documentation endpoint; credentials are public test values.",
+    "link": "anytls://demo%2Bpass%40word@example.com#AnyTLS",
+    "expected_ir": {
+      "protocol": "anytls",
+      "owner": 3,
+      "name": "AnyTLS",
+      "proto": {
+        "password": "demo+pass@word",
+        "udp": true
+      },
+      "security": {
+        "type": "tls",
+        "sni": "example.com"
+      }
+    }
+  },
+  {
+    "name": "sessions",
+    "description": "Sanitized documentation endpoint; credentials are public test values.",
+    "link": "anytls://sample-only@[2001:db8::2]:8443?peer=tls.example.com&alpn=h2,http%2F1.1&insecure=1&idle-session-check-interval=30&idle-session-timeout=60&min-idle-session=2&client-metadata=demo&disable-reuse=false",
+    "expected_ir": {
+      "protocol": "anytls",
+      "owner": 3,
+      "server": {
+        "host": "2001:db8::2",
+        "port": 8443
+      },
+      "security": {
+        "type": "tls",
+        "sni": "tls.example.com",
+        "alpn": [
+          "h2",
+          "http/1.1"
+        ],
+        "opts": {
+          "insecure": true
+        }
+      },
+      "proto": {
+        "password": "sample-only",
+        "udp": true,
+        "idle_session_check_interval": 30,
+        "idle_session_timeout": 60,
+        "min_idle_session": 2,
+        "client_metadata": "demo",
+        "disable_reuse": false
+      }
+    }
+  },
+  {
+    "name": "query-password",
+    "description": "Sanitized documentation endpoint; credentials are public test values.",
+    "link": "anytls://example.com:443?password=sample-only&tls=1",
+    "expected_ir": {
+      "protocol": "anytls",
+      "owner": 3,
+      "proto": {
+        "password": "sample-only"
+      },
+      "security": {
+        "type": "tls"
+      }
+    }
+  }
+]

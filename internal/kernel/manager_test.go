@@ -123,6 +123,38 @@ func TestKernelHelper(t *testing.T) {
 	}
 }
 
+func TestMihomoTUNEnvironmentDetection(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("tun:\n  enable: true\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if !mihomoTUNEnabled(path) {
+		t.Fatal("enabled mihomo TUN was not detected")
+	}
+	if err := os.WriteFile(path, []byte("tun:\n  enable: false\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if mihomoTUNEnabled(path) {
+		t.Fatal("disabled mihomo TUN was detected as enabled")
+	}
+}
+
+func TestWithEnvironmentReplacesExistingValue(t *testing.T) {
+	got := withEnvironment([]string{"PATH=/bin", "SKIP_SYSTEM_IPV6_CHECK=0", "OTHER=x"}, "SKIP_SYSTEM_IPV6_CHECK", "1")
+	count := 0
+	for _, entry := range got {
+		if entry == "SKIP_SYSTEM_IPV6_CHECK=1" {
+			count++
+		}
+		if entry == "SKIP_SYSTEM_IPV6_CHECK=0" {
+			t.Fatal("old environment value was retained")
+		}
+	}
+	if count != 1 {
+		t.Fatalf("expected exactly one forced value, got %v", got)
+	}
+}
+
 func testManager(t *testing.T) *Manager {
 	t.Helper()
 	dir := t.TempDir()
@@ -205,6 +237,38 @@ func eventually(t *testing.T, condition func() bool) {
 			t.Fatal("condition did not become true")
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestSubscribeLogsReceivesAndCloses(t *testing.T) {
+	m := testManager(t)
+	entries, cancel, err := m.SubscribeLogs("sing-box")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := writeConfig(t, "sing-box", map[string]any{"output_lines": 1})
+	if err := m.start("sing-box", config); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case entry := <-entries:
+		if entry.Line == "" {
+			t.Fatal("received an empty log entry")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for a live log entry")
+	}
+	cancel()
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case _, open := <-entries:
+			if !open {
+				return
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for log subscription close")
+		}
 	}
 }
 

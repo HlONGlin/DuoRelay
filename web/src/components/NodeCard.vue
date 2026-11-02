@@ -5,10 +5,15 @@
         <span class="node-name">{{ node.name }}</span>
         <el-tag v-if="node.status === 'active'" size="small" type="success">使用中</el-tag>
       </div>
-      <el-tag size="small" effect="plain">{{ protocolLabel(node.protocol) }}</el-tag>
+      <el-tooltip :content="protocolDescription(node.protocol)" placement="top">
+        <div class="protocol-chip">
+          <span class="protocol-glyph">{{ protocolGlyph(node.protocol) }}</span>
+          <el-tag size="small" effect="plain">{{ protocolLabel(node.protocol) }}</el-tag>
+        </div>
+      </el-tooltip>
     </div>
     <div class="node-meta">
-      <span>{{ node.server.host }}:{{ node.server.port }}</span>
+      <span>{{ nodeEndpointLabel(node) }}</span>
       <span>{{ ownerLabel(node.owner) }}</span>
       <span v-if="node.transport?.type && node.transport.type !== 'tcp'">
         {{ node.transport.type }}
@@ -27,7 +32,7 @@
           使用
         </el-button>
         <el-button size="small" @click="$emit('test', node)">测速</el-button>
-        <el-button size="small" type="danger" plain @click="$emit('remove', node)">
+        <el-button size="small" plain @click="$emit('remove', node)">
           删除
         </el-button>
       </div>
@@ -37,7 +42,13 @@
 
 <script setup lang="ts">
 import DelayBadge from './DelayBadge.vue'
-import { ownerLabel, protocolLabel } from '@/utils/format'
+import {
+  nodeEndpointLabel,
+  ownerLabel,
+  protocolDescription,
+  protocolGlyph,
+  protocolLabel
+} from '@/utils/format'
 import type { ProxyNode } from '@/types'
 
 withDefaults(
@@ -57,19 +68,18 @@ defineEmits<{
 
 <style scoped>
 .node-card {
-  border: 1px solid var(--border-color);
-  border-radius: 10px;
-  background: #fff;
-  padding: 14px 16px;
-  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+  border: 1px solid var(--hairline);
+  border-radius: var(--rounded-lg);
+  background: var(--surface-1);
+  padding: 16px;
 }
 
 .node-card:hover {
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+  background: var(--surface-2);
 }
 
 .node-card.active {
-  border-color: var(--primary-color);
+  border-color: var(--primary);
 }
 
 .node-head {
@@ -86,9 +96,31 @@ defineEmits<{
   min-width: 0;
 }
 
+.protocol-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.protocol-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: var(--rounded-xs);
+  background: var(--surface-3);
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: var(--typography-p-micro-font-size);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
 .node-name {
+  color: var(--ink);
   font-weight: 600;
-  color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -99,8 +131,8 @@ defineEmits<{
   flex-wrap: wrap;
   gap: 12px;
   margin-top: 8px;
-  color: var(--text-secondary);
-  font-size: 13px;
+  color: var(--ink-subtle);
+  font-size: var(--typography-p-body-sm-font-size);
 }
 
 .node-foot {

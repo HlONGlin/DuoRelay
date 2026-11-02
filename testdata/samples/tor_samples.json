@@ -1,0 +1,46 @@
+[
+  {
+    "name": "anonymous",
+    "description": "Sanitized documentation endpoint; credentials are public test values.",
+    "link": "tor+socks5://127.0.0.1",
+    "expected_ir": {
+      "protocol": "tor",
+      "owner": 1,
+      "server": {
+        "host": "127.0.0.1",
+        "port": 9050
+      },
+      "security": {
+        "type": "none"
+      },
+      "transport": {
+        "type": "tcp"
+      },
+      "proto": {
+        "mode": "socks5",
+        "version": "5",
+        "udp": false
+      }
+    }
+  },
+  {
+    "name": "isolation",
+    "description": "Sanitized documentation endpoint; credentials are public test values.",
+    "link": "tor+socks5://isolation%2Buser:sample%40password@[::1]:9150?udp=0#Tor",
+    "expected_ir": {
+      "protocol": "tor",
+      "owner": 1,
+      "name": "Tor",
+      "server": {
+        "host": "::1",
+        "port": 9150
+      },
+      "proto": {
+        "mode": "socks5",
+        "username": "isolation+user",
+        "password": "sample@password",
+        "udp": false
+      }
+    }
+  }
+]

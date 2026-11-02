@@ -1,0 +1,51 @@
+[
+  {
+    "name": "tcp",
+    "description": "Sanitized documentation endpoint; credentials are public test values.",
+    "link": "mieru://demo:sample-only@example.com:2999#Mieru-TCP",
+    "expected_ir": {
+      "protocol": "mieru",
+      "owner": 2,
+      "name": "Mieru-TCP",
+      "server": {
+        "host": "example.com",
+        "port": 2999
+      },
+      "transport": {
+        "type": "tcp"
+      },
+      "security": {
+        "type": "none"
+      },
+      "proto": {
+        "username": "demo",
+        "password": "sample-only",
+        "transport": "TCP"
+      }
+    }
+  },
+  {
+    "name": "udp",
+    "description": "Sanitized documentation endpoint; credentials are public test values.",
+    "link": "mieru://demo:p%3Ass@[2001:db8::3]:3000?transport=UDP&multiplexing=HIGH&udp=true&handshake-mode=HANDSHAKE_NO_WAIT",
+    "expected_ir": {
+      "protocol": "mieru",
+      "owner": 2,
+      "server": {
+        "host": "2001:db8::3",
+        "port": 3000
+      },
+      "transport": {
+        "type": "udp"
+      },
+      "proto": {
+        "username": "demo",
+        "password": "p:ss",
+        "transport": "UDP",
+        "multiplexing": "MULTIPLEXING_HIGH",
+        "handshake_mode": "HANDSHAKE_NO_WAIT",
+        "udp": true
+      }
+    }
+  }
+]

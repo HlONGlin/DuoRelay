@@ -1,0 +1,5 @@
+[
+  {
+    "link": "{\"type\":\"zerotier\",\"name\":\"zt\",\"network\":\"8056c2e21c000001\",\"state-dir\":\"C:/zerotier\",\"identity-secret\":\"identity-secret-example\",\"dns\":[\"10.0.0.53\"]}"
+  }
+]

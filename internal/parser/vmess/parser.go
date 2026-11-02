@@ -3,6 +3,7 @@ package vmess
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 
@@ -32,6 +33,9 @@ func (p Parser) Parse(input string) (any, error) {
 	}
 	raw, err := parser.DecodeBase64(payload)
 	if err != nil {
+		if u.User != nil {
+			return parseEndpoint(input)
+		}
 		return nil, fmt.Errorf("%w: vmess payload", parser.ErrInvalidFormat)
 	}
 	var v struct {
@@ -43,7 +47,7 @@ func (p Parser) Parse(input string) (any, error) {
 		Net  string `json:"net"`
 		Host string `json:"host"`
 		Path string `json:"path"`
-		TLS  string `json:"tls"`
+		TLS  any    `json:"tls"`
 		SNI  string `json:"sni"`
 		ALPN string `json:"alpn"`
 		PS   string `json:"ps"`
@@ -61,8 +65,11 @@ func (p Parser) Parse(input string) (any, error) {
 	n := parser.NewNode(ir.ProtocolVMess, v.PS, base)
 	n.Server.Host = v.Add
 	n.Server.Port = number(v.Port)
-	if n.Server.Port == 0 {
+	if v.Port == nil || fmt.Sprint(v.Port) == "" {
 		n.Server.Port = 443
+	}
+	if n.Server.Host == "" || n.Server.Port < 1 || n.Server.Port > 65535 {
+		return nil, fmt.Errorf("%w: server or port", parser.ErrInvalidField)
 	}
 	if v.PS == "" {
 		parser.SetName(n, u.Fragment)
@@ -80,7 +87,7 @@ func (p Parser) Parse(input string) (any, error) {
 	if v.Path != "" {
 		q.Set("path", v.Path)
 	}
-	if v.TLS != "" {
+	if tls := strings.ToLower(fmt.Sprint(v.TLS)); tls == "tls" || tls == "true" || tls == "1" {
 		q.Set("security", "tls")
 	}
 	if v.SNI != "" {
@@ -94,6 +101,43 @@ func (p Parser) Parse(input string) (any, error) {
 	}
 	parser.SetTLS(n, q)
 	return n, nil
+}
+
+func parseEndpoint(input string) (any, error) {
+	u, err := parser.ParseEndpointURI(input, "vmess", 443)
+	if err != nil {
+		return nil, err
+	}
+	credential := u.User.Username()
+	cipher, uuid := "auto", credential
+	if password, plain := u.User.Password(); plain {
+		cipher, uuid = credential, password
+	} else if raw, err := parser.DecodeBase64(credential); err == nil {
+		if method, id, ok := strings.Cut(string(raw), ":"); ok {
+			cipher, uuid = method, id
+		}
+	}
+	if uuid == "" {
+		return nil, parser.ErrMissingField
+	}
+	node := parser.NewNode(ir.ProtocolVMess, "", u)
+	parser.SetName(node, u.Fragment)
+	node.Proto["uuid"], node.Proto["security"], node.Proto["alter_id"] = uuid, cipher, 0
+	query := u.Query()
+	if query.Get("type") == "" {
+		query.Set("type", query.Get("network"))
+	}
+	if query.Get("security") == "" && query.Get("tls") == "1" {
+		query.Set("security", "tls")
+	}
+	if err := parser.SetTransport(node, query); err != nil {
+		return nil, err
+	}
+	parser.SetTLS(node, query)
+	if net.ParseIP(node.Server.Host) == nil && strings.ContainsAny(node.Server.Host, " \t\r\n") {
+		return nil, parser.ErrInvalidField
+	}
+	return node, nil
 }
 func number(v any) int {
 	switch x := v.(type) {

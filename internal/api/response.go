@@ -15,10 +15,10 @@ type Response struct {
 // Error represents a structured error response
 // Follows the "code/what/why/fix" format from spec
 type Error struct {
-	Code   string     `json:"code"`
-	What   string     `json:"what"`
-	Why    string     `json:"why,omitempty"`
-	Fix    *FixAction `json:"fix,omitempty"`
+	Code string     `json:"code"`
+	What string     `json:"what"`
+	Why  string     `json:"why,omitempty"`
+	Fix  *FixAction `json:"fix,omitempty"`
 }
 
 // FixAction provides a one-click fix suggestion

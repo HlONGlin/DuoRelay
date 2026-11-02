@@ -2,6 +2,7 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import {
   getConnections,
+  getKernelLogSummary,
   getKernelLogs,
   getKernelStatus,
   startKernel,
@@ -10,6 +11,8 @@ import {
 import type {
   ConnectionsSnapshot,
   KernelLog,
+  KernelLogQuery,
+  KernelLogSummary,
   KernelStatus,
   KernelType
 } from '@/types'
@@ -17,6 +20,13 @@ import type {
 export const useKernelStore = defineStore('kernel', () => {
   const status = ref<KernelStatus>({ running: false, active_kernel: '' })
   const logs = ref<KernelLog[]>([])
+  const logSummary = ref<KernelLogSummary>({
+    kernel: 'sing-box',
+    total: 0,
+    levels: { debug: 0, info: 0, warn: 0, error: 0 },
+    sources: {},
+    clusters: []
+  })
   const connections = ref<ConnectionsSnapshot>({
     download_total: 0,
     upload_total: 0,
@@ -77,11 +87,25 @@ export const useKernelStore = defineStore('kernel', () => {
     }
   }
 
-  async function fetchLogs(limit = 200) {
+  async function fetchLogs(query: KernelLogQuery = {}) {
     try {
-      logs.value = await getKernelLogs(limit)
+      const [items, summary] = await Promise.all([
+        getKernelLogs(query),
+        getKernelLogSummary(query)
+      ])
+      logs.value = items
+      logSummary.value = summary
     } catch (err) {
       error.value = err instanceof Error ? err.message : '获取日志失败'
+    }
+  }
+
+  function appendLiveLog(item: KernelLog) {
+    logs.value = [...logs.value, item].slice(-200)
+    const level = item.level as keyof typeof logSummary.value.levels
+    if (level in logSummary.value.levels) {
+      logSummary.value.levels[level]++
+      logSummary.value.total++
     }
   }
 
@@ -96,6 +120,7 @@ export const useKernelStore = defineStore('kernel', () => {
   return {
     status,
     logs,
+    logSummary,
     connections,
     loading,
     busy,
@@ -106,6 +131,7 @@ export const useKernelStore = defineStore('kernel', () => {
     start,
     stop,
     fetchLogs,
+    appendLiveLog,
     fetchConnections
   }
 })

@@ -52,6 +52,11 @@ func (a *Adapter) GetConnections(ctx context.Context) (*ConnectionsResponse, err
 	return a.client.GetConnections(ctx)
 }
 
+// ReadTraffic reads one sample from the kernel's continuous traffic stream.
+func (a *Adapter) ReadTraffic(ctx context.Context) (*TrafficData, error) {
+	return a.client.ReadTraffic(ctx)
+}
+
 // TestProxyDelay tests the latency of a specific proxy
 // Both kernels support this but may return different error formats
 func (a *Adapter) TestProxyDelay(ctx context.Context, proxyName string, testURL string, timeoutMs int) (*DelayTestResponse, error) {

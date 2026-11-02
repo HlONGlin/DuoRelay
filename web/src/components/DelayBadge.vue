@@ -1,47 +1,21 @@
 <template>
-  <span class="delay-badge" :class="`delay-${type}`">
-    <span class="delay-dot" />
-    {{ formatDelay(delay) }}
+  <span class="delay-badge" :class="'delay-' + type">
+    <span class="delay-bar" aria-hidden="true"><span :style="{ width: fill + '%' }" /></span>
+    <span>{{ formatted }}</span>
   </span>
 </template>
-
 <script setup lang="ts">
 import { computed } from 'vue'
 import { delayType, formatDelay } from '@/utils/format'
-
-const props = defineProps<{
-  delay?: number
-}>()
-
+const props = defineProps<{ delay?: number }>()
 const type = computed(() => delayType(props.delay))
+const formatted = computed(() => props.delay !== undefined && props.delay < 0 ? '超时' : formatDelay(props.delay))
+const fill = computed(() => props.delay && props.delay > 0 ? Math.min(props.delay / 300, 1) * 100 : 0)
 </script>
-
 <style scoped>
-.delay-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-regular);
-}
-
-.delay-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #909399;
-}
-
-.delay-success .delay-dot {
-  background: #67c23a;
-}
-
-.delay-warning .delay-dot {
-  background: #e6a23c;
-}
-
-.delay-danger .delay-dot {
-  background: #f56c6c;
-}
+.delay-badge { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; font-family: var(--font-mono); font-size: var(--typography-p-body-sm-font-size); font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--latency-dead); }
+.delay-success { color: var(--latency-good); }.delay-warning { color: var(--latency-mid); }.delay-danger { color: var(--latency-bad); }
+.delay-bar { display: inline-flex; width: 48px; height: 3px; border-radius: var(--rounded-pill); background: var(--surface-3); overflow: hidden; }
+.delay-bar > span { height: 100%; background: currentColor; border-radius: inherit; }
+@media (max-width: 768px) { .delay-bar { display: none; } }
 </style>

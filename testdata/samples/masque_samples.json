@@ -1,0 +1,75 @@
+[
+  {
+    "name": "h3",
+    "description": "Sanitized documentation endpoint; credentials are public test values.",
+    "link": "masque://example.com:443?private-key=MHcCAQEEIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABoAoGCCqGSM49AwEHoUQDQgAEaxfR8uEsQkf4vOblY6RA8ncDfYEt6zOg9KE5RdiYwpZP40Li%2Fhp%2Fm47n60p8D54WK84zV2sxXs7LtkBoN79R9Q%3D%3D&public-key=MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEaxfR8uEsQkf4vOblY6RA8ncDfYEt6zOg9KE5RdiYwpZP40Li%2Fhp%2Fm47n60p8D54WK84zV2sxXs7LtkBoN79R9Q%3D%3D&ip=192.0.2.2%2F32&ipv6=2001%3Adb8%3A%3A2%2F128&udp=1&mtu=1280&handshake-timeout=5&cwnd=32&congestion-controller=bbr&remote-dns-resolve=true&dns=1.1.1.1,2606%3A4700%3A4700%3A%3A1111&uri=https%3A%2F%2Fexample.com%2Fconnect",
+    "expected_ir": {
+      "protocol": "masque",
+      "owner": 2,
+      "transport": {
+        "type": "quic"
+      },
+      "security": {
+        "type": "tls",
+        "alpn": [
+          "h3"
+        ]
+      },
+      "proto": {
+        "private_key": "MHcCAQEEIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABoAoGCCqGSM49AwEHoUQDQgAEaxfR8uEsQkf4vOblY6RA8ncDfYEt6zOg9KE5RdiYwpZP40Li/hp/m47n60p8D54WK84zV2sxXs7LtkBoN79R9Q==",
+        "public_key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEaxfR8uEsQkf4vOblY6RA8ncDfYEt6zOg9KE5RdiYwpZP40Li/hp/m47n60p8D54WK84zV2sxXs7LtkBoN79R9Q==",
+        "network": "h3",
+        "ip": "192.0.2.2/32",
+        "ipv6": "2001:db8::2/128",
+        "udp": true,
+        "mtu": 1280,
+        "handshake_timeout": 5,
+        "cwnd": 32,
+        "congestion_controller": "bbr",
+        "remote_dns_resolve": true,
+        "dns": [
+          "1.1.1.1",
+          "2606:4700:4700::1111"
+        ],
+        "uri": "https://example.com/connect"
+      }
+    }
+  },
+  {
+    "name": "h2",
+    "description": "Sanitized documentation endpoint; credentials are public test values.",
+    "link": "masque://example.com:443?private-key=MHcCAQEEIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABoAoGCCqGSM49AwEHoUQDQgAEaxfR8uEsQkf4vOblY6RA8ncDfYEt6zOg9KE5RdiYwpZP40Li%2Fhp%2Fm47n60p8D54WK84zV2sxXs7LtkBoN79R9Q%3D%3D&public-key=MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEaxfR8uEsQkf4vOblY6RA8ncDfYEt6zOg9KE5RdiYwpZP40Li%2Fhp%2Fm47n60p8D54WK84zV2sxXs7LtkBoN79R9Q%3D%3D&network=h2&ip=192.0.2.3",
+    "expected_ir": {
+      "protocol": "masque",
+      "owner": 2,
+      "transport": {
+        "type": "tcp"
+      },
+      "security": {
+        "type": "tls",
+        "alpn": [
+          "h2"
+        ]
+      },
+      "proto": {
+        "network": "h2",
+        "ip": "192.0.2.3"
+      }
+    }
+  },
+  {
+    "name": "l4proxy",
+    "description": "Sanitized documentation endpoint; credentials are public test values.",
+    "link": "masque://example.com:443?private-key=MHcCAQEEIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABoAoGCCqGSM49AwEHoUQDQgAEaxfR8uEsQkf4vOblY6RA8ncDfYEt6zOg9KE5RdiYwpZP40Li%2Fhp%2Fm47n60p8D54WK84zV2sxXs7LtkBoN79R9Q%3D%3D&public-key=MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEaxfR8uEsQkf4vOblY6RA8ncDfYEt6zOg9KE5RdiYwpZP40Li%2Fhp%2Fm47n60p8D54WK84zV2sxXs7LtkBoN79R9Q%3D%3D&network=h3-l4proxy",
+    "expected_ir": {
+      "protocol": "masque",
+      "owner": 2,
+      "transport": {
+        "type": "quic"
+      },
+      "proto": {
+        "network": "h3-l4proxy"
+      }
+    }
+  }
+]

@@ -1,0 +1,63 @@
+[
+  {
+    "name": "default",
+    "description": "Sanitized documentation endpoint; credentials are public test values.",
+    "link": "naive+https://demo:p%40ss%3Aword@example.com#A+B%2520",
+    "expected_ir": {
+      "protocol": "naive",
+      "owner": 1,
+      "name": "A+B%20",
+      "proto": {
+        "username": "demo",
+        "password": "p@ss:word"
+      },
+      "security": {
+        "type": "tls",
+        "sni": "example.com"
+      },
+      "transport": {
+        "type": "tcp"
+      }
+    }
+  },
+  {
+    "name": "quic",
+    "description": "Sanitized documentation endpoint; credentials are public test values.",
+    "link": "NAIVE+HTTPS://demo:sample-only@[2001:db8::1]:8443?quic=1&insecure-concurrency=4&quic-congestion-control=bbr&sni=tls.example.com&alpn=h3&allowInsecure=false&fp=chrome&vendor=keep#Naive-QUIC",
+    "expected_ir": {
+      "protocol": "naive",
+      "owner": 1,
+      "name": "Naive-QUIC",
+      "server": {
+        "host": "2001:db8::1",
+        "port": 8443
+      },
+      "transport": {
+        "type": "quic"
+      },
+      "security": {
+        "type": "tls",
+        "sni": "tls.example.com",
+        "alpn": [
+          "h3"
+        ],
+        "fingerprint": "chrome",
+        "opts": {
+          "insecure": false
+        }
+      },
+      "proto": {
+        "username": "demo",
+        "password": "sample-only",
+        "quic": true,
+        "insecure_concurrency": 4,
+        "quic_congestion_control": "bbr"
+      },
+      "extra": {
+        "uri_query": {
+          "vendor": "keep"
+        }
+      }
+    }
+  }
+]

@@ -1,0 +1,56 @@
+[
+  {
+    "name": "default",
+    "description": "Sanitized documentation endpoint; credentials are public test values.",
+    "link": "sudoku://sample%2Bkey@example.com:8888",
+    "expected_ir": {
+      "protocol": "sudoku",
+      "owner": 2,
+      "server": {
+        "host": "example.com",
+        "port": 8888
+      },
+      "security": {
+        "type": "none"
+      },
+      "proto": {
+        "key": "sample+key",
+        "aead_method": "chacha20-poly1305",
+        "table_type": "prefer_entropy",
+        "udp": true
+      }
+    }
+  },
+  {
+    "name": "http-mask",
+    "description": "Sanitized documentation endpoint; credentials are public test values.",
+    "link": "sudoku://example.com:8889?key=sample-key&aead-method=aes-128-gcm&table-type=prefer_entropy&padding-min=5&padding-max=20&enable-pure-downlink=false&http-mask=true&http-mask-mode=stream&http-mask-tls=1&http-mask-host=cdn.example.com&path-root=%2Ftunnel%2F&multiplex=on&sni=cdn.example.com#Sudoku-TLS",
+    "expected_ir": {
+      "protocol": "sudoku",
+      "owner": 2,
+      "name": "Sudoku-TLS",
+      "server": {
+        "host": "example.com",
+        "port": 8889
+      },
+      "security": {
+        "type": "tls",
+        "sni": "cdn.example.com"
+      },
+      "proto": {
+        "key": "sample-key",
+        "aead_method": "aes-128-gcm",
+        "table_type": "prefer_entropy",
+        "padding_min": 5,
+        "padding_max": 20,
+        "enable_pure_downlink": false,
+        "http_mask": true,
+        "http_mask_mode": "stream",
+        "http_mask_tls": true,
+        "http_mask_host": "cdn.example.com",
+        "path_root": "/tunnel/",
+        "multiplex": "on"
+      }
+    }
+  }
+]

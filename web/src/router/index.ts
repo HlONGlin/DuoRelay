@@ -1,7 +1,26 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 
 const routes: RouteRecordRaw[] = [
+	{
+		path: '/login',
+		name: 'login',
+		component: () => import('@/views/Login.vue'),
+		meta: { title: '登录', public: true }
+	},
+	{
+		path: '/register',
+		name: 'register',
+		component: () => import('@/views/Register.vue'),
+		meta: { title: '首次设置', public: true }
+	},
+  ...(import.meta.env.DEV ? [{
+    path: '/design-system',
+    name: 'design-system',
+    component: () => import('@/views/DesignSystem.vue'),
+    meta: { title: '设计系统验证' }
+  }] : []),
   {
     path: '/',
     name: 'dashboard',
@@ -43,9 +62,27 @@ const router = createRouter({
   routes
 })
 
-router.beforeEach((to, _from, next) => {
+let authReady = false
+
+router.beforeEach(async (to) => {
   document.title = `${to.meta.title ?? 'DuoRelay'} - DuoRelay`
-  next()
+	const auth = useAuthStore()
+	if (!authReady) {
+		try {
+			await auth.fetchStatus()
+			authReady = true
+		} catch {
+			return '/login'
+		}
+	}
+	if (!auth.status.configured) {
+		return to.meta.public && to.name === 'register' ? true : '/register'
+	}
+	if (!auth.status.authenticated) {
+		return to.meta.public && to.name === 'login' ? true : { path: '/login', query: { redirect: to.fullPath } }
+	}
+	if (to.name === 'login' || to.name === 'register') return '/'
+	return true
 })
 
 export default router

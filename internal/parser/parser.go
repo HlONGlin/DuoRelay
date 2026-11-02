@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"strconv"
 	"strings"
@@ -90,21 +91,48 @@ func ParseShareURI(input, scheme string) (*url.URL, error) {
 	return u, nil
 }
 
+// ParseEndpointURI parses a URI whose port may be omitted when a default is known.
+func ParseEndpointURI(input string, scheme string, defaultPort int) (*url.URL, error) {
+	u, err := url.Parse(strings.TrimSpace(input))
+	if err != nil || !strings.EqualFold(u.Scheme, scheme) || u.Hostname() == "" {
+		return nil, fmt.Errorf("%w: expected %s URI", ErrInvalidFormat, scheme)
+	}
+	if u.Port() == "" && defaultPort > 0 {
+		u.Host = net.JoinHostPort(u.Hostname(), strconv.Itoa(defaultPort))
+	}
+	if u.Port() == "" {
+		return nil, fmt.Errorf("%w: missing port", ErrMissingField)
+	}
+	port, err := strconv.Atoi(u.Port())
+	if err != nil || port < 1 || port > 65535 {
+		return nil, fmt.Errorf("%w: invalid port", ErrInvalidField)
+	}
+	return u, nil
+}
+
 func NewNode(protocol, name string, u *url.URL) *ir.Node {
 	return &ir.Node{
 		Name: name, Protocol: protocol, Owner: ir.GetProtocolOwner(protocol),
 		Server:    ir.Server{Host: u.Hostname(), Port: mustPort(u.Port())},
 		Transport: ir.Transport{Type: "tcp"}, Security: ir.Security{Type: "none"},
-		Proto: map[string]any{}, Extra: map[string]any{}, Source: ir.Source{Type: "import", URL: u.String()},
+		Proto: map[string]any{}, Extra: map[string]any{}, Source: ir.Source{Type: "import", URL: SanitizedSourceURL(u)},
 	}
+}
+
+// SanitizedSourceURL keeps only the source endpoint. Share-link credentials can
+// appear in userinfo, queries, fragments, paths, or opaque payloads, so none of
+// those components belong in source metadata. The original URL is not mutated.
+func SanitizedSourceURL(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+	return (&url.URL{Scheme: u.Scheme, Host: u.Host}).String()
 }
 
 func mustPort(value string) int { n, _ := strconv.Atoi(value); return n }
 
 func SetName(node *ir.Node, fragment string) {
-	if name, err := url.QueryUnescape(fragment); err == nil {
-		node.Name = name
-	}
+	node.Name = fragment
 	if node.Name == "" {
 		node.Name = node.Protocol
 	}
@@ -125,6 +153,23 @@ func SetTLS(node *ir.Node, q url.Values) {
 			node.Security.Opts = map[string]any{"public_key": q.Get("pbk"), "short_id": q.Get("sid")}
 		}
 	}
+	if node.Security.Opts == nil {
+		node.Security.Opts = map[string]any{}
+	}
+	node.Security.Fingerprint = firstNonEmpty(q.Get("fp"), q.Get("fingerprint"), q.Get("client-fingerprint"))
+	if sni := firstNonEmpty(q.Get("sni"), q.Get("peer"), q.Get("serverName")); sni != "" {
+		node.Security.SNI = sni
+	}
+	if alpn := q.Get("alpn"); alpn != "" {
+		node.Security.ALPN = strings.Split(alpn, ",")
+	}
+	for _, key := range []string{"allowInsecure", "insecure", "skip-cert-verify"} {
+		if value := q.Get(key); value != "" {
+			if skip, err := strconv.ParseBool(value); err == nil {
+				node.Security.Opts["insecure"] = skip
+			}
+		}
+	}
 }
 
 func SetTransport(node *ir.Node, q url.Values) error {
@@ -141,7 +186,8 @@ func SetTransport(node *ir.Node, q url.Values) error {
 	node.Transport.Path = q.Get("path")
 	node.Transport.Host = q.Get("host")
 	if t == "grpc" {
-		node.Transport.Opts = map[string]any{"service_name": firstNonEmpty(q.Get("serviceName"), q.Get("service_name"))}
+		node.Transport.Path = firstNonEmpty(q.Get("serviceName"), q.Get("service_name"))
+		node.Transport.Opts = map[string]any{"service_name": node.Transport.Path}
 	}
 	return nil
 }

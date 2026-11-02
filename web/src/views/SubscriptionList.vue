@@ -1,5 +1,6 @@
 <template>
-  <div class="subscription-list">
+  <div class="subscription-list page-stack">
+    <div class="page-heading"><h1>订阅管理</h1></div>
     <el-alert
       v-if="subscriptions.error"
       :title="subscriptions.error"
@@ -9,29 +10,30 @@
       class="page-alert"
     />
 
-    <el-card shadow="never" class="toolbar-card">
+    <div class="subscription-toolbar">
       <div class="toolbar">
         <div class="toolbar-info">
           <span class="total">共 {{ subscriptions.items.length }} 个订阅</span>
           <span class="usage">
             已用 {{ formatBytes(subscriptions.totalUsed) }} /
-            {{ formatBytes(subscriptions.totalQuota) }}
+            {{ subscriptions.totalQuota ? formatBytes(subscriptions.totalQuota) : '配额未提供' }}
           </span>
         </div>
         <div class="toolbar-actions">
           <el-button :loading="subscriptions.loading" @click="refreshList">刷新</el-button>
+          <el-button plain @click="router.push({ path: '/nodes', query: { import: '1' } })">
+            导入节点链接
+          </el-button>
           <el-button type="primary" @click="openCreate">
             <el-icon><Plus /></el-icon>
             添加订阅
           </el-button>
         </div>
       </div>
-    </el-card>
+    </div>
 
     <div v-if="subscriptions.items.length === 0 && !subscriptions.loading" class="empty-wrap">
-      <el-empty description="暂无订阅，添加一个订阅链接开始使用">
-        <el-button type="primary" @click="openCreate">添加订阅</el-button>
-      </el-empty>
+      <EmptyState title="暂无订阅" description="使用上方「添加订阅」导入订阅地址。" />
     </div>
 
     <div v-else v-loading="subscriptions.loading" class="sub-grid">
@@ -39,6 +41,7 @@
         v-for="item in subscriptions.items"
         :key="item.id"
         :subscription="item"
+        :node-count="nodes.error ? undefined : nodeCounts.get(item.id) ?? 0"
         :updating="subscriptions.updatingId === item.id"
         @refresh="handleRefresh"
         @edit="openEdit"
@@ -52,7 +55,7 @@
       width="520px"
       destroy-on-close
     >
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
+      <el-form @submit.prevent ref="formRef" :model="form" :rules="rules" label-position="top">
         <el-form-item label="名称" prop="name">
           <el-input v-model="form.name" placeholder="例如：机场 A" />
         </el-form-item>
@@ -63,6 +66,7 @@
             :rows="3"
             placeholder="https://example.com/api/v1/client/subscribe?token=..."
           />
+          <p class="interval-hint">支持 v2rayN 链接订阅、Clash、sing-box、SIP008 及常见客户端节点配置，自动识别内容格式。</p>
         </el-form-item>
         <el-form-item label="User-Agent">
           <el-input v-model="form.user_agent" placeholder="可选，默认使用内置 UA" />
@@ -83,16 +87,29 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
+import EmptyState from '@/components/EmptyState.vue'
 import SubscriptionCard from '@/components/SubscriptionCard.vue'
 import { useSubscriptionsStore } from '@/stores/subscriptions'
+import { useNodesStore } from '@/stores/nodes'
 import { formatBytes } from '@/utils/format'
 import type { Subscription, SubscriptionInput } from '@/types'
 
 const subscriptions = useSubscriptionsStore()
+const nodes = useNodesStore()
+const nodeCounts = computed(() => {
+  const counts = new Map<string, number>()
+  for (const node of nodes.items) {
+    const id = node.source?.subscription_id
+    if (id) counts.set(id, (counts.get(id) ?? 0) + 1)
+  }
+  return counts
+})
+const router = useRouter()
 
 const dialogVisible = ref(false)
 const submitting = ref(false)
@@ -172,6 +189,7 @@ async function submitForm() {
 async function handleRefresh(subscription: Subscription) {
   try {
     const result = await subscriptions.refresh(subscription.id)
+    await nodes.fetchAllNodes()
     const added = result?.nodes_added
     ElMessage.success(
       added === undefined ? '订阅已更新' : `订阅已更新，新增 ${added} 个节点`
@@ -199,6 +217,7 @@ async function handleRemove(subscription: Subscription) {
 
 function refreshList() {
   void subscriptions.fetchSubscriptions()
+  void nodes.fetchAllNodes()
 }
 
 onMounted(refreshList)
@@ -215,8 +234,9 @@ onMounted(refreshList)
   margin: 0;
 }
 
-.toolbar-card {
-  border-radius: 10px;
+.subscription-toolbar {
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--hairline);
 }
 
 .toolbar {
@@ -231,17 +251,18 @@ onMounted(refreshList)
   display: flex;
   align-items: center;
   gap: 16px;
-  color: var(--text-secondary);
-  font-size: 13px;
+  color: var(--ink-subtle);
+  font-size: var(--typography-p-caption-font-size);
 }
 
 .total {
+  color: var(--ink);
   font-weight: 600;
-  color: var(--text-primary);
 }
 
 .toolbar-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -252,16 +273,10 @@ onMounted(refreshList)
   min-height: 120px;
 }
 
-.empty-wrap {
-  background: #fff;
-  border: 1px solid var(--border-color);
-  border-radius: 10px;
-}
-
 .interval-hint {
   margin-left: 10px;
-  font-size: 12px;
-  color: var(--text-secondary);
+  color: var(--ink-subtle);
+  font-size: var(--typography-p-caption-font-size);
 }
 
 @media (max-width: 768px) {

@@ -5,11 +5,14 @@ import 'element-plus/dist/index.css'
 import App from './App.vue'
 import router from './router'
 import './assets/styles/main.css'
+import { initializeTheme } from './stores/appearance'
+
+initializeTheme()
 
 const app = createApp(App)
 
 app.use(createPinia())
 app.use(router)
-app.use(ElementPlus)
+app.use(ElementPlus, { message: { placement: 'bottom-right', offset: 24 } })
 
 app.mount('#app')

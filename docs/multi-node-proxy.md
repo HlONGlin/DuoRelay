@@ -1,0 +1,76 @@
+# 多节点代理与 SOCKS5 入口限制
+
+## 节点管理
+
+勾选节点后点击页首“负载均衡”或“链式代理”。两个按钮各自打开独立弹窗，也可以在弹窗中增减节点。只勾选不会改变运行配置。
+
+- **负载均衡**：选择 2–64 个支持 mihomo 的节点，按轮询、一致性哈希、会话保持、自动选优（url-test）或故障切换（fallback）分配新连接。自动选优按健康检查延迟选择节点；故障切换按列表优先级使用首个健康节点。健康检查地址、间隔、超时和按需检查可以在弹窗中设置；“设置 → 负载均衡”保存下次打开弹窗的默认值。单个连接的带宽不会跨节点叠加。mihomo 自动跳过健康检查失败的成员；没有健康节点时不能保证连接成功。
+- **链式代理**：选择 2–8 个节点。列表顺序是本机 → 第一跳入口 → 中间节点 → 最后一跳出口 → 目标网站，可通过上移、下移调整。系统根据实际协议参数选择内核，优先保持单核，必要时自动桥接 sing-box 与 mihomo；可以交替跨核。弹窗显示每一跳的内核、连接传输及整条链路的 UDP 能力，无法连接时显示具体跳数和原因。
+
+启动成功后，顶部显示运行方式和成员；链式代理显示经过顺序。停止会停止整个组合并取消全部成员的运行选择。启动前会校验配置，参数错误不会停止已有实例；启动失败会尝试恢复原实例。
+
+两个内核分别使用 `dialer-proxy` 和 `detour` 建立代理链；多节点选择采用 mihomo 原生代理组和健康检查。故障切换的节点优先级就是弹窗列表顺序。策略切换作用于后续新连接，已有连接仍由原节点处理。重复显示名称只会在生成配置中重命名，数据库中的节点名称保持原样。
+
+## 链式兼容范围
+
+| 情况 | 处理方式 |
+|---|---|
+| HTTP、SOCKS5、SS、VMess、VLESS、Trojan、AnyTLS、Snell、SSH、SSR、Tor SOCKS | 根据实际内核及版本生成，HTTP / SSH / Tor 出口仅承载 TCP |
+| Mieru、Sudoku、TrustTunnel、Naive | 支持接入链路，按 TCP、UDP、QUIC 等实际模式判断前一跳能力 |
+| Hysteria v1 / v2、TUIC、ShadowQUIC、WireGuard、MASQUE H3 | 作为首跳可直接使用；位于后续跳时，前一段链路必须能转发 UDP |
+| MASQUE H2、Mieru TCP、TrustTunnel TCP | 可接在 TCP 代理之后；MASQUE 使用 mihomo |
+| ShadowTLS | 传输包装，必须与后面的 Shadowsocks 配套并使用同一内核，不能作为最终出口 |
+| OpenVPN、OpenConnect、Tailscale、EasyTier、ZeroTier | 支持生成链路；VPN/组网节点的路由、出口权限和认证必须完整。公网访问需要服务端提供出口，不能将内网网段自动变成公网代理 |
+| Rematch | 路由重匹配适配器，不是独立的代理连接，弹窗明确说明无法作为代理跳 |
+| TCP 入口后接 QUIC | 若入口不能转发 UDP，则拒绝并提示调整顺序；不会悄悄直连 |
+| 跨核 | 在 127.0.0.1 上建立带随机用户名、密码的 SOCKS5 桥接，内部路由先于用户规则及 SOCKS 入口限制 |
+
+UDP 能力取决于实际路径。TCP 上承载数据报的协议可在 TCP 代理后提供 UDP；原生 SOCKS/SS 数据报仍受前一段 UDP 能力限制。不支持 UDP 的链只拒绝选中代理出口的 UDP，保留大陆绕过、黑名单和其他直连规则。用户规则不能直接选择中间跳而跳过剩余链路。
+
+Windows amd64 的 Naive 需要 `kernels/libcronet.dll`。运行 `powershell -File scripts/install-cronet-windows.ps1` 安装，脚本从 `kernels.lock` 读取固定版本并核对 SHA256，已有不同版本不会被覆盖。
+
+## 仅 SOCKS5 端口使用代理
+
+在“设置 → 通用”开启开关，设置独立 SOCKS5 端口（默认 10808），保存后重新启动节点或组合。
+
+- 独立 SOCKS5 端口按现有路由规则选择单节点、负载均衡组或代理链。绕过规则仍然生效；若希望此入口的所有流量走代理，选择全局分组并使用代理出口。
+- 混合端口和 TUN 入口优先直连，用户自定义代理规则不会覆盖此限制。
+- SOCKS5 端口必须与两个内核的混合端口不同。开启此设置时，禁止通过 API 直接应用原始配置，以免绕开入口限制。
+- 应用必须显式连接 `socks5://127.0.0.1:10808`（端口以设置为准）。本功能控制进入 DuoRelay 的流量，不修改其他 VPN、系统代理或应用自身的网络设置。
+- 开关关闭时不创建这个专用端口，恢复原有代理入口行为。
+
+## API
+
+`POST /api/config/apply` 请求示例：
+
+```json
+{
+  "mode": "load_balance",
+  "node_ids": ["node-a", "node-b"],
+  "load_balance": {
+    "strategy": "round-robin",
+    "url": "https://www.gstatic.com/generate_204",
+    "interval": 300,
+    "timeout": 5000,
+    "lazy": true
+  }
+}
+```
+
+链式代理使用 `mode: "chain"`，`node_ids` 按入口到出口排序。省略 `kernel` 自动安排单核或双核；显式传入 `kernel` 时严格限制到该内核。负载均衡省略 `load_balance` 时采用服务器保存的默认值。`GET /api/config/current` 返回运行方式、成员顺序及 `chain` 规划；不返回桥接密码、控制器密钥或内部路径。
+
+`POST /api/config/chain/preview` 接受 `{ "node_ids": ["入口 ID", "出口 ID"] }`，返回 `supported`、`reason`、`cross_kernel`、`udp`、各跳内核与警告。预览检查协议参数和链路能力；实际启动还会调用全部真实内核校验。第二个内核启动失败时停止新实例并恢复前一份完整配置。
+
+## 验证
+
+已补充全部协议能力、入口/出口配置矩阵、参数错误保留旧运行状态、双核失败回滚、桥接认证、弹窗预览与排序测试。固定内核配置校验覆盖 27 种网络/传输协议的可用位置，Rematch 验证为路由适配器而拒绝加入。
+
+实流量测试使用临时数据库、本地 HTTP CONNECT 服务、两个加密 Shadowsocks 服务和本地 UDP 回显，覆盖同核、双向跨核、8 跳交替跨核、内部桥接禁止匿名认证，以及专用 SOCKS 入口与混合端口隔离。仅证明本地可复现链路，不代表用户的每个远端节点都已连通；组网认证及远端出口仍由用户的服务配置决定。TUN 仅验证生成规则，未接管用户系统网络。
+
+复现命令（PowerShell）：
+
+```powershell
+go test ./internal/configuration -run TestChainProtocolKernelChecks -count=1
+$env:DUORELAY_CHAIN_INTEGRATION = '1'
+go test ./internal/configuration -run 'TestRealChainTraffic|TestRealChainUDP' -count=1 -v
+```

@@ -2,15 +2,15 @@
 
 **双内核全协议代理面板**
 
-DuoRelay 是一个基于 sing-box 和 mihomo 双内核的 Web 管理面板，实现 28 种代理协议的全覆盖。
+DuoRelay 是一个基于 sing-box 和 mihomo 双内核的 Web 管理面板。当前发布版本 `v0.3.0-beta.1`：双内核配置编排、节点/订阅管理、链式代理、负载均衡、基础路由和 Linux/Windows 部署能力已接入；28 项协议或网络能力具备统一 IR、解析器或配置生成覆盖，具体运行能力取决于内核和协议限制。
 
 ## 特性
 
-- 🚀 **协议全覆盖**: 支持 28 种代理协议（sing-box 20种 + mihomo 24种的并集）
+- 🚀 **能力覆盖**: 支持 28 项代理协议、端点、组网能力和路由适配器（sing-box 20 项 + mihomo 24 项的并集）
 - 🔄 **双核协同**: 智能切换内核，无感混用独有协议
-- 🌐 **Web 管理**: 单二进制部署，浏览器完成全部管理
+- 🌐 **Web 管理**: Go 后端与 Vue 前端，浏览器完成节点、订阅、内核和配置管理
 - 📊 **功能完善**: 测速、连接管理、流量统计、规则系统、故障诊断
-- 🎯 **订阅兼容**: 支持 Base64、Clash YAML、sing-box JSON 等主流订阅格式
+- 🎯 **订阅兼容**: 支持 Base64、Clash/Mihomo、sing-box、v2rayN、Xray、SIP008、Surge、Loon、Mieru 等常见格式
 - 🔒 **安全可靠**: 配置校验、自动回滚、崩溃自动拉起
 
 ## 支持的协议
@@ -30,7 +30,7 @@ ShadowsocksR, Mieru, Sudoku, ShadowQUIC, TrustTunnel, Rematch, EasyTier, ZeroTie
 
 ```bash
 # 克隆仓库
-git clone https://github.com/holi/duorelay.git
+git clone https://github.com/HlONGlin/DuoRelay.git
 cd duorelay
 
 # 安装依赖
@@ -39,8 +39,11 @@ make web
 # 构建
 make build
 
-# 运行
-./build/duorelay
+# 运行（Linux/macOS）
+./build/duorelay -kernels ./kernels
+
+# Windows PowerShell
+.\build\duorelay.exe -kernels .\kernels
 ```
 
 ### 开发
@@ -56,16 +59,15 @@ make web-dev
 make dev
 ```
 
-## 开发状态
+## 当前状态与边界
 
-当前处于 **P0 技术验证阶段**，正在搭建工程骨架。
+- 当前主流程已可运行；路由规则、流量历史、日志历史和面板重启恢复已接入，仍需要按目标 Linux 发行版做 TUN、DNS 和权限验收。
+- 启动配置会由 `kernel.Manager` 调用实际的 `sing-box check` 或 `mihomo -t` 校验；生成器自身的 `Validate` 负责 JSON/YAML 结构校验。
+- TUN、Windows 系统代理、DNS 接管和权限恢复仍需要按目标系统进一步联调，不能等同于完整系统代理接管。
+- Mieru、Rematch、ShadowTLS、VPN/组网协议存在内核或远端配置限制；Parser/Generator 通过不代表所有公网节点都能连通。
+- `/traffic` 是 Clash API 速率采样，并将滚动历史保存到 SQLite；它不是按用户或节点计费的累计流量账单。内核日志同时保留内存环和 JSONL 历史。
 
-预计完整开发周期：20 周（100 人日）
-
-- [x] P0-01: 工程骨架（进行中）
-- [ ] P0-02: 内核获取与版本锁定
-- [ ] P0-03: 协议与对标核实
-- [ ] ...更多任务详见 [企划书](企划书_v2.0.md)
+详细格式说明见 [订阅格式](docs/subscription-formats.md)，多节点链式代理见 [多节点代理说明](docs/multi-node-proxy.md)。
 
 ## 架构
 
@@ -73,7 +75,7 @@ make dev
 ┌─────────────────────────────────────┐
 │  Web 前端（Vue 3 + TS）              │
 └───────────┬──────────────┬──────────┘
-            │ REST         │ WebSocket
+            │ REST/HTTP 轮询
 ┌───────────▼──────────────▼──────────┐
 │  面板后端（Go）                      │
 │  ├─ 节点/订阅管理（SQLite）          │
@@ -101,3 +103,7 @@ make dev
 ---
 
 🤖 项目由 [Claude Code](https://claude.com/claude-code) 辅助开发
+
+## Linux 部署补充
+
+Linux 是 DuoRelay 的主要运行目标。服务器、容器和无桌面系统优先使用 TUN；GNOME 桌面可在当前用户 D-Bus 会话中启用系统代理。发布包、systemd 单元、安装卸载和验收命令见 [Linux 部署](docs/linux-deployment.md)。

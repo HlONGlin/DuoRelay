@@ -2,6 +2,7 @@ package clashapi_test
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -12,9 +13,7 @@ import (
 // Run with: go test -v ./internal/clashapi -run TestSingBoxClashAPI
 // Prerequisites: sing-box running with testdata/configs/singbox-minimal.json
 func TestSingBoxClashAPI(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test")
-	}
+	requireLiveIntegration(t)
 
 	adapter := clashapi.NewAdapter("http://127.0.0.1:19094", "test123", clashapi.KernelSingBox)
 	defer adapter.Close()
@@ -61,9 +60,7 @@ func TestSingBoxClashAPI(t *testing.T) {
 // Run with: go test -v ./internal/clashapi -run TestMihomoClashAPI
 // Prerequisites: mihomo running with testdata/configs/mihomo-minimal.yaml
 func TestMihomoClashAPI(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test")
-	}
+	requireLiveIntegration(t)
 
 	adapter := clashapi.NewAdapter("http://127.0.0.1:19093", "test123", clashapi.KernelMihomo)
 	defer adapter.Close()
@@ -114,4 +111,11 @@ func TestMihomoClashAPI(t *testing.T) {
 		t.Logf("DIRECT proxy: type=%s, udp=%v, alive=%v",
 			proxy.Type, proxy.UDP, proxy.Alive)
 	})
+}
+
+func requireLiveIntegration(t *testing.T) {
+	t.Helper()
+	if testing.Short() || os.Getenv("DUORELAY_CLASHAPI_INTEGRATION") != "1" {
+		t.Skip("live Clash API integration disabled; set DUORELAY_CLASHAPI_INTEGRATION=1 to enable")
+	}
 }

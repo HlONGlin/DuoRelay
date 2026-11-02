@@ -34,6 +34,10 @@ type Manager struct {
 	stopTimeout       time.Duration
 	stableUptime      time.Duration
 	restartPolicy     func() *RestartPolicy
+	logSubs           map[string]map[chan LogEntry]struct{}
+	logHistory        map[string]*RingBuffer
+	logDir            string
+	logFileMu         sync.Mutex
 }
 
 type RunMode string
@@ -80,9 +84,11 @@ func NewManager(kernelsDir ...string) *Manager {
 	}
 	return &Manager{
 		mode: ModeSingleSwitch, kernelsDir: dir, command: exec.CommandContext,
-		validationTimeout: 10 * time.Second, healthTimeout: 5 * time.Second,
+		validationTimeout: 10 * time.Second, healthTimeout: 30 * time.Second,
 		stopTimeout: 5 * time.Second, stableUptime: 30 * time.Second,
 		restartPolicy: NewRestartPolicy,
+		logSubs:       map[string]map[chan LogEntry]struct{}{},
+		logHistory:    map[string]*RingBuffer{},
 	}
 }
 
@@ -186,8 +192,16 @@ func (m *Manager) start(name, configPath string) error {
 		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	buffer := NewRingBuffer(10000)
+	m.mu.RLock()
+	if history := m.logHistory[name]; history != nil {
+		for _, entry := range history.GetAll() {
+			buffer.Append(entry)
+		}
+	}
+	m.mu.RUnlock()
 	p := &Process{Name: name, Binary: binary, Config: config, Ctx: ctx, Cancel: cancel,
-		LogBuffer: NewRingBuffer(10000), RestartPolicy: m.restartPolicy(),
+		LogBuffer: buffer, RestartPolicy: m.restartPolicy(),
 		controller: controller, secret: secret, done: make(chan struct{})}
 	m.mu.Lock()
 	a, err := m.launch(p)
@@ -269,6 +283,10 @@ func (m *Manager) validate(name, binary, config string) error {
 // launch is called with m.mu held. Each command has exactly one Wait caller.
 func (m *Manager) launch(p *Process) (*attempt, error) {
 	cmd := m.command(p.Ctx, p.Binary, kernelArgs(p.Name, p.Config, false)...)
+	if p.Name == "mihomo" && runtime.GOOS == "linux" && mihomoTUNEnabled(p.Config) {
+		// Keep the configured IPv6 TUN route active on IPv4-only Linux hosts.
+		cmd.Env = withEnvironment(os.Environ(), "SKIP_SYSTEM_IPV6_CHECK", "1")
+	}
 	cmd.Cancel = func() error {
 		if runtime.GOOS != "windows" {
 			if err := cmd.Process.Signal(syscall.SIGTERM); err == nil || errors.Is(err, os.ErrProcessDone) {
@@ -278,8 +296,8 @@ func (m *Manager) launch(p *Process) (*attempt, error) {
 		return cmd.Process.Kill()
 	}
 	cmd.WaitDelay = m.stopTimeout
-	stdout := newLogWriter(p.LogBuffer, "stdout")
-	stderr := newLogWriter(p.LogBuffer, "stderr")
+	stdout := newLogWriterWithCallback(p.LogBuffer, "stdout", func(entry LogEntry) { m.recordLog(p.Name, entry) })
+	stderr := newLogWriterWithCallback(p.LogBuffer, "stderr", func(entry LogEntry) { m.recordLog(p.Name, entry) })
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start %s: %w", p.Name, err)
@@ -293,6 +311,71 @@ func (m *Manager) launch(p *Process) (*attempt, error) {
 		close(a.done)
 	}()
 	return a, nil
+}
+
+func mihomoTUNEnabled(configPath string) bool {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return false
+	}
+	var config struct {
+		TUN struct {
+			Enable bool `yaml:"enable"`
+		} `yaml:"tun"`
+	}
+	return yaml.Unmarshal(data, &config) == nil && config.TUN.Enable
+}
+
+func withEnvironment(environment []string, key, value string) []string {
+	result := make([]string, 0, len(environment)+1)
+	for _, entry := range environment {
+		name, _, ok := strings.Cut(entry, "=")
+		if !ok || name != key {
+			result = append(result, entry)
+		}
+	}
+	return append(result, key+"="+value)
+}
+
+// SubscribeLogs returns a live stream of log entries for one kernel. The
+// cancel function removes the subscriber and closes its channel.
+func (m *Manager) SubscribeLogs(name string) (<-chan LogEntry, func(), error) {
+	if name != "sing-box" && name != "mihomo" {
+		return nil, nil, fmt.Errorf("unknown kernel %q", name)
+	}
+	ch := make(chan LogEntry, 128)
+	m.mu.Lock()
+	if m.logSubs == nil {
+		m.logSubs = map[string]map[chan LogEntry]struct{}{}
+	}
+	if m.logSubs[name] == nil {
+		m.logSubs[name] = map[chan LogEntry]struct{}{}
+	}
+	m.logSubs[name][ch] = struct{}{}
+	m.mu.Unlock()
+	var once sync.Once
+	cancel := func() {
+		once.Do(func() {
+			m.mu.Lock()
+			if subscribers := m.logSubs[name]; subscribers != nil {
+				delete(subscribers, ch)
+			}
+			close(ch)
+			m.mu.Unlock()
+		})
+	}
+	return ch, cancel, nil
+}
+
+func (m *Manager) publishLog(name string, entry LogEntry) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for ch := range m.logSubs[name] {
+		select {
+		case ch <- entry:
+		default:
+		}
+	}
 }
 
 func (m *Manager) stop(name string) error {
@@ -389,7 +472,7 @@ func (m *Manager) waitHealthy(p *Process, a *attempt) error {
 	if p.controller == "" {
 		select {
 		case <-a.done:
-			return fmt.Errorf("process exited during startup: %v", a.err)
+			return m.startupExitError(p, a)
 		default:
 			return nil
 		}
@@ -400,7 +483,7 @@ func (m *Manager) waitHealthy(p *Process, a *attempt) error {
 	for {
 		select {
 		case <-a.done:
-			return fmt.Errorf("process exited during startup: %v", a.err)
+			return m.startupExitError(p, a)
 		default:
 		}
 		lastErr = probeVersion(ctx, p.controller, p.secret)
@@ -416,7 +499,7 @@ func (m *Manager) waitHealthy(p *Process, a *attempt) error {
 		if lastErr == nil {
 			select {
 			case <-a.done:
-				return fmt.Errorf("process exited during startup: %v", a.err)
+				return m.startupExitError(p, a)
 			default:
 			}
 			return p.Ctx.Err()
@@ -428,10 +511,30 @@ func (m *Manager) waitHealthy(p *Process, a *attempt) error {
 			return fmt.Errorf("health check: %w (last probe: %v)", ctx.Err(), lastErr)
 		case <-a.done:
 			timer.Stop()
-			return fmt.Errorf("process exited during startup: %v", a.err)
+			return m.startupExitError(p, a)
 		case <-timer.C:
 		}
 	}
+}
+
+func (m *Manager) startupExitError(p *Process, a *attempt) error {
+	err := fmt.Errorf("process exited during startup: %v", a.err)
+	entries := p.LogBuffer.GetRecent(20)
+	lines := make([]string, 0, 8)
+	for i := len(entries) - 1; i >= 0 && len(lines) < 8; i-- {
+		entry := entries[i]
+		if entry.Source != "stderr" || strings.TrimSpace(entry.Line) == "" {
+			continue
+		}
+		lines = append(lines, strings.TrimSpace(entry.Line))
+	}
+	if len(lines) == 0 {
+		return err
+	}
+	for left, right := 0, len(lines)-1; left < right; left, right = left+1, right-1 {
+		lines[left], lines[right] = lines[right], lines[left]
+	}
+	return fmt.Errorf("%w; recent stderr: %s", err, strings.Join(lines, " | "))
 }
 
 func probeVersion(ctx context.Context, baseURL, secret string) error {
@@ -505,6 +608,12 @@ func (m *Manager) GetLogs(name string, n int) []LogEntry {
 	}
 	p := m.process(name)
 	if p == nil {
+		if history := m.logHistory[name]; history != nil {
+			if n <= 0 {
+				return history.GetAll()
+			}
+			return history.GetRecent(n)
+		}
 		return []LogEntry{}
 	}
 	if n <= 0 {

@@ -5,10 +5,25 @@ export interface NodeQuery {
   protocol?: string
   subscription_id?: string
   search?: string
+  limit?: number
+  offset?: number
 }
 
 export function listNodes(params: NodeQuery = {}): Promise<ProxyNode[]> {
   return request<ProxyNode[]>({ url: '/nodes', method: 'get', params })
+}
+
+export interface ImportNodesResult {
+  nodes: ProxyNode[]
+  nodes_total: number
+}
+
+export function importNodes(content: string): Promise<ImportNodesResult> {
+  return request<ImportNodesResult>({
+    url: '/nodes/import',
+    method: 'post',
+    data: { content }
+  })
 }
 
 export function activateNode(id: string): Promise<ProxyNode> {
@@ -17,6 +32,7 @@ export function activateNode(id: string): Promise<ProxyNode> {
 
 export interface DelayResult {
   delay_ms: number
+  success?: boolean
 }
 
 export function testNodeDelay(id: string, timeout = 5000): Promise<DelayResult> {

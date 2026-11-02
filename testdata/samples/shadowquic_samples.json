@@ -1,0 +1,69 @@
+[
+  {
+    "name": "password",
+    "description": "Sanitized documentation endpoint; credentials are public test values.",
+    "link": "shadowquic://sample-only@example.com",
+    "expected_ir": {
+      "protocol": "shadowquic",
+      "owner": 2,
+      "security": {
+        "type": "tls",
+        "sni": "example.com",
+        "alpn": [
+          "h3"
+        ]
+      },
+      "transport": {
+        "type": "quic"
+      },
+      "proto": {
+        "password": "sample-only",
+        "udp": true
+      }
+    }
+  },
+  {
+    "name": "jls",
+    "description": "Sanitized documentation endpoint; credentials are public test values.",
+    "link": "shadowquic://demo:sample%3Apass@[2001:db8::4]:8443?alpn=h3&udp-over-stream=true&zero-rtt=1&keep-alive-interval=15000&recv-window-conn=65536&recv-window=1048576&max-open-streams=64&max-datagram-frame-size=1400&disable-mtu-discovery=false&cwnd=32&congestion-controller=bbr&quic-versions=v1,v2",
+    "expected_ir": {
+      "protocol": "shadowquic",
+      "owner": 2,
+      "server": {
+        "host": "2001:db8::4",
+        "port": 8443
+      },
+      "proto": {
+        "username": "demo",
+        "password": "sample:pass",
+        "udp": true,
+        "udp_over_stream": true,
+        "zero_rtt": true,
+        "keep_alive_interval": 15000,
+        "recv_window_conn": 65536,
+        "recv_window": 1048576,
+        "max_open_streams": 64,
+        "max_datagram_frame_size": 1400,
+        "disable_mtu_discovery": false,
+        "cwnd": 32,
+        "congestion_controller": "bbr",
+        "quic_versions": [
+          "v1",
+          "v2"
+        ]
+      }
+    }
+  },
+  {
+    "name": "query-password",
+    "description": "Sanitized documentation endpoint; credentials are public test values.",
+    "link": "shadowquic://example.com:443?password=sample-only",
+    "expected_ir": {
+      "protocol": "shadowquic",
+      "owner": 2,
+      "proto": {
+        "password": "sample-only"
+      }
+    }
+  }
+]

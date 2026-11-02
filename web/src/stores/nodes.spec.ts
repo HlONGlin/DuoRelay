@@ -119,6 +119,49 @@ describe('nodes store', () => {
     expect(store.items[0].last_test_at).toBeTruthy()
   })
 
+  it('keeps an active node selected after successful and failed speed tests', async () => {
+    vi.mocked(nodeApi.listNodes).mockResolvedValue([makeNode({ status: 'active' })])
+    const store = useNodesStore()
+    await store.fetchNodes()
+    vi.mocked(nodeApi.testNodeDelay).mockResolvedValue({ delay_ms: 88 })
+    await store.testNode('node-1')
+    expect(store.activeNodes.map(node => node.id)).toEqual(['node-1'])
+    vi.mocked(nodeApi.testNodeDelay).mockResolvedValue({ delay_ms: -1, success: false })
+    await store.testNode('node-1')
+    expect(store.activeNodes.map(node => node.id)).toEqual(['node-1'])
+    vi.mocked(nodeApi.testNodeDelay).mockRejectedValue(new Error('timeout'))
+    await expect(store.testNode('node-1')).rejects.toThrow('timeout')
+    expect(store.activeNodeId).toBe('node-1')
+    expect(store.activeNodes.map(node => node.id)).toEqual(['node-1'])
+    expect(store.activeNode?.last_delay_ms).toBe(-1)
+  })
+
+  it('loads beyond one page without dropping nodes or the active selection', async () => {
+    const firstPage = Array.from({ length: 5000 }, (_, index) => makeNode({ id: 'node-' + index }))
+    vi.mocked(nodeApi.listNodes).mockResolvedValueOnce(firstPage).mockResolvedValueOnce([
+      makeNode({ id: 'last-node', status: 'active' })
+    ])
+    const store = useNodesStore()
+    await store.fetchAllNodes()
+    expect(store.items).toHaveLength(5001)
+    expect(store.activeNodeId).toBe('last-node')
+    expect(nodeApi.listNodes).toHaveBeenNthCalledWith(2, { limit: 5000, offset: 5000 })
+  })
+
+  it('retains the last complete list if a later page fails', async () => {
+    const store = useNodesStore()
+    store.items = [makeNode({ id: 'existing', status: 'active' })]
+    store.activeNodeId = 'existing'
+    vi.mocked(nodeApi.listNodes)
+      .mockResolvedValueOnce(Array.from({ length: 5000 }, (_, index) => makeNode({ id: 'new-' + index })))
+      .mockRejectedValueOnce(new Error('分页请求失败'))
+    await store.fetchAllNodes()
+    expect(store.items.map(node => node.id)).toEqual(['existing'])
+    expect(store.activeNodeId).toBe('existing')
+    expect(store.error).toBe('分页请求失败')
+    expect(store.loading).toBe(false)
+  })
+
   it('removes a node from local state', async () => {
     vi.mocked(nodeApi.listNodes).mockResolvedValue([makeNode(), makeNode({ id: 'node-2' })])
     vi.mocked(nodeApi.deleteNode).mockResolvedValue()

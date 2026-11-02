@@ -138,19 +138,28 @@ func (lc *LogCapture) Wait() {
 // Very long lines are split into bounded chunks so a noisy child cannot block
 // pipe draining or grow the pending line indefinitely.
 type logWriter struct {
-	mu      sync.Mutex
-	buffer  *RingBuffer
-	source  string
-	pending []byte
-	chunked bool
+	mu       sync.Mutex
+	buffer   *RingBuffer
+	source   string
+	pending  []byte
+	chunked  bool
+	onAppend func(LogEntry)
 }
 
 func newLogWriter(buffer *RingBuffer, source string) *logWriter {
 	return &logWriter{buffer: buffer, source: source}
 }
 
+func newLogWriterWithCallback(buffer *RingBuffer, source string, onAppend func(LogEntry)) *logWriter {
+	return &logWriter{buffer: buffer, source: source, onAppend: onAppend}
+}
+
 func (w *logWriter) append(line []byte) {
-	w.buffer.Append(LogEntry{Timestamp: time.Now(), Source: w.source, Line: string(bytes.TrimSuffix(line, []byte{'\r'}))})
+	entry := LogEntry{Timestamp: time.Now(), Source: w.source, Line: string(bytes.TrimSuffix(line, []byte{'\r'}))}
+	w.buffer.Append(entry)
+	if w.onAppend != nil {
+		w.onAppend(entry)
+	}
 }
 
 func (w *logWriter) Write(data []byte) (int, error) {

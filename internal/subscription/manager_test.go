@@ -28,6 +28,8 @@ func newTestManager(t *testing.T) *Manager {
 
 const shareLink = "ss://YWVzLTI1Ni1nY206cGFzcw@127.0.0.1:8388#alpha"
 const clashOne = "proxies:\n  - {name: alpha, type: ss, server: example.com, port: 8388, cipher: aes-256-gcm, password: pass}\n"
+const openVPNProfile = "client\ndev tun\nproto udp\nremote vpn.example 1194\n<ca>\ncertificate\n</ca>\n"
+const v2rayNOne = `{"v":"2","ps":"v2rayn-alpha","add":"example.com","port":"443","id":"b8ca57c2-eb39-491a-8425-bba828fbad2d","aid":"0","scy":"auto","net":"ws","host":"cdn.example.com","path":"/ws","tls":"tls","sni":"cdn.example.com"}`
 
 func TestParseSubscriptionFormats(t *testing.T) {
 	m := newTestManager(t)
@@ -37,6 +39,10 @@ func TestParseSubscriptionFormats(t *testing.T) {
 		{"raw-base64", base64.RawURLEncoding.EncodeToString([]byte(shareLink)), "base64"},
 		{"clash", clashOne, "clash"},
 		{"sing-box", `{"outbounds":[{"type":"direct"},{"type":"shadowsocks","tag":"alpha","server":"example.com","server_port":8388,"method":"aes-256-gcm","password":"pass"}]}`, "sing-box"},
+		{"v2rayn-json", v2rayNOne, "v2rayn"},
+		{"v2rayn-list", `[` + v2rayNOne + `]`, "v2rayn"},
+		{"v2rayn-base64-json", base64.StdEncoding.EncodeToString([]byte(v2rayNOne)), "v2rayn-base64"},
+		{"openvpn", openVPNProfile, "openvpn"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			format, err := ParseFormat([]byte(tc.body))
@@ -44,8 +50,19 @@ func TestParseSubscriptionFormats(t *testing.T) {
 				t.Fatalf("format: %s %v", format, err)
 			}
 			nodes, err := m.Parse([]byte(tc.body))
-			if err != nil || len(nodes) != 1 || nodes[0].Protocol != ir.ProtocolShadowsocks || nodes[0].Proto["password"] != "pass" {
+			if err != nil || len(nodes) != 1 {
 				t.Fatalf("nodes: %#v %v", nodes, err)
+			}
+			if tc.name == "openvpn" {
+				if nodes[0].Protocol != ir.ProtocolOpenVPN || nodes[0].Server.Host != "vpn.example" || nodes[0].Proto["ca"] != "certificate" {
+					t.Fatalf("OpenVPN node: %#v", nodes[0])
+				}
+			} else if tc.name == "v2rayn-json" || tc.name == "v2rayn-list" || tc.name == "v2rayn-base64-json" {
+				if nodes[0].Protocol != ir.ProtocolVMess || nodes[0].Proto["uuid"] != "b8ca57c2-eb39-491a-8425-bba828fbad2d" {
+					t.Fatalf("V2RayN node: %#v", nodes[0])
+				}
+			} else if nodes[0].Protocol != ir.ProtocolShadowsocks || nodes[0].Proto["password"] != "pass" {
+				t.Fatalf("node: %#v", nodes[0])
 			}
 		})
 	}
@@ -53,6 +70,82 @@ func TestParseSubscriptionFormats(t *testing.T) {
 		if _, err := m.Parse([]byte(body)); err == nil {
 			t.Fatalf("invalid input accepted: %s", body)
 		}
+	}
+}
+
+func TestParseModernShareLinks(t *testing.T) {
+	m := newTestManager(t)
+	body := "anytls://secret@example.com:443?sni=example.com#anytls\n" +
+		"mieru://user:pass@example.com:3000?transport=tcp#mieru\n"
+	nodes, err := m.Parse([]byte(body))
+	if err != nil || len(nodes) != 2 {
+		t.Fatalf("modern links: %#v %v", nodes, err)
+	}
+	if nodes[0].Protocol != ir.ProtocolAnyTLS || nodes[1].Protocol != ir.ProtocolMieru {
+		t.Fatalf("modern protocols: %#v", nodes)
+	}
+}
+
+func TestParseBase64NativeDocuments(t *testing.T) {
+	m := newTestManager(t)
+	clash := base64.StdEncoding.EncodeToString([]byte("proxies:\n  - {name: anytls, type: anytls, server: example.com, port: 443, password: secret}\n"))
+	format, err := ParseFormat([]byte(clash))
+	if err != nil || format != "clash-base64" {
+		t.Fatalf("Clash Base64 format: %s %v", format, err)
+	}
+	nodes, err := m.Parse([]byte(clash))
+	if err != nil || len(nodes) != 1 || nodes[0].Protocol != ir.ProtocolAnyTLS {
+		t.Fatalf("Clash Base64 nodes: %#v %v", nodes, err)
+	}
+
+	singBox := base64.RawStdEncoding.EncodeToString([]byte(`{"outbounds":[{"type":"anytls","tag":"anytls","server":"example.com","server_port":443,"password":"secret","tls":{"enabled":true}}]}`))
+	format, err = ParseFormat([]byte(singBox))
+	if err != nil || format != "sing-box-base64" {
+		t.Fatalf("sing-box Base64 format: %s %v", format, err)
+	}
+	nodes, err = m.Parse([]byte(singBox))
+	if err != nil || len(nodes) != 1 || nodes[0].Protocol != ir.ProtocolAnyTLS {
+		t.Fatalf("sing-box Base64 nodes: %#v %v", nodes, err)
+	}
+}
+
+func TestParseV2RayNModernProtocols(t *testing.T) {
+	m := newTestManager(t)
+	content := `[{"protocol":"anytls","ps":"AnyTLS JSON","address":"anytls.example.com","port":443,"password":"secret","sni":"anytls.example.com"},{"protocol":"mieru","ps":"Mieru JSON","address":"mieru.example.com","port":3000,"username":"user","password":"pass","transport":"TCP"}]`
+	nodes, err := m.Parse([]byte(content))
+	if err != nil || len(nodes) != 2 {
+		t.Fatalf("V2RayN modern protocols: %#v %v", nodes, err)
+	}
+	if nodes[0].Protocol != ir.ProtocolAnyTLS || nodes[0].Proto["password"] != "secret" || nodes[0].Security.Type != "tls" {
+		t.Fatalf("unexpected AnyTLS V2RayN node: %#v", nodes[0])
+	}
+	if nodes[1].Protocol != ir.ProtocolMieru || nodes[1].Proto["username"] != "user" || nodes[1].Proto["transport"] != "TCP" {
+		t.Fatalf("unexpected Mieru V2RayN node: %#v", nodes[1])
+	}
+}
+
+func TestParseClashModernProtocols(t *testing.T) {
+	m := newTestManager(t)
+	content := `proxies:
+  - name: anytls
+    type: anytls
+    server: anytls.example.com
+    port: 443
+    password: secret
+    sni: anytls.example.com
+  - name: mieru
+    type: mieru
+    server: mieru.example.com
+    port: 3000
+    username: user
+    password: pass
+    transport: TCP`
+	nodes, err := m.Parse([]byte(content))
+	if err != nil || len(nodes) != 2 {
+		t.Fatalf("Clash modern protocols: %#v %v", nodes, err)
+	}
+	if nodes[0].Protocol != ir.ProtocolAnyTLS || nodes[1].Protocol != ir.ProtocolMieru || nodes[1].Proto["transport"] != "TCP" {
+		t.Fatalf("unexpected Clash modern nodes: protocols=%s/%s transport=%#v nodes=%#v", nodes[0].Protocol, nodes[1].Protocol, nodes[1].Proto["transport"], nodes)
 	}
 }
 

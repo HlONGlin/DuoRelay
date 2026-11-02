@@ -138,6 +138,12 @@ MIHOMO_SHA256=$(sha256sum "$KERNELS_DIR/$MIHOMO_BINARY" | awk '{print $1}')
 echo "  sing-box: $SINGBOX_SHA256"
 echo "  mihomo:   $MIHOMO_SHA256"
 
+# Preserve additional pinned dependencies when refreshing kernel checksums.
+CRONET_LOCK=""
+if [ -f "$LOCK_FILE" ]; then
+    CRONET_LOCK=$(sed -n '/^cronet:/,$p' "$LOCK_FILE")
+fi
+
 # Generate lock file
 cat > "$LOCK_FILE" << EOF
 # DuoRelay Kernel Lock File
@@ -155,6 +161,13 @@ mihomo:
   sha256:
     ${OS}-${ARCH}: "$MIHOMO_SHA256"
 EOF
+
+if [ -n "$CRONET_LOCK" ]; then
+    printf '\n%s\n' "$CRONET_LOCK" >> "$LOCK_FILE"
+fi
+if [ "$OS" = "windows" ] && [ "$ARCH" = "amd64" ]; then
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$SCRIPT_DIR/install-cronet-windows.ps1"
+fi
 
 echo ""
 echo "✅ Kernels downloaded successfully!"

@@ -4,8 +4,11 @@ import {
   formatBytes,
   formatDelay,
   formatUptime,
+  nodeEndpointLabel,
   ownerKernels,
   ownerLabel,
+  protocolDescription,
+  protocolGlyph,
   protocolLabel,
   statusType,
   usagePercent
@@ -15,8 +18,10 @@ describe('format helpers', () => {
   it('formats delay values', () => {
     expect(formatDelay(0)).toBe('—')
     expect(formatDelay(120)).toBe('120 ms')
-    expect(delayType(120)).toBe('success')
-    expect(delayType(500)).toBe('warning')
+    expect(delayType(100)).toBe('success')
+    expect(delayType(101)).toBe('warning')
+    expect(delayType(250)).toBe('warning')
+    expect(delayType(251)).toBe('danger')
     expect(delayType(1200)).toBe('danger')
     expect(delayType(undefined)).toBe('info')
   })
@@ -46,10 +51,22 @@ describe('format helpers', () => {
 
   it('maps protocol and status labels', () => {
     expect(protocolLabel('vmess')).toBe('VMess')
+    expect(protocolGlyph('wireguard')).toBe('WG')
+    expect(protocolDescription('rematch')).toContain('路由')
     expect(protocolLabel('custom')).toBe('custom')
     expect(statusType('active')).toBe('success')
     expect(statusType('error')).toBe('danger')
     expect(statusType('unknown')).toBe('info')
+  })
+
+  it('formats regular and overlay node endpoints', () => {
+    expect(nodeEndpointLabel({ protocol: 'vmess', server: { host: 'hk.example.com', port: 443 } })).toBe(
+      'hk.example.com:443'
+    )
+    expect(nodeEndpointLabel({ protocol: 'rematch', server: { host: '', port: 0 } })).toBe(
+      '路由适配器'
+    )
+    expect(nodeEndpointLabel({ protocol: 'tailscale' })).toBe('本地覆盖网络')
   })
 
   it('calculates usage percent safely', () => {

@@ -54,7 +54,7 @@ var ProtocolOwnership = map[string]KernelSet{
 	ProtocolSSH:         KernelSetBoth,
 	ProtocolWireGuard:   KernelSetBoth,
 	ProtocolOpenVPN:     KernelSetBoth,
-	ProtocolMASQUE:      KernelSetBoth,
+	ProtocolMASQUE:      KernelSetMihomo,
 	ProtocolTailscale:   KernelSetBoth,
 
 	// sing-box exclusive

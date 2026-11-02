@@ -1,0 +1,63 @@
+[
+  {
+    "name": "h2",
+    "description": "Sanitized documentation endpoint; credentials are public test values.",
+    "link": "trusttunnel://demo:sample-only@example.com",
+    "expected_ir": {
+      "protocol": "trusttunnel",
+      "owner": 2,
+      "security": {
+        "type": "tls",
+        "sni": "example.com",
+        "alpn": [
+          "h2"
+        ]
+      },
+      "transport": {
+        "type": "tcp"
+      },
+      "proto": {
+        "username": "demo",
+        "password": "sample-only"
+      }
+    }
+  },
+  {
+    "name": "h3",
+    "description": "Sanitized documentation endpoint; credentials are public test values.",
+    "link": "trusttunnel://demo:sample-only@example.com:8443?quic=1&udp=true&health-check=1&max-connections=4&min-streams=2&max-streams=64&congestion-controller=bbr&cwnd=32&skip-cert-verify=false&sni=tls.example.com",
+    "expected_ir": {
+      "protocol": "trusttunnel",
+      "owner": 2,
+      "server": {
+        "host": "example.com",
+        "port": 8443
+      },
+      "security": {
+        "type": "tls",
+        "sni": "tls.example.com",
+        "alpn": [
+          "h3"
+        ],
+        "opts": {
+          "insecure": false
+        }
+      },
+      "transport": {
+        "type": "quic"
+      },
+      "proto": {
+        "username": "demo",
+        "password": "sample-only",
+        "quic": true,
+        "udp": true,
+        "health_check": true,
+        "max_connections": 4,
+        "min_streams": 2,
+        "max_streams": 64,
+        "congestion_controller": "bbr",
+        "cwnd": 32
+      }
+    }
+  }
+]

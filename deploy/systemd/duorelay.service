@@ -1,0 +1,24 @@
+[Unit]
+Description=DuoRelay proxy manager
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@DUORELAY_USER@
+Group=@DUORELAY_USER@
+WorkingDirectory=@DUORELAY_PREFIX@
+ExecStart=@DUORELAY_PREFIX@/duorelay --listen 127.0.0.1:8080 --db @DUORELAY_DATA@/duorelay.db --config-dir @DUORELAY_DATA@/configs --kernels @DUORELAY_PREFIX@/kernels
+Restart=on-failure
+RestartSec=3
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+DeviceAllow=/dev/net/tun rw
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=@DUORELAY_DATA@
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -26,19 +26,19 @@ type Node struct {
 	Protocol string    `json:"protocol"` // One of 28 protocols
 	Owner    KernelSet `json:"owner"`    // Which kernel(s) can run this
 
-	Server    Server            `json:"server"`
-	Transport Transport         `json:"transport"`
-	Security  Security          `json:"security"`
-	Proto     map[string]any    `json:"proto"`  // Protocol-specific fields
-	Extra     map[string]any    `json:"extra"`  // Passthrough fields
-	Source    Source            `json:"source"` // Origin info
+	Server    Server         `json:"server"`
+	Transport Transport      `json:"transport"`
+	Security  Security       `json:"security"`
+	Proto     map[string]any `json:"proto"`  // Protocol-specific fields
+	Extra     map[string]any `json:"extra"`  // Passthrough fields
+	Source    Source         `json:"source"` // Origin info
 
 	// Management fields
-	GroupID   string    `json:"group_id,omitempty"`
-	Tags      []string  `json:"tags,omitempty"`
-	Favorite  bool      `json:"favorite"`
-	SortOrder int       `json:"sort_order"`
-	Status    string    `json:"status"` // active, error, testing, etc.
+	GroupID   string   `json:"group_id,omitempty"`
+	Tags      []string `json:"tags,omitempty"`
+	Favorite  bool     `json:"favorite"`
+	SortOrder int      `json:"sort_order"`
+	Status    string   `json:"status"` // active, error, testing, etc.
 
 	// Test results
 	LastDelayMs int       `json:"last_delay_ms"`
@@ -64,10 +64,10 @@ type Transport struct {
 
 // Security represents security/TLS config
 type Security struct {
-	Type        string   `json:"type"` // none, tls, reality
-	SNI         string   `json:"sni,omitempty"`
-	ALPN        []string `json:"alpn,omitempty"`
-	Fingerprint string   `json:"fingerprint,omitempty"`
+	Type        string         `json:"type"` // none, tls, reality
+	SNI         string         `json:"sni,omitempty"`
+	ALPN        []string       `json:"alpn,omitempty"`
+	Fingerprint string         `json:"fingerprint,omitempty"`
 	Opts        map[string]any `json:"opts,omitempty"`
 }
 

@@ -6,7 +6,7 @@ describe('DelayBadge', () => {
   it('renders the delay value', () => {
     const wrapper = mount(DelayBadge, { props: { delay: 120 } })
     expect(wrapper.text()).toContain('120 ms')
-    expect(wrapper.classes()).toContain('delay-success')
+    expect(wrapper.classes()).toContain('delay-warning')
   })
 
   it('renders a placeholder when delay is missing', () => {

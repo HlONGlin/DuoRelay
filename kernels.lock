@@ -6,9 +6,23 @@ singbox:
   url_template: "https://github.com/SagerNet/sing-box/releases/download/v{version}/sing-box-{version}-{os}-{arch}.{ext}"
   sha256:
     windows-amd64: "8f30682ee198855440d2a7fe070d5d3653793b2d01bb8c85eea88f93bbe7c8b9"
+    linux-amd64: "1264361b5f8868c8768f7555d3e77e20118bf503c41ac08bb290a0d99056aa3a"
 
 mihomo:
   version: "1.19.33"
   url_template: "https://github.com/MetaCubeX/mihomo/releases/download/v{version}/mihomo-{os}-{arch}-v{version}.{ext}"
   sha256:
     windows-amd64: "1cde41cfffd3de0aedad63c0a8515e1ce5eea507e8133aed0f637d316c93800a"
+    linux-amd64: "09c2cb429cf45fb56884ceb91a0e5b17cc8b2c866c07811bcf75dfb59fef7662"
+
+# Naive requires Cronet. This revision is referenced by sing-box v1.14.4/go.mod.
+cronet:
+  commit: "c10c03c318db6d47bec8705c8290bad34bc32b64"
+  windows-amd64:
+    url: "https://raw.githubusercontent.com/SagerNet/cronet-go/c10c03c318db6d47bec8705c8290bad34bc32b64/lib/windows_amd64/libcronet.dll"
+    sha256: "3217c6260fbca5f16072e0b79735742f40109a63bb0ff88fd6b96dd6b54a2928"
+    filename: "libcronet.dll"
+  linux-amd64:
+    url: "https://raw.githubusercontent.com/SagerNet/cronet-go/c10c03c318db6d47bec8705c8290bad34bc32b64/lib/linux_amd64/libcronet.so"
+    sha256: "23109c55b08829bb1a68682a61a64852b1bbf243753b153cbd8f6e4ea2c05294"
+    filename: "libcronet.so"

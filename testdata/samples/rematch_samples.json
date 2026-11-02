@@ -1,0 +1,8 @@
+[
+  {
+    "link": "{\"type\":\"rematch\",\"name\":\"recheck\",\"target-rematch-name\":\"proxy-rule\"}"
+  },
+  {
+    "link": "{\"type\":\"rematch\",\"name\":\"subrule\",\"target-sub-rule\":\"streaming\"}"
+  }
+]

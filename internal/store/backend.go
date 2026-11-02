@@ -62,9 +62,96 @@ func (s *Store) migrateBackend() error {
 	 );
 	 CREATE INDEX IF NOT EXISTS idx_speedtest_node ON speedtest_results(node_id,created_at);
 	 CREATE TABLE IF NOT EXISTS backend_state (key TEXT PRIMARY KEY,value TEXT NOT NULL);
+	 CREATE TABLE IF NOT EXISTS traffic_samples (
+	  id INTEGER PRIMARY KEY AUTOINCREMENT,
+	  kernel TEXT NOT NULL,
+	  up INTEGER NOT NULL,
+	  down INTEGER NOT NULL,
+	  sampled_at TEXT NOT NULL
+	 );
+	 CREATE INDEX IF NOT EXISTS idx_traffic_samples_kernel_time ON traffic_samples(kernel, sampled_at DESC);
+	 CREATE TABLE IF NOT EXISTS auth_users (
+	  id TEXT PRIMARY KEY,
+	  username TEXT NOT NULL UNIQUE,
+	  password_hash TEXT NOT NULL,
+	  created_at TEXT NOT NULL
+	 );
+	 CREATE TABLE IF NOT EXISTS auth_sessions (
+	  token_hash TEXT PRIMARY KEY,
+	  username TEXT NOT NULL REFERENCES auth_users(username) ON DELETE CASCADE,
+	  expires_at TEXT NOT NULL,
+	  created_at TEXT NOT NULL
+	 );
+	 CREATE INDEX IF NOT EXISTS idx_auth_sessions_expiry ON auth_sessions(expires_at);
+	 CREATE INDEX IF NOT EXISTS idx_nodes_protocol ON nodes(protocol);
+	 CREATE INDEX IF NOT EXISTS idx_nodes_name ON nodes(name);
+	 CREATE INDEX IF NOT EXISTS idx_nodes_updated_at ON nodes(updated_at DESC);
 	 INSERT OR IGNORE INTO schema_migrations(version) VALUES(2);
 	`)
 	return err
+}
+
+type TrafficSample struct {
+	Kernel    string
+	Up        int64
+	Down      int64
+	SampledAt time.Time
+}
+
+func (s *Store) SaveTrafficSample(ctx context.Context, sample TrafficSample) error {
+	if sample.Kernel == "" || sample.Up < 0 || sample.Down < 0 || sample.SampledAt.IsZero() {
+		return fmt.Errorf("%w: invalid traffic sample", ErrInvalid)
+	}
+	_, err := s.db.ExecContext(ctx,
+		"INSERT INTO traffic_samples(kernel,up,down,sampled_at) VALUES(?,?,?,?)",
+		sample.Kernel, sample.Up, sample.Down, sample.SampledAt.UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return err
+	}
+	// Keep a bounded history per kernel. This is a rolling operational history,
+	// not an accounting ledger.
+	_, err = s.db.ExecContext(ctx, `
+		DELETE FROM traffic_samples
+		WHERE kernel=? AND id NOT IN (
+			SELECT id FROM traffic_samples WHERE kernel=? ORDER BY sampled_at DESC, id DESC LIMIT 20000
+		)`, sample.Kernel, sample.Kernel)
+	return err
+}
+
+func (s *Store) TrafficSamples(ctx context.Context, kernel string, limit int) ([]TrafficSample, error) {
+	if kernel == "" {
+		return nil, fmt.Errorf("%w: kernel is required", ErrInvalid)
+	}
+	if limit < 1 || limit > 20000 {
+		return nil, fmt.Errorf("%w: limit must be 1..20000", ErrInvalid)
+	}
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT kernel,up,down,sampled_at FROM traffic_samples WHERE kernel=? ORDER BY sampled_at DESC, id DESC LIMIT ?",
+		kernel, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]TrafficSample, 0, limit)
+	for rows.Next() {
+		var sample TrafficSample
+		var sampledAt string
+		if err := rows.Scan(&sample.Kernel, &sample.Up, &sample.Down, &sampledAt); err != nil {
+			return nil, err
+		}
+		sample.SampledAt, err = time.Parse(time.RFC3339Nano, sampledAt)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, sample)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for left, right := 0, len(result)-1; left < right; left, right = left+1, right-1 {
+		result[left], result[right] = result[right], result[left]
+	}
+	return result, nil
 }
 
 func (s *Store) initEncryption(cfg *Config) error {
@@ -142,7 +229,13 @@ func (s *Store) Decrypt(value string) (string, error) {
 }
 
 func (s *Store) SaveNode(ctx context.Context, n *ir.Node) error {
-	if n == nil || strings.TrimSpace(n.Name) == "" || !ir.IsValidProtocol(n.Protocol) || strings.TrimSpace(n.Server.Host) == "" || n.Server.Port < 1 || n.Server.Port > 65535 {
+	if n == nil || strings.TrimSpace(n.Name) == "" || !ir.IsValidProtocol(n.Protocol) {
+		return fmt.Errorf("%w: invalid node", ErrInvalid)
+	}
+	// Mesh endpoints are identified by network/auth configuration rather than
+	// a single remote socket. They legitimately have no server host or port.
+	virtual := n.Protocol == ir.ProtocolTailscale || n.Protocol == ir.ProtocolEasyTier || n.Protocol == ir.ProtocolZeroTier || n.Protocol == ir.ProtocolRematch
+	if !(virtual && n.Server.Host == "" && n.Server.Port == 0) && (strings.TrimSpace(n.Server.Host) == "" || n.Server.Port < 1 || n.Server.Port > 65535) {
 		return fmt.Errorf("%w: invalid node", ErrInvalid)
 	}
 	if n.ID == "" {
@@ -177,13 +270,50 @@ func (s *Store) Node(ctx context.Context, id string) (*ir.Node, error) {
 }
 
 func (s *Store) Nodes(ctx context.Context, subscriptionID string) ([]*ir.Node, error) {
+	return s.NodesQuery(ctx, NodeListQuery{SubscriptionID: subscriptionID})
+}
+
+// NodeListQuery describes the filters pushed down to SQLite for node listing.
+// A zero Limit keeps the historical unbounded behavior.
+type NodeListQuery struct {
+	SubscriptionID string
+	Protocol       string
+	Search         string
+	Limit          int
+	Offset         int
+}
+
+// NodesQuery avoids loading and filtering the entire node table in Go.
+func (s *Store) NodesQuery(ctx context.Context, filter NodeListQuery) ([]*ir.Node, error) {
 	query := "SELECT n.ir_json FROM nodes n"
 	var args []any
-	if subscriptionID != "" {
-		query += " JOIN subscription_nodes sn ON sn.node_id=n.id WHERE sn.subscription_id=?"
-		args = append(args, subscriptionID)
+	conditions := []string{}
+	if filter.SubscriptionID != "" {
+		query += " JOIN subscription_nodes sn ON sn.node_id=n.id"
+		conditions = append(conditions, "sn.subscription_id=?")
+		args = append(args, filter.SubscriptionID)
 	}
-	query += " ORDER BY n.id"
+	if filter.Protocol != "" {
+		conditions = append(conditions, "n.protocol=?")
+		args = append(args, filter.Protocol)
+	}
+	if filter.Search != "" {
+		pattern := "%" + escapeLike(strings.ToLower(filter.Search)) + "%"
+		conditions = append(conditions, "(lower(n.name) LIKE ? ESCAPE '\\' OR lower(n.ir_json) LIKE ? ESCAPE '\\')")
+		args = append(args, pattern, pattern)
+	}
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	query += " ORDER BY n.updated_at DESC, n.id"
+	if filter.Limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, filter.Limit)
+		if filter.Offset > 0 {
+			query += " OFFSET ?"
+			args = append(args, filter.Offset)
+		}
+	}
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -204,6 +334,12 @@ func (s *Store) Nodes(ctx context.Context, subscriptionID string) ([]*ir.Node, e
 	return nodes, rows.Err()
 }
 
+func escapeLike(value string) string {
+	value = strings.ReplaceAll(value, `\`, `\\`)
+	value = strings.ReplaceAll(value, "%", `\%`)
+	return strings.ReplaceAll(value, "_", `\_`)
+}
+
 func (s *Store) SaveState(ctx context.Context, key string, value any) error {
 	data, err := json.Marshal(value)
 	if err != nil {
@@ -211,6 +347,19 @@ func (s *Store) SaveState(ctx context.Context, key string, value any) error {
 	}
 	_, err = s.db.ExecContext(ctx, `INSERT INTO backend_state(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, string(data))
 	return err
+}
+
+func (s *Store) DeleteState(ctx context.Context, key string) error {
+	result, err := s.db.ExecContext(ctx, "DELETE FROM backend_state WHERE key=?", key)
+	if err != nil {
+		return err
+	}
+	if affected, err := result.RowsAffected(); err != nil {
+		return err
+	} else if affected == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (s *Store) State(ctx context.Context, key string, value any) error {

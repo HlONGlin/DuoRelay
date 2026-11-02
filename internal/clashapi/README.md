@@ -10,6 +10,7 @@ The `clashapi` package provides a unified interface to interact with Clash API i
 clashapi/
 ├── types.go       - Common data structures
 ├── client.go      - HTTP client for Clash API
+├── traffic.go     - WebSocket traffic sampling client
 ├── adapter.go     - Unified adapter layer
 └── adapter_test.go - Integration tests
 ```
@@ -77,6 +78,20 @@ fmt.Printf("Active: %d, Download: %d, Upload: %d\n",
     connections.UploadTotal)
 ```
 
+### Sampling Traffic
+
+`ReadTraffic` opens the `/traffic` WebSocket, reads one `{up, down}` sample,
+and closes it. The call honors context cancellation and sends the configured
+Bearer token during the WebSocket handshake.
+
+```go
+traffic, err := adapter.ReadTraffic(ctx)
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Printf("Up: %d B/s, Down: %d B/s\n", traffic.Up, traffic.Down)
+```
+
 ### Testing Proxy Delay
 
 ```go
@@ -96,7 +111,7 @@ if err != nil {
 | `/proxies` | ✅ | ✅ | mihomo returns more metadata |
 | `/connections` | ✅ | ✅ | Both support, minor differences |
 | `/proxies/{name}/delay` | ✅ | ✅ | Compatible |
-| `/traffic` (WebSocket) | ✅ | ✅ | Not yet implemented |
+| `/traffic` (WebSocket) | ✅ | ✅ | Supported through `ReadTraffic` |
 | `/logs` (WebSocket) | ✅ | ✅ | Not yet implemented |
 
 See [docs/clashapi-diff.md](../../docs/clashapi-diff.md) for detailed API differences.
@@ -117,12 +132,19 @@ Start the respective kernel with test configuration:
 
 ### Run Tests
 
+The default package tests use an in-process `httptest` Clash API mock and do not
+require either kernel to be running. Live kernel integration tests are opt-in:
+
+```bash
+DUORELAY_CLASHAPI_INTEGRATION=1 go test -v ./internal/clashapi -run 'Test(SingBox|Mihomo)ClashAPI'
+```
+
 ```bash
 # Test sing-box API
-go test -v ./internal/clashapi -run TestSingBoxClashAPI
+DUORELAY_CLASHAPI_INTEGRATION=1 go test -v ./internal/clashapi -run TestSingBoxClashAPI
 
 # Test mihomo API
-go test -v ./internal/clashapi -run TestMihomoClashAPI
+DUORELAY_CLASHAPI_INTEGRATION=1 go test -v ./internal/clashapi -run TestMihomoClashAPI
 
 # Run automated test script
 bash scripts/test-clashapi.sh
@@ -172,7 +194,7 @@ if err != nil {
 
 ## Future Work
 
-- WebSocket support for `/traffic` and `/logs` endpoints
+- WebSocket support for `/logs` endpoint
 - Retry logic for transient failures
 - Connection pooling optimization
 - Metrics and observability

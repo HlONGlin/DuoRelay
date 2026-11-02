@@ -1,38 +1,27 @@
 import type { KernelType, Protocol } from '@/types'
-
-const protocolLabels: Record<string, string> = {
-  shadowsocks: 'Shadowsocks',
-  shadowsocksr: 'ShadowsocksR',
-  vmess: 'VMess',
-  vless: 'VLESS',
-  trojan: 'Trojan',
-  hysteria: 'Hysteria',
-  hysteria2: 'Hysteria2',
-  tuic: 'TUIC',
-  anytls: 'AnyTLS',
-  snell: 'Snell',
-  socks5: 'SOCKS5',
-  http: 'HTTP',
-  ssh: 'SSH',
-  wireguard: 'WireGuard',
-  openvpn: 'OpenVPN',
-  masque: 'MASQUE',
-  tailscale: 'Tailscale',
-  shadowtls: 'ShadowTLS',
-  naive: 'Naive',
-  tor: 'Tor',
-  openconnect: 'OpenConnect',
-  mieru: 'Mieru',
-  sudoku: 'Sudoku',
-  shadowquic: 'ShadowQUIC',
-  trusttunnel: 'TrustTunnel',
-  rematch: 'Rematch',
-  easytier: 'EasyTier',
-  zerotier: 'ZeroTier'
-}
+import { protocolMeta } from './protocols'
 
 export function protocolLabel(protocol: Protocol | string): string {
-  return protocolLabels[protocol] ?? protocol
+  return protocolMeta(protocol)?.label ?? protocol
+}
+
+export function protocolGlyph(protocol: Protocol | string): string {
+  return protocolMeta(protocol)?.glyph ?? protocol.slice(0, 2).toUpperCase()
+}
+
+export function protocolDescription(protocol: Protocol | string): string {
+  return protocolMeta(protocol)?.description ?? '自定义协议'
+}
+
+export function nodeEndpointLabel(node: {
+  protocol: Protocol | string
+  server?: { host?: string; port?: number }
+}): string {
+  const host = node.server?.host?.trim()
+  const port = node.server?.port
+  if (host && port) return `${host}:${port}`
+  if (node.protocol === 'rematch') return '路由适配器'
+  return '本地覆盖网络'
 }
 
 export function ownerKernels(owner: number): KernelType[] {
@@ -56,8 +45,8 @@ export function formatDelay(delay?: number): string {
 
 export function delayType(delay?: number): 'success' | 'warning' | 'danger' | 'info' {
   if (!delay || delay <= 0) return 'info'
-  if (delay < 300) return 'success'
-  if (delay < 800) return 'warning'
+  if (delay <= 100) return 'success'
+  if (delay <= 250) return 'warning'
   return 'danger'
 }
 

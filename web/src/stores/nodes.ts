@@ -3,11 +3,13 @@ import { defineStore } from 'pinia'
 import {
   activateNode,
   deleteNode,
+  importNodes,
   listNodes,
   testNodeDelay,
   type NodeQuery
 } from '@/api/nodes'
 import type { ProxyNode } from '@/types'
+import { orderedProtocols } from '@/utils/protocols'
 
 export const useNodesStore = defineStore('nodes', () => {
   const items = ref<ProxyNode[]>([])
@@ -19,7 +21,7 @@ export const useNodesStore = defineStore('nodes', () => {
   const activeNodeId = ref('')
 
   const protocols = computed(() =>
-    Array.from(new Set(items.value.map((node) => node.protocol))).sort()
+    orderedProtocols(Array.from(new Set(items.value.map((node) => node.protocol))))
   )
 
   const subscriptionIds = computed(() =>
@@ -54,6 +56,7 @@ export const useNodesStore = defineStore('nodes', () => {
   const activeNode = computed(
     () => items.value.find((node) => node.id === activeNodeId.value) ?? null
   )
+  const activeNodes = computed(() => items.value.filter((node) => node.status === 'active'))
 
   async function fetchNodes(query: NodeQuery = {}) {
     loading.value = true
@@ -62,6 +65,26 @@ export const useNodesStore = defineStore('nodes', () => {
       items.value = await listNodes(query)
       const active = items.value.find((node) => node.status === 'active')
       activeNodeId.value = active?.id ?? ''
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : '加载节点失败'
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function fetchAllNodes() {
+    loading.value = true
+    error.value = null
+    try {
+      const result: ProxyNode[] = []
+      const limit = 5000
+      for (let offset = 0; ; offset += limit) {
+        const page = await listNodes({ limit, offset })
+        result.push(...page)
+        if (page.length < limit) break
+      }
+      items.value = result
+      activeNodeId.value = result.find(node => node.status === 'active')?.id ?? ''
     } catch (err) {
       error.value = err instanceof Error ? err.message : '加载节点失败'
     } finally {
@@ -85,24 +108,37 @@ export const useNodesStore = defineStore('nodes', () => {
     }
   }
 
+  async function importContent(content: string) {
+    error.value = null
+    try {
+      const result = await importNodes(content)
+      await fetchAllNodes()
+      return result
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : '导入节点失败'
+      throw err
+    }
+  }
+
   async function testNode(id: string) {
     error.value = null
     try {
       const result = await testNodeDelay(id)
+      const delay = result.success === false ? -1 : result.delay_ms
       items.value = items.value.map((node) =>
         node.id === id
           ? {
               ...node,
-              last_delay_ms: result.delay_ms,
+              last_delay_ms: delay,
               last_test_at: new Date().toISOString(),
-              status: 'idle'
+              status: node.status === 'active' ? 'active' : delay < 0 ? 'error' : 'idle'
             }
           : node
       )
-      return result.delay_ms
+      return delay
     } catch (err) {
       items.value = items.value.map((node) =>
-        node.id === id ? { ...node, status: 'error' } : node
+        node.id === id ? { ...node, last_delay_ms: -1, status: node.status === 'active' ? 'active' : 'error' } : node
       )
       error.value = err instanceof Error ? err.message : '测速失败'
       throw err
@@ -139,8 +175,11 @@ export const useNodesStore = defineStore('nodes', () => {
     subscriptionIds,
     filtered,
     activeNode,
+    activeNodes,
     fetchNodes,
+    fetchAllNodes,
     activate,
+    importContent,
     testNode,
     remove,
     resetFilters

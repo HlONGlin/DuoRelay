@@ -19,17 +19,17 @@ type Version struct {
 
 // Proxy represents a proxy node
 type Proxy struct {
-	Name         string              `json:"name"`
-	Type         string              `json:"type"`
-	UDP          bool                `json:"udp"`
-	History      []DelayHistory      `json:"history"`
-	All          []string            `json:"all,omitempty"`           // For proxy groups
-	Now          string              `json:"now,omitempty"`           // For proxy groups
-	Alive        bool                `json:"alive,omitempty"`         // mihomo only
-	ID           string              `json:"id,omitempty"`            // mihomo only
-	DialerProxy  string              `json:"dialer-proxy,omitempty"`  // mihomo only
-	Extra        map[string]any      `json:"extra,omitempty"`         // mihomo only
-	ProviderName string              `json:"provider-name,omitempty"` // mihomo only
+	Name         string         `json:"name"`
+	Type         string         `json:"type"`
+	UDP          bool           `json:"udp"`
+	History      []DelayHistory `json:"history"`
+	All          []string       `json:"all,omitempty"`           // For proxy groups
+	Now          string         `json:"now,omitempty"`           // For proxy groups
+	Alive        bool           `json:"alive,omitempty"`         // mihomo only
+	ID           string         `json:"id,omitempty"`            // mihomo only
+	DialerProxy  string         `json:"dialer-proxy,omitempty"`  // mihomo only
+	Extra        map[string]any `json:"extra,omitempty"`         // mihomo only
+	ProviderName string         `json:"provider-name,omitempty"` // mihomo only
 }
 
 // ProxiesResponse represents the proxies response
@@ -86,6 +86,12 @@ type ConnectionsResponse struct {
 type TrafficData struct {
 	Up   int64 `json:"up"`
 	Down int64 `json:"down"`
+}
+
+// TrafficSnapshot is a sampled traffic response returned by DuoRelay APIs.
+type TrafficSnapshot struct {
+	TrafficData
+	SampledAt time.Time `json:"sampled_at"`
 }
 
 // LogMessage represents a log message

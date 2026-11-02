@@ -1,0 +1,15 @@
+[Unit]
+Description=DuoRelay proxy manager (user session)
+After=graphical-session.target
+
+[Service]
+Type=simple
+WorkingDirectory=@DUORELAY_PREFIX@
+ExecStart=@DUORELAY_PREFIX@/duorelay --listen 127.0.0.1:8080 --db @DUORELAY_DATA@/duorelay.db --config-dir @DUORELAY_DATA@/configs --kernels @DUORELAY_PREFIX@/kernels
+Restart=on-failure
+RestartSec=3
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

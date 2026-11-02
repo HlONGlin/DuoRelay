@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "design:sync": "node scripts/sync-design.mjs",
     "dev": "vite",
+    "prebuild": "npm run design:sync",
     "build": "vite build",
     "preview": "vite preview",
     "type-check": "vue-tsc --noEmit",

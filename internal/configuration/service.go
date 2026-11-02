@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -18,11 +19,15 @@ import (
 	"github.com/holi/duorelay/internal/generator/mihomo"
 	"github.com/holi/duorelay/internal/generator/singbox"
 	"github.com/holi/duorelay/internal/ir"
+	"github.com/holi/duorelay/internal/kernel"
 	"github.com/holi/duorelay/internal/store"
+	"github.com/holi/duorelay/internal/systemproxy"
 	"gopkg.in/yaml.v3"
 )
 
 var ErrApply = errors.New("configuration apply failed")
+
+const CurrentConfigVersion = 2
 
 type Runtime interface {
 	Validate(string, string) error
@@ -31,32 +36,56 @@ type Runtime interface {
 	StopAll() error
 }
 type Settings struct {
-	Kernel          ir.KernelType `json:"kernel"`
-	InboundHost     string        `json:"inbound_host"`
-	InboundPort     int           `json:"inbound_port"`
-	MixedPort       int           `json:"mixed_port"`
-	AllowLAN        bool          `json:"allow_lan"`
-	LogLevel        string        `json:"log_level"`
-	DNSServers      []string      `json:"dns_servers"`
-	DNSFakeIP       bool          `json:"dns_fake_ip"`
-	EnableTUN       bool          `json:"enable_tun"`
-	TUNStack        string        `json:"tun_stack"`
-	DefaultOutbound string        `json:"default_outbound"`
+	ConfigVersion        int                          `json:"config_version"`
+	Kernel               ir.KernelType                `json:"kernel"`
+	InboundHost          string                       `json:"inbound_host"`
+	InboundPort          int                          `json:"inbound_port"`
+	MixedPort            int                          `json:"mixed_port"`
+	SOCKSOnly            bool                         `json:"socks_only"`
+	SOCKSPort            int                          `json:"socks_port"`
+	LoadBalance          generator.LoadBalanceOptions `json:"load_balance"`
+	AllowLAN             bool                         `json:"allow_lan"`
+	LogLevel             string                       `json:"log_level"`
+	DNSServers           []string                     `json:"dns_servers"`
+	DNSFakeIP            bool                         `json:"dns_fake_ip"`
+	EnableTUN            bool                         `json:"enable_tun"`
+	TUNStack             string                       `json:"tun_stack"`
+	SystemProxy          bool                         `json:"system_proxy"`
+	SystemProxySupported bool                         `json:"system_proxy_supported"`
+	RoutingMode          string                       `json:"routing_mode"`
+	DefaultOutbound      string                       `json:"default_outbound"`
+	RoutingRules         []generator.RoutingRule      `json:"routing_rules"`
 }
 type ApplyRequest struct {
-	Kernel   ir.KernelType `json:"kernel,omitempty"`
-	Content  string        `json:"config,omitempty"`
-	NodeIDs  []string      `json:"node_ids,omitempty"`
-	outbound string
+	Kernel      ir.KernelType                 `json:"kernel,omitempty"`
+	Content     string                        `json:"config,omitempty"`
+	NodeIDs     []string                      `json:"node_ids,omitempty"`
+	Mode        string                        `json:"mode,omitempty"`
+	LoadBalance *generator.LoadBalanceOptions `json:"load_balance,omitempty"`
+	outbound    string
 }
 type State struct {
-	ID         string        `json:"id"`
+	ConfigVersion     int                           `json:"config_version"`
+	ID                string                        `json:"id"`
+	Kernel            ir.KernelType                 `json:"kernel"`
+	NodeIDs           []string                      `json:"node_ids"`
+	Mode              string                        `json:"mode"`
+	LoadBalance       *generator.LoadBalanceOptions `json:"load_balance,omitempty"`
+	AppliedAt         time.Time                     `json:"applied_at"`
+	Path              string                        `json:"path,omitempty"`
+	Controller        string                        `json:"controller,omitempty"`
+	Secret            string                        `json:"secret,omitempty"`
+	Chain             *generator.ChainPlan          `json:"chain,omitempty"`
+	Auxiliary         []RuntimeConfig               `json:"auxiliary,omitempty"`
+	SystemProxy       *systemproxy.Snapshot         `json:"system_proxy,omitempty"`
+	SystemProxyTarget string                        `json:"system_proxy_target,omitempty"`
+}
+
+type RuntimeConfig struct {
 	Kernel     ir.KernelType `json:"kernel"`
-	NodeIDs    []string      `json:"node_ids"`
-	AppliedAt  time.Time     `json:"applied_at"`
-	Path       string        `json:"path,omitempty"`
-	Controller string        `json:"controller,omitempty"`
-	Secret     string        `json:"secret,omitempty"`
+	Path       string        `json:"path"`
+	Controller string        `json:"controller"`
+	Secret     string        `json:"secret"`
 }
 
 func (s *State) Public() *State {
@@ -65,6 +94,9 @@ func (s *State) Public() *State {
 	}
 	copy := *s
 	copy.Path, copy.Controller, copy.Secret = "", "", ""
+	copy.Auxiliary = nil
+	copy.SystemProxy = nil
+	copy.SystemProxyTarget = ""
 	copy.NodeIDs = append([]string{}, s.NodeIDs...)
 	return &copy
 }
@@ -81,19 +113,94 @@ func New(s *store.Store, runtime Runtime, directory string) *Service {
 	return &Service{Store: s, Runtime: runtime, Directory: directory, Generators: map[ir.KernelType]generator.Generator{ir.KernelSingBox: singbox.NewGenerator(), ir.KernelMihomo: mihomo.NewGenerator()}}
 }
 func defaults() Settings {
-	return Settings{Kernel: ir.KernelSingBox, InboundHost: "127.0.0.1", InboundPort: 1080, MixedPort: 7890, LogLevel: "info", DNSServers: []string{"223.5.5.5", "8.8.8.8"}, TUNStack: "system", DefaultOutbound: "DIRECT"}
+	return Settings{ConfigVersion: CurrentConfigVersion, Kernel: ir.KernelSingBox, InboundHost: "127.0.0.1", InboundPort: 1080, MixedPort: 7890, SOCKSPort: 10808, LoadBalance: generator.DefaultLoadBalanceOptions(), LogLevel: "info", DNSServers: []string{"223.5.5.5", "8.8.8.8"}, TUNStack: "system", RoutingMode: "bypass_mainland", DefaultOutbound: "PROXY", RoutingRules: defaultRoutingRules()}
 }
+
+func defaultRoutingRules() []generator.RoutingRule {
+	return []generator.RoutingRule{
+		{Match: "domain_suffix", Values: []string{"cn", "中国", "local"}, Outbound: "DIRECT"},
+		{Match: "ip_cidr", Values: []string{"10.0.0.0/8", "100.64.0.0/10", "172.16.0.0/12", "192.168.0.0/16"}, Outbound: "DIRECT"},
+	}
+}
+
+func legacyDefaultRoutingRules() []generator.RoutingRule {
+	return []generator.RoutingRule{
+		{Match: "geosite", Values: []string{"cn"}, Outbound: "DIRECT"},
+		{Match: "geoip", Values: []string{"cn"}, Outbound: "DIRECT"},
+		{Match: "domain_suffix", Values: []string{"cn", "中国", "local"}, Outbound: "DIRECT"},
+		{Match: "ip_cidr", Values: []string{"10.0.0.0/8", "100.64.0.0/10", "172.16.0.0/12", "192.168.0.0/16"}, Outbound: "DIRECT"},
+	}
+}
+
+func sameRoutingRules(left, right []generator.RoutingRule) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i].Match != right[i].Match || left[i].Outbound != right[i].Outbound || len(left[i].Values) != len(right[i].Values) {
+			return false
+		}
+		for j := range left[i].Values {
+			if left[i].Values[j] != right[i].Values[j] {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func (s *Service) Settings(ctx context.Context) (Settings, error) {
 	value := defaults()
 	err := s.Store.State(ctx, "settings", &value)
 	if errors.Is(err, store.ErrNotFound) {
 		err = nil
 	}
+	if err == nil && sameRoutingRules(value.RoutingRules, legacyDefaultRoutingRules()) {
+		value.RoutingRules = defaultRoutingRules()
+		if saveErr := s.Store.SaveState(ctx, "settings", value); saveErr != nil {
+			return value, saveErr
+		}
+	}
+	if value.RoutingMode == "" {
+		value.RoutingMode = "bypass_mainland"
+	}
+	if value.ConfigVersion == 0 {
+		value.ConfigVersion = CurrentConfigVersion
+		if saveErr := s.Store.SaveState(ctx, "settings", value); saveErr != nil {
+			return value, saveErr
+		}
+	}
+	if len(value.RoutingRules) == 0 {
+		value.RoutingRules = defaultRoutingRules()
+	}
+	value.SystemProxySupported = systemproxy.Supported()
 	return value, err
 }
 func (s *Service) SaveSettings(ctx context.Context, value Settings) error {
+	if value.ConfigVersion == 0 {
+		value.ConfigVersion = CurrentConfigVersion
+	}
+	// Preserve compatibility with clients that predate these optional settings.
+	if value.SOCKSPort == 0 {
+		value.SOCKSPort = defaults().SOCKSPort
+	}
+	if value.LoadBalance == (generator.LoadBalanceOptions{}) {
+		value.LoadBalance = generator.DefaultLoadBalanceOptions()
+	}
+	if value.SOCKSOnly && value.EnableTUN {
+		return fmt.Errorf("%w: SOCKS-only mode cannot be combined with TUN takeover", store.ErrInvalid)
+	}
+	if value.SOCKSPort < 1 || value.SOCKSPort > 65535 || (value.SOCKSOnly && (value.SOCKSPort == value.MixedPort || value.SOCKSPort == value.InboundPort)) {
+		return fmt.Errorf("%w: SOCKS5 端口无效或与混合端口冲突", store.ErrInvalid)
+	}
+	if err := value.LoadBalance.Validate(); err != nil {
+		return fmt.Errorf("%w: %v", store.ErrInvalid, err)
+	}
 	if value.Kernel != ir.KernelSingBox && value.Kernel != ir.KernelMihomo {
 		return fmt.Errorf("%w: invalid kernel", store.ErrInvalid)
+	}
+	if value.SystemProxy && !systemproxy.Supported() {
+		return fmt.Errorf("%w: 当前系统不支持系统代理；Linux 请确认 gsettings 与 GNOME D-Bus 会话可用，服务器环境请使用 TUN", store.ErrInvalid)
 	}
 	if net.ParseIP(value.InboundHost) == nil || value.InboundPort < 1 || value.InboundPort > 65535 || value.MixedPort < 1 || value.MixedPort > 65535 {
 		return fmt.Errorf("%w: invalid inbound address/port", store.ErrInvalid)
@@ -108,9 +215,21 @@ func (s *Service) SaveSettings(ctx context.Context, value Settings) error {
 	default:
 		return fmt.Errorf("%w: invalid TUN stack", store.ErrInvalid)
 	}
+	switch value.RoutingMode {
+	case "bypass_mainland", "global", "blacklist":
+	default:
+		return fmt.Errorf("%w: invalid routing mode", store.ErrInvalid)
+	}
 	if value.DefaultOutbound == "" {
 		return fmt.Errorf("%w: default_outbound is required", store.ErrInvalid)
 	}
+	if len(value.RoutingRules) == 0 {
+		value.RoutingRules = defaultRoutingRules()
+	}
+	if err := generator.ValidateRoutingRules(value.RoutingRules); err != nil {
+		return fmt.Errorf("%w: %v", store.ErrInvalid, err)
+	}
+	value.SystemProxySupported = systemproxy.Supported()
 	return s.Store.SaveState(ctx, "settings", value)
 }
 func (s *Service) Current(ctx context.Context) (*State, error) {
@@ -118,7 +237,85 @@ func (s *Service) Current(ctx context.Context) (*State, error) {
 	if err := s.Store.State(ctx, "current_config", &state); err != nil {
 		return nil, err
 	}
+	if state.ConfigVersion == 0 {
+		state.ConfigVersion = CurrentConfigVersion
+		if err := s.Store.SaveState(ctx, "current_config", state); err != nil {
+			return nil, err
+		}
+	}
 	return &state, nil
+}
+
+// Resume restores the last successfully applied configuration after the panel
+// process itself restarts. An explicit Stop removes current_config, so this
+// only resumes a configuration that was active before the process exited.
+func (s *Service) Resume(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var state State
+	if err := s.Store.State(ctx, "current_config", &state); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil
+		}
+		return err
+	}
+	if s.Runtime == nil {
+		return fmt.Errorf("kernel runtime is not configured")
+	}
+	if err := s.startState(&state); err != nil {
+		_ = s.Runtime.StopAll()
+		if state.SystemProxy != nil {
+			_ = systemproxy.Restore(*state.SystemProxy)
+		}
+		return fmt.Errorf("%w: resume: %v", ErrApply, err)
+	}
+	if state.SystemProxyTarget != "" {
+		if err := setSystemProxyTarget(state.SystemProxyTarget); err != nil {
+			_ = s.Runtime.StopAll()
+			if state.SystemProxy != nil {
+				_ = systemproxy.Restore(*state.SystemProxy)
+			}
+			return fmt.Errorf("%w: restore system proxy: %v", ErrApply, err)
+		}
+	}
+	return nil
+}
+
+// Stop terminates the active kernel and removes the generated configuration
+// from durable state so the UI returns to an explicitly unselected state.
+func (s *Service) Stop(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var state State
+	err := s.Store.State(ctx, "current_config", &state)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return err
+	}
+	if s.Runtime != nil {
+		if err := s.Runtime.StopAll(); err != nil {
+			return err
+		}
+	}
+	if err == nil {
+		if state.SystemProxy != nil {
+			if restoreErr := systemproxy.Restore(*state.SystemProxy); restoreErr != nil {
+				return restoreErr
+			}
+		}
+		if deleteErr := s.Store.DeleteState(ctx, "current_config"); deleteErr != nil {
+			return deleteErr
+		}
+		if state.Path != "" {
+			if removeErr := os.Remove(state.Path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+				return removeErr
+			}
+		}
+		for _, config := range state.Auxiliary {
+			_ = os.Remove(config.Path)
+		}
+	}
+	return nil
 }
 func (s *Service) start(kernel ir.KernelType, path string) error {
 	if kernel == ir.KernelSingBox {
@@ -134,8 +331,14 @@ func (s *Service) Apply(ctx context.Context, request ApplyRequest) (*State, erro
 	if err != nil {
 		return nil, err
 	}
+	if request.Mode == "chain" {
+		return s.applyChain(ctx, request, settings)
+	}
 	if request.Kernel == "" {
 		request.Kernel = settings.Kernel
+		if request.Mode == "load_balance" {
+			request.Kernel = ir.KernelMihomo
+		}
 	}
 	if request.Kernel != ir.KernelSingBox && request.Kernel != ir.KernelMihomo {
 		return nil, fmt.Errorf("%w: invalid kernel", store.ErrInvalid)
@@ -145,6 +348,24 @@ func (s *Service) Apply(ctx context.Context, request ApplyRequest) (*State, erro
 	}
 	if request.Content != "" && len(request.NodeIDs) > 0 {
 		return nil, fmt.Errorf("%w: provide config or node_ids", store.ErrInvalid)
+	}
+	var composition *generator.Composition
+	if request.Mode != "" {
+		if request.Content != "" || len(request.NodeIDs) < 2 || len(request.NodeIDs) > 64 || request.Mode != "load_balance" {
+			return nil, fmt.Errorf("%w: 多节点启动需指定方式并选择 2–64 个节点", store.ErrInvalid)
+		}
+		composition = &generator.Composition{Mode: request.Mode}
+		lb := settings.LoadBalance
+		if request.LoadBalance != nil {
+			lb = *request.LoadBalance
+		}
+		composition.LoadBalance = &lb
+		request.LoadBalance = &lb
+	} else if request.LoadBalance != nil {
+		return nil, fmt.Errorf("%w: 负载均衡设置需要配合负载均衡启动方式", store.ErrInvalid)
+	}
+	if settings.SOCKSOnly && request.Content != "" {
+		return nil, fmt.Errorf("%w: 仅 SOCKS5 代理模式下请从节点生成配置，或先关闭该设置", store.ErrInvalid)
 	}
 	nodeIDs := []string{}
 	content := []byte(request.Content)
@@ -165,6 +386,9 @@ func (s *Service) Apply(ctx context.Context, request ApplyRequest) (*State, erro
 			seen := map[string]bool{}
 			for _, id := range request.NodeIDs {
 				if seen[id] {
+					if composition != nil {
+						return nil, fmt.Errorf("%w: 请勿重复选择同一个节点", store.ErrInvalid)
+					}
 					continue
 				}
 				seen[id] = true
@@ -173,16 +397,18 @@ func (s *Service) Apply(ctx context.Context, request ApplyRequest) (*State, erro
 					return nil, err
 				}
 				if !node.CanRunOn(request.Kernel) {
-					return nil, fmt.Errorf("%w: node cannot run on selected kernel", store.ErrInvalid)
+					return nil, fmt.Errorf("%w: 节点 %q 不支持内核 %s", store.ErrInvalid, node.Name, request.Kernel)
 				}
 				nodes = append(nodes, node)
 				nodeIDs = append(nodeIDs, id)
 			}
 		}
-		options := &generator.GenerateOptions{InboundHost: settings.InboundHost, InboundPort: settings.InboundPort, MixedPort: settings.MixedPort, DNSServers: settings.DNSServers, DNSFakeIP: settings.DNSFakeIP, EnableTUN: settings.EnableTUN, TUNStack: settings.TUNStack, LogLevel: settings.LogLevel, DefaultOutbound: settings.DefaultOutbound}
-		if request.outbound != "" {
-			options.DefaultOutbound = request.outbound
+		defaultOutbound, routingRules := effectiveRouting(settings, request.outbound)
+		if composition != nil && settings.RoutingMode != "blacklist" {
+			defaultOutbound = "PROXY"
 		}
+		options := &generator.GenerateOptions{InboundHost: settings.InboundHost, InboundPort: settings.InboundPort, MixedPort: settings.MixedPort, SystemProxy: settings.SystemProxy, DNSServers: settings.DNSServers, DNSFakeIP: settings.DNSFakeIP, EnableTUN: settings.EnableTUN, TUNStack: settings.TUNStack, LogLevel: settings.LogLevel, DefaultOutbound: defaultOutbound, RoutingRules: routingRules}
+		options.SOCKSOnly, options.SOCKSPort, options.Composition = settings.SOCKSOnly, settings.SOCKSPort, composition
 		if settings.AllowLAN {
 			options.InboundHost = "0.0.0.0"
 		}
@@ -192,7 +418,7 @@ func (s *Service) Apply(ctx context.Context, request ApplyRequest) (*State, erro
 		}
 		content, err = gen.Generate(nodes, options)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%w: %v", store.ErrInvalid, err)
 		}
 	}
 	content, controller, secret, err := withController(content, request.Kernel, settings.AllowLAN)
@@ -236,6 +462,24 @@ func (s *Service) Apply(ctx context.Context, request ApplyRequest) (*State, erro
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return nil, err
 	}
+	var proxySnapshot *systemproxy.Snapshot
+	proxyTarget := ""
+	if settings.SystemProxy {
+		if !systemproxy.Supported() {
+			return nil, fmt.Errorf("%w: 当前系统不支持系统代理；Linux 请确认 gsettings 与 GNOME D-Bus 会话可用，服务器环境请使用 TUN", store.ErrInvalid)
+		}
+		if previous != nil && previous.SystemProxy != nil {
+			copy := *previous.SystemProxy
+			proxySnapshot = &copy
+		} else {
+			snapshot, captureErr := systemproxy.Capture()
+			if captureErr != nil {
+				return nil, fmt.Errorf("%w: capture system proxy settings: %v", ErrApply, captureErr)
+			}
+			proxySnapshot = &snapshot
+		}
+		proxyTarget = systemProxyTarget(settings, request.Kernel)
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -246,14 +490,40 @@ func (s *Service) Apply(ctx context.Context, request ApplyRequest) (*State, erro
 		stopErr := s.Runtime.StopAll()
 		var restoreErr error
 		if previous != nil {
-			restoreErr = s.start(previous.Kernel, previous.Path)
+			restoreErr = s.startState(previous)
+		}
+		if previous != nil && previous.SystemProxy != nil && previous.SystemProxyTarget != "" {
+			restoreErr = errors.Join(restoreErr, setSystemProxyTarget(previous.SystemProxyTarget))
+		} else if proxySnapshot != nil {
+			restoreErr = errors.Join(restoreErr, systemproxy.Restore(*proxySnapshot))
 		}
 		return errors.Join(fmt.Errorf("%w: %v", ErrApply, cause), stopErr, restoreErr)
+	}
+	if runtime, ok := s.Runtime.(interface{ SetMode(kernel.RunMode) error }); ok {
+		if err := runtime.SetMode(kernel.ModeSingleSwitch); err != nil {
+			return nil, rollback(err)
+		}
 	}
 	if err := s.start(request.Kernel, path); err != nil {
 		return nil, rollback(err)
 	}
-	state := &State{ID: id, Kernel: request.Kernel, NodeIDs: nodeIDs, AppliedAt: time.Now().UTC(), Path: path, Controller: controller, Secret: secret}
+	if settings.SystemProxy {
+		if err := setSystemProxyTarget(proxyTarget); err != nil {
+			return nil, rollback(err)
+		}
+	} else if previous != nil && previous.SystemProxy != nil {
+		if err := systemproxy.Restore(*previous.SystemProxy); err != nil {
+			return nil, rollback(err)
+		}
+	}
+	mode := request.Mode
+	if mode == "" {
+		mode = "single"
+		if len(nodeIDs) > 1 {
+			mode = "select"
+		}
+	}
+	state := &State{ConfigVersion: CurrentConfigVersion, ID: id, Kernel: request.Kernel, NodeIDs: nodeIDs, Mode: mode, LoadBalance: request.LoadBalance, AppliedAt: time.Now().UTC(), Path: path, Controller: controller, Secret: secret, SystemProxy: proxySnapshot, SystemProxyTarget: proxyTarget}
 	// Finish the durable state update even if the HTTP client disconnected.
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
@@ -261,7 +531,49 @@ func (s *Service) Apply(ctx context.Context, request ApplyRequest) (*State, erro
 		return nil, rollback(err)
 	}
 	retained = true
+	removeReplacedConfig(previous)
 	return state, nil
+}
+
+func effectiveRouting(settings Settings, requestedOutbound string) (string, []generator.RoutingRule) {
+	mode := settings.RoutingMode
+	if mode == "" {
+		mode = "bypass_mainland"
+	}
+	outbound := settings.DefaultOutbound
+	if mode == "blacklist" {
+		outbound = "DIRECT"
+	} else if outbound == "" || outbound == "DIRECT" {
+		outbound = "PROXY"
+	}
+	if requestedOutbound != "" && mode != "blacklist" {
+		outbound = requestedOutbound
+	}
+	rules := append([]generator.RoutingRule(nil), settings.RoutingRules...)
+	return outbound, rules
+}
+
+func systemProxyTarget(settings Settings, kernel ir.KernelType) string {
+	port := settings.InboundPort
+	if kernel == ir.KernelMihomo {
+		port = settings.MixedPort
+	}
+	if settings.SOCKSOnly {
+		port = settings.SOCKSPort
+	}
+	return net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+}
+
+func setSystemProxyTarget(target string) error {
+	host, portText, err := net.SplitHostPort(target)
+	if err != nil {
+		return fmt.Errorf("invalid system proxy target: %w", err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		return fmt.Errorf("invalid system proxy target port: %w", err)
+	}
+	return systemproxy.Set(host, port)
 }
 
 func (s *Service) Activate(ctx context.Context, id string, kernel ir.KernelType) (*State, error) {
@@ -270,7 +582,14 @@ func (s *Service) Activate(ctx context.Context, id string, kernel ir.KernelType)
 		return nil, err
 	}
 	if kernel == "" {
-		kernel = node.PreferredKernel()
+		settings, err := s.Settings(ctx)
+		if err != nil {
+			return nil, err
+		}
+		kernel = settings.Kernel
+		if !node.CanRunOn(kernel) {
+			kernel = node.PreferredKernel()
+		}
 	}
 	if !node.CanRunOn(kernel) {
 		return nil, fmt.Errorf("%w: incompatible kernel", store.ErrInvalid)
@@ -353,8 +672,24 @@ func (s *Service) ProbeHTTP(ctx context.Context, node *ir.Node, target string, t
 		return 0, fmt.Errorf("node is not in the active generated configuration")
 	}
 	client := clashapi.NewClient(state.Controller, state.Secret, clashapi.KernelType(state.Kernel))
+	tag := node.Name
+	if state.Chain != nil {
+		for _, hop := range state.Chain.Hops {
+			if hop.ID == node.ID {
+				tag = hop.Name
+				if hop.Kernel != state.Kernel {
+					for _, aux := range state.Auxiliary {
+						if aux.Kernel == hop.Kernel {
+							client.Close()
+							client = clashapi.NewClient(aux.Controller, aux.Secret, clashapi.KernelType(aux.Kernel))
+						}
+					}
+				}
+			}
+		}
+	}
 	defer client.Close()
-	response, err := client.TestDelay(ctx, node.Name, target, int(timeout/time.Millisecond))
+	response, err := client.TestDelay(ctx, tag, target, int(timeout/time.Millisecond))
 	if err != nil {
 		return 0, err
 	}

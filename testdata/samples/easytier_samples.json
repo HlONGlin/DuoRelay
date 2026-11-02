@@ -1,0 +1,5 @@
+[
+  {
+    "link": "{\"type\":\"easytier\",\"name\":\"mesh\",\"network-name\":\"office\",\"network-secret\":\"secret\",\"peers\":[\"tcp://peer.example:11010\"],\"mtu\":1400,\"enable-encryption\":true}"
+  }
+]

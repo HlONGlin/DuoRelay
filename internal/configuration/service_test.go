@@ -18,6 +18,7 @@ import (
 	"github.com/holi/duorelay/internal/ir"
 	"github.com/holi/duorelay/internal/kernel"
 	"github.com/holi/duorelay/internal/store"
+	"github.com/holi/duorelay/internal/systemproxy"
 )
 
 type fakeRuntime struct {
@@ -59,6 +60,36 @@ func testService(t *testing.T) (*Service, *fakeRuntime) {
 	t.Cleanup(func() { s.Close() })
 	runtime := &fakeRuntime{}
 	return New(s, runtime, t.TempDir()), runtime
+}
+
+func TestSettingsReportsSystemProxyCapability(t *testing.T) {
+	s, _ := testService(t)
+	settings, err := s.Settings(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.SystemProxySupported != systemproxy.Supported() {
+		t.Fatalf("system proxy capability = %v, want %v", settings.SystemProxySupported, systemproxy.Supported())
+	}
+}
+
+func TestResumeRestartsPersistedConfiguration(t *testing.T) {
+	s, runtime := testService(t)
+	ctx := context.Background()
+	state, err := s.Apply(ctx, ApplyRequest{Kernel: ir.KernelSingBox, Content: `{"outbounds":[{"type":"direct"}]}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.StopAll(); err != nil {
+		t.Fatal(err)
+	}
+	runtime.current = ""
+	if err := s.Resume(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.current != state.Path || runtime.starts < 2 {
+		t.Fatalf("resume did not restart persisted config: current=%q path=%q starts=%d", runtime.current, state.Path, runtime.starts)
+	}
 }
 
 func TestApplyValidationAndRollback(t *testing.T) {
@@ -109,6 +140,11 @@ func TestActivationAndSettings(t *testing.T) {
 	if err := s.SaveSettings(ctx, settings); !errors.Is(err, store.ErrInvalid) {
 		t.Fatal("invalid settings accepted")
 	}
+	settings.Kernel = ir.KernelSingBox
+	settings.SOCKSOnly, settings.EnableTUN = true, true
+	if err := s.SaveSettings(ctx, settings); !errors.Is(err, store.ErrInvalid) {
+		t.Fatal("SOCKS-only and TUN takeover were allowed together")
+	}
 	node := &ir.Node{Name: "selected", Protocol: ir.ProtocolShadowsocks, Owner: ir.KernelSetBoth, Server: ir.Server{Host: "127.0.0.1", Port: 8388}, Proto: map[string]any{"method": "aes-256-gcm", "password": "test"}}
 	if err := s.Store.SaveNode(ctx, node); err != nil {
 		t.Fatal(err)
@@ -136,6 +172,157 @@ func TestActivationAndSettings(t *testing.T) {
 	}
 	if _, err := s.Apply(ctx, ApplyRequest{Content: "not JSON"}); !errors.Is(err, store.ErrInvalid) {
 		t.Fatal(err)
+	}
+}
+
+func TestActivationRespectsPreferredKernel(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		preferred ir.KernelType
+		owner     ir.KernelSet
+		explicit  ir.KernelType
+		want      ir.KernelType
+	}{
+		{"saved mihomo preference", ir.KernelMihomo, ir.KernelSetBoth, "", ir.KernelMihomo},
+		{"saved sing-box preference", ir.KernelSingBox, ir.KernelSetBoth, "", ir.KernelSingBox},
+		{"fallback for sing-box-only node", ir.KernelMihomo, ir.KernelSetSingBox, "", ir.KernelSingBox},
+		{"fallback for mihomo-only node", ir.KernelSingBox, ir.KernelSetMihomo, "", ir.KernelMihomo},
+		{"explicit kernel overrides preference", ir.KernelMihomo, ir.KernelSetBoth, ir.KernelSingBox, ir.KernelSingBox},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, _ := testService(t)
+			ctx := context.Background()
+			settings := defaults()
+			settings.Kernel = tc.preferred
+			if err := s.SaveSettings(ctx, settings); err != nil {
+				t.Fatal(err)
+			}
+			node := &ir.Node{Name: "preferred", Protocol: ir.ProtocolHTTP, Owner: tc.owner, Server: ir.Server{Host: "127.0.0.1", Port: 8088}}
+			if err := s.Store.SaveNode(ctx, node); err != nil {
+				t.Fatal(err)
+			}
+			state, err := s.Activate(ctx, node.ID, tc.explicit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if state.Kernel != tc.want {
+				t.Fatalf("activated %s, want %s", state.Kernel, tc.want)
+			}
+		})
+	}
+}
+
+func TestStopClearsCurrentConfiguration(t *testing.T) {
+	s, runtime := testService(t)
+	ctx := context.Background()
+	node := &ir.Node{Name: "selected", Protocol: ir.ProtocolShadowsocks, Owner: ir.KernelSetBoth, Server: ir.Server{Host: "127.0.0.1", Port: 8388}, Proto: map[string]any{"method": "aes-256-gcm", "password": "test"}}
+	if err := s.Store.SaveNode(ctx, node); err != nil {
+		t.Fatal(err)
+	}
+	state, err := s.Activate(ctx, node.ID, ir.KernelSingBox)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Stop(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.current != "" {
+		t.Fatalf("runtime is still running: %q", runtime.current)
+	}
+	if _, err := s.Current(ctx); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("current configuration was not cleared: %v", err)
+	}
+	if _, err := os.Stat(state.Path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("generated config was not removed: %v", err)
+	}
+}
+
+func TestDefaultSettingsBypassChina(t *testing.T) {
+	s, _ := testService(t)
+	settings, err := s.Settings(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.RoutingMode != "bypass_mainland" || settings.DefaultOutbound != "PROXY" || len(settings.RoutingRules) < 2 {
+		t.Fatalf("unexpected defaults: %#v", settings)
+	}
+	if settings.RoutingRules[0].Match != "domain_suffix" || settings.RoutingRules[0].Values[0] != "cn" || settings.RoutingRules[0].Outbound != "DIRECT" {
+		t.Fatalf("missing static China domain default: %#v", settings.RoutingRules)
+	}
+}
+
+func TestEffectiveRoutingModes(t *testing.T) {
+	base := defaults()
+
+	got, rules := effectiveRouting(base, "selected-node")
+	if got != "selected-node" || len(rules) != 2 {
+		t.Fatalf("bypass routing = %q %#v", got, rules)
+	}
+
+	base.RoutingMode = "global"
+	got, rules = effectiveRouting(base, "selected-node")
+	if got != "selected-node" || len(rules) != 2 {
+		t.Fatalf("global routing = %q %#v", got, rules)
+	}
+
+	base.RoutingMode = "blacklist"
+	got, rules = effectiveRouting(base, "selected-node")
+	if got != "DIRECT" || len(rules) != 2 {
+		t.Fatalf("blacklist routing = %q %#v", got, rules)
+	}
+}
+
+func TestLegacyRemoteDefaultsMigrateToStaticRules(t *testing.T) {
+	s, _ := testService(t)
+	ctx := context.Background()
+	settings := defaults()
+	settings.RoutingRules = legacyDefaultRoutingRules()
+	if err := s.Store.SaveState(ctx, "settings", settings); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Settings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RoutingRules[0].Match != "domain_suffix" {
+		t.Fatalf("legacy rules were not migrated: %#v", got.RoutingRules)
+	}
+	var persisted Settings
+	if err := s.Store.State(ctx, "settings", &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if persisted.RoutingRules[0].Match != "domain_suffix" {
+		t.Fatalf("migrated rules were not persisted: %#v", persisted.RoutingRules)
+	}
+}
+
+func TestLegacySettingsAndStateVersionMigrate(t *testing.T) {
+	s, _ := testService(t)
+	ctx := context.Background()
+	legacySettings := defaults()
+	legacySettings.ConfigVersion = 0
+	legacySettings.RoutingMode = ""
+	if err := s.Store.SaveState(ctx, "settings", legacySettings); err != nil {
+		t.Fatal(err)
+	}
+	settings, err := s.Settings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.ConfigVersion != CurrentConfigVersion || settings.RoutingMode != "bypass_mainland" {
+		t.Fatalf("settings were not migrated: %#v", settings)
+	}
+
+	legacyState := State{ID: "legacy", Kernel: ir.KernelSingBox}
+	if err := s.Store.SaveState(ctx, "current_config", legacyState); err != nil {
+		t.Fatal(err)
+	}
+	state, err := s.Current(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.ConfigVersion != CurrentConfigVersion {
+		t.Fatalf("state version = %d, want %d", state.ConfigVersion, CurrentConfigVersion)
 	}
 }
 

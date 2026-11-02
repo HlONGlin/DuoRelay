@@ -30,5 +30,6 @@ func (p Parser) Parse(input string) (any, error) {
 		return nil, err
 	}
 	parser.SetTLS(n, u.Query())
+	n.Security.Type = "tls"
 	return n, nil
 }

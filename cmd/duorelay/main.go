@@ -21,9 +21,15 @@ import (
 	"github.com/holi/duorelay/internal/task"
 )
 
+var (
+	Version   = "0.0.1-dev"
+	Commit    = "unknown"
+	BuildTime = "unknown"
+)
+
 func main() {
 	fmt.Println("DuoRelay - Dual-Core Universal Proxy Panel")
-	fmt.Println("Version: 0.0.1-dev")
+	fmt.Printf("Version: %s (commit %s, built %s)\n", Version, Commit, BuildTime)
 
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -31,13 +37,14 @@ func main() {
 	}
 }
 
-func run() error {
+func run() (runErr error) {
 	flags := flag.NewFlagSet("duorelay", flag.ContinueOnError)
 	listen := flags.String("listen", "127.0.0.1:8080", "HTTP listen address")
 	dbPath := flags.String("db", filepath.Join("data", "duorelay.db"), "SQLite database file")
 	kernels := flags.String("kernels", "kernels", "kernel executable directory")
 	configDir := flags.String("config-dir", filepath.Join("data", "configs"), "generated configuration directory")
 	workers := flags.Int("workers", 4, "background worker count")
+	cookieSecure := flags.Bool("cookie-secure", false, "mark session cookies Secure (use behind an HTTPS reverse proxy)")
 	if err := flags.Parse(os.Args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -58,15 +65,28 @@ func run() error {
 	queue := task.NewQueue(*workers)
 	defer queue.Close()
 	runtime := kernel.NewManager(*kernels)
-	defer runtime.StopAll()
+	if err := runtime.SetLogDirectory(filepath.Join(filepath.Dir(*dbPath), "logs")); err != nil {
+		return err
+	}
 	config := configuration.New(database, runtime, *configDir)
+	defer func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		if err := config.Stop(cleanupCtx); err != nil {
+			runErr = errors.Join(runErr, fmt.Errorf("restore proxy settings during shutdown: %w", err))
+		}
+	}()
 	subs := subscription.NewManager(database)
 	speed := speedtest.NewEngine(database, queue)
 	speed.ProbeHTTP = config.ProbeHTTP
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+	if err := config.Resume(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not resume previous configuration: %v\n", err)
+	}
 	handler := api.NewServer(database, subs, speed, config, runtime)
 	handler.Context = ctx
+	handler.CookieSecure = *cookieSecure
 	server := &http.Server{Addr: *listen, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 60 * time.Second}
 	scheduled := make(chan error, 1)
 	go func() { scheduled <- subs.Run(ctx, time.Minute) }()
