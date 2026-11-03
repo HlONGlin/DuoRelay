@@ -2,6 +2,24 @@
 
 本方案从本仓库源码构建单容器镜像，包含面板、嵌入式前端、sing-box、mihomo 和 Linux amd64 Cronet。当前只支持 Linux amd64；其他架构需要先补齐 `kernels.lock` 中的内核及 Cronet 哈希。构建需要 Docker、Compose 插件及访问基础镜像、npm、Go 依赖和内核下载地址的网络。
 
+也可以拉取已发布的私有镜像 `ghcr.io/hlonglin/duorelay:v0.3.0-beta.2`，无需本地构建。镜像访问需要有包读取权限的 GitHub 账号及带 `read:packages` 权限的个人访问令牌：
+
+```bash
+docker login ghcr.io -u YOUR_GITHUB_USERNAME
+docker pull ghcr.io/hlonglin/duorelay:v0.3.0-beta.2
+```
+
+在密码提示时输入令牌。使用现有 Compose 部署时，可在项目目录创建 `compose.override.yaml`（需要支持 `!reset` 的 Docker Compose）：
+
+```yaml
+services:
+  duorelay:
+    image: ghcr.io/hlonglin/duorelay:v0.3.0-beta.2
+    build: !reset null
+```
+
+然后执行 `docker compose up -d`；更新时先备份数据，再将镜像标签改为目标版本并执行 `docker compose pull && docker compose up -d`。也可保持默认 Compose 配置，按下文从源码构建。
+
 ## 安装 Docker
 
 已安装 Docker Engine 或 Docker Desktop 及 Compose 插件的用户，可运行 `docker version` 和 `docker compose version` 检查，然后跳到首次安装。以下步骤适用于 Docker 官方支持的 Debian 或 Ubuntu amd64 系统，需要具备 sudo 权限并连接互联网。安装前如已存在其他 Docker、containerd 或 Podman 软件包，请先参照 [Ubuntu 官方安装文档](https://docs.docker.com/engine/install/ubuntu/) 或 [Debian 官方安装文档](https://docs.docker.com/engine/install/debian/) 检查冲突；不要盲目卸载现有环境。

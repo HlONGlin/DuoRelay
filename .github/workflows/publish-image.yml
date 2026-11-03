@@ -43,3 +43,11 @@ jobs:
             --label "org.opencontainers.image.revision=$(git rev-parse HEAD)" \
             --label "org.opencontainers.image.version=$RELEASE_TAG" \
             -t "$image:$RELEASE_TAG" .
+      - name: Verify published image
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          image="ghcr.io/${REPOSITORY,,}:$RELEASE_TAG"
+          docker pull --platform linux/amd64 "$image"
+          docker run --rm --entrypoint /opt/duorelay/kernels/sing-box "$image" version
