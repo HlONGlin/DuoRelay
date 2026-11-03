@@ -1,4 +1,4 @@
-# Multi-Node Proxy and SOCKS5 Inbound Restrictions
+# Multi-Node Proxy, SOCKS5 Port Bindings and Inbound Restrictions
 
 [简体中文](multi-node-proxy.md) | English
 
@@ -30,6 +30,14 @@ The kernels use `dialer-proxy` and `detour` respectively for chaining; multi-nod
 UDP capability depends on the actual path. Protocols carrying datagrams over TCP can provide UDP after a TCP proxy; native SOCKS/SS datagrams still depend on previous-hop UDP capability. A chain without UDP rejects only UDP routed to the selected proxy outbound, retaining mainland bypass, blocklist and other direct rules. User rules cannot select an intermediate hop to bypass the rest of the chain.
 
 Naive on Windows amd64 requires `kernels/libcronet.dll`. Run `powershell -File scripts/install-cronet-windows.ps1`; the script reads the pinned version from `kernels.lock` and checks SHA256. An existing different version is not overwritten.
+
+## Multiple SOCKS5 Ports Pinned to Nodes
+
+Under **Settings → General → Bind nodes to SOCKS5 ports**, add a port and select its node. You can configure up to 32 additional listeners. Ports must be in the range `1–65535`, be unique, and not conflict with DuoRelay's configured proxy or transparent-proxy ports.
+
+Each added port connects directly to its assigned node, independently of the active proxy node or group, load-balancing strategy and routing rules. It does not change the mixed ports or the **Proxy only through the SOCKS5 port** option below. All listeners use the configured inbound listen address, which defaults to localhost. SOCKS listeners do not configure username/password authentication; expose them only to a trusted LAN and configure firewall access as needed.
+
+Full uses sing-box or mihomo according to the active kernel; lite uses mihomo. The assigned node must be supported by the kernel currently running. After saving settings, reapply the active node or group from the Nodes page. Example client address: `socks5://127.0.0.1:18081`; replace it with the actual listen address and port.
 
 ## Proxy Only Through the SOCKS5 Port
 

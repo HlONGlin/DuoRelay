@@ -115,7 +115,7 @@ Back up the entire data directory when migrating, especially the database and it
 
 ## Routing and transparent proxy
 
-Internal routing, bypass rules and user rules are matched in that order. The default dedicated SOCKS5 port is `10808`. Rules use the structured configuration interface; raw JSON or YAML cannot bypass validation. See [routing acceptance](docs/routing-acceptance.en.md) for validation and text format details.
+Internal routing, bypass rules and user rules are matched in that order. The default dedicated SOCKS5 port is `10808`. Settings → General can add up to 32 extra SOCKS5 listeners, each pinned to a node and independent of the active proxy and routing rules. Listeners inherit the inbound listen address; full supports sing-box or mihomo, while lite uses mihomo, subject to the active kernel's protocol support. Save settings and reapply the configuration to activate changes. Enabling LAN access also exposes these ports to the LAN. See [multi-node proxy](docs/multi-node-proxy.en.md) for setup and limits, and [routing acceptance](docs/routing-acceptance.en.md) for rule validation and text format details.
 
 | System | Current limits |
 |---|---|

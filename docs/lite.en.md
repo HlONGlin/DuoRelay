@@ -10,12 +10,13 @@ Both variants share a repository and version number; builds without a tag remain
 | Kernels | sing-box + mihomo | mihomo |
 | Protocol/endpoint model | 28 | 24 supported by mihomo |
 | Nodes, subscriptions, load balancing, panel | Existing functionality | All retained |
+| SOCKS5 port-to-node bindings (up to 32) | sing-box, mihomo | mihomo |
 | Proxy chains | Native and cross-kernel SOCKS5 bridge | Native mihomo; cross-kernel bridge not compiled |
 | Routing list/text editor | Retained | Retained |
 | Transparent proxy | off / redirect / tproxy / tun, subject to system capabilities | Same; see acceptance report for verification scope |
 | Validation and rollback | Existing flow | Shared apply transaction and real mihomo validation |
 | Raw JSON/YAML at `/api/config/apply` | Rejected | Rejected |
-| Database, key, encrypted subscriptions | Original format | Same; no new persisted fields |
+| Database, key, encrypted subscriptions | Original format | Compatible; port mappings are an optional field in the existing settings record |
 | Windows kernel dependencies | sing-box.exe, mihomo.exe, libcronet.dll | mihomo.exe only |
 | Settings → About | full, version, commit | lite, version, commit |
 

@@ -10,12 +10,13 @@
 | 内核 | sing-box + mihomo | mihomo |
 | 协议/端点模型 | 28 项 | mihomo 的 24 项 |
 | 节点、订阅、负载均衡、面板 | 保持现状 | 全部保留 |
+| SOCKS5 多端口绑定（最多 32 个） | sing-box、mihomo | mihomo |
 | 链式代理 | 原生与跨核 SOCKS5 桥接 | mihomo 原生，不编译跨核桥接 |
 | 路由列表/文本编辑 | 保留 | 保留 |
 | 透明代理 | off / redirect / tproxy / tun，受系统能力限制 | 相同，实际验证范围见验收报告 |
 | 校验与回滚 | 原有流程 | 共享应用事务与 mihomo 真核校验 |
 | `/api/config/apply` 原始 JSON/YAML | 拒绝 | 拒绝 |
-| 数据库、密钥、加密订阅 | 原格式 | 相同，无新增持久化字段 |
+| 数据库、密钥、加密订阅 | 原格式 | 兼容；端口映射作为可选设置保存在现有设置记录中 |
 | Windows 内核依赖 | sing-box.exe、mihomo.exe、libcronet.dll | 仅 mihomo.exe |
 | 设置 → 关于 | full、版本、提交 | lite、版本、提交 |
 
