@@ -1,5 +1,6 @@
 # 文档索引
 
+- [DuoRelay 图文介绍、界面截图与体积实测](showcase.md)
 - [full / lite 构建、协议对照与数据互通](lite.md)
 - [lite 构建、体积与隔离容器验收](lite-acceptance.md)
 

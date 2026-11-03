@@ -15,10 +15,25 @@ bash scripts/package-linux.sh 0.3.0 amd64 --lite
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![License](https://img.shields.io/badge/license-pending-lightgrey)
 
+## 界面与体积实测
+
+**lite 压缩包 31.83 MB 起，保留完整面板。** 同版本 `0.3.0` 本地构建实测如下（十进制 MB，包含面板、对应内核及随包文档，不含 Geo）：
+
+| 平台 | full 压缩包 | lite 压缩包 |
+|---|---:|---:|
+| Linux amd64 | 62.34 MB | **34.66 MB** |
+| Linux arm64 | 56.91 MB | **31.83 MB** |
+| Windows amd64 | 66.56 MB | **34.34 MB** |
+
+![DuoRelay lite 节点管理实际界面](docs/images/showcase/nodes-lite.png)
+
+截图来自 orca-linux 中的临时演示实例。解压后的文件大小、首次 Geo 缓存、仪表盘 / 链式 / 路由截图与功能介绍见 [图文介绍](docs/showcase.md)。这些是本地构建记录，不代表另行发版；真实系统的未验证项目见 [验收报告](docs/lite-acceptance.md)。
+
 ---
 
 ## 目录
 
+- [界面与体积实测](#界面与体积实测)
 - [功能概览](#功能概览)
 - [协议与能力边界](#协议与能力边界)
 - [快速开始](#快速开始)
