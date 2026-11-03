@@ -48,7 +48,19 @@
 
 ## 快速开始
 
-以下示例在 Linux 构建运行，需要满足 `go.mod` 声明的 Go 版本、Node.js/npm、`make` 和 Git；运行代理功能还需要对应内核。内核下载脚本使用的版本和校验信息见 [`kernels.lock`](kernels.lock)。
+### Linux 一键部署
+
+在使用 systemd 的 Linux amd64/arm64 系统上，执行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/HlONGlin/DuoRelay/master/scripts/bootstrap-linux.sh | sudo bash
+```
+
+脚本从源码构建前端与后端、下载内核并安装 systemd 服务。需要 root、网络连接、Git、Go、Node.js/npm 等构建工具；缺少依赖时，Debian/Ubuntu 系统会尝试通过 `apt-get` 安装，其他系统需先手动安装。Go 版本需满足 `go.mod` 要求，Node.js 需满足前端构建要求。脚本仅处理首次安装，检测到已有系统安装会退出；数据目录为 `/var/lib/duorelay`。私有仓库需要配置访问凭据。详见 [Linux 部署](docs/linux-deployment.md)。
+
+### 从源码运行
+
+以下示例在 Linux 构建运行，需要满足 `go.mod` 声明的 Go 版本、Node.js/npm、`make` 和 Git；运行代理功能还需要对应内核。内核下载脚本会生成摘要记录，但不校验预先锁定的散列值，详见 [Linux 部署](docs/linux-deployment.md)。
 
 ```bash
 git clone https://github.com/HlONGlin/DuoRelay.git

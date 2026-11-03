@@ -2,6 +2,27 @@
 
 DuoRelay 的主要运行目标是 Linux。本文介绍构建和 systemd 安装；透明代理尚未完成各发行版真实流量及 DNS 泄漏验收，详见 [透明代理验收](transparent-proxy-acceptance.md)。GNOME 桌面可以使用系统代理开关。
 
+## 一键部署
+
+适用于使用 systemd 的 Linux amd64/arm64 系统，需 root 权限及网络连接：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/HlONGlin/DuoRelay/master/scripts/bootstrap-linux.sh | sudo bash
+```
+
+脚本将源码克隆到临时目录，安装前端依赖、下载双内核、构建发布包，并调用 `scripts/install-linux.sh` 安装服务；完成或失败后删除临时构建目录。默认程序目录为 `/opt/duorelay`，数据目录为 `/var/lib/duorelay`，服务只监听 `127.0.0.1:8080`。远程访问可使用 SSH 端口转发，例如在自己的电脑执行 `ssh -L 8080:127.0.0.1:8080 user@server`，再访问本机浏览器。
+
+构建需要 Git、curl、Go、Node.js/npm、tar、gzip 和 coreutils。缺少依赖时，脚本在检测到 `apt-get` 的系统上尝试安装；其他系统需手动安装。Go 须满足仓库 `go.mod` 要求，前端构建也需兼容的 Node.js。内核下载脚本生成本地 SHA-256 记录，但目前并不验证上游签名或预先锁定的散列值。
+
+已有 `/opt/duorelay/duorelay` 或 systemd 单元时脚本会退出，不覆盖现有安装或数据。请先备份数据并按下方手动部署流程处理升级。通过环境变量可选择 Git 仓库与分支或标签：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/HlONGlin/DuoRelay/master/scripts/bootstrap-linux.sh -o /tmp/duorelay-bootstrap.sh
+sudo env DUORELAY_REPO_URL=https://github.com/HlONGlin/DuoRelay.git DUORELAY_REF=master bash /tmp/duorelay-bootstrap.sh
+```
+
+`DUORELAY_REPO_URL` 指向私有仓库时，需要预先为 root 配置 Git 访问凭据。上面 `curl` 入口本身也必须能够读取该脚本；私有仓库应使用已授权的下载方式。
+
 ## 构建发布包
 
 ```bash
