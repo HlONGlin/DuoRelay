@@ -25,11 +25,31 @@ bash scripts/package-linux.sh 0.3.0 amd64 --lite
 | Linux arm64 | 56.91 MB | **31.83 MB** |
 | Windows amd64 | 66.56 MB | **34.34 MB** |
 
+**仪表盘：开始使用后的运行概览**
+
 ![DuoRelay lite 开始使用后的仪表盘：连接概览、当前节点、内核状态与实时流量](docs/images/showcase/dashboard-dark.png)
 
 *开始使用后的仪表盘效果：集中查看节点概览、当前代理节点、内核运行状态与流量采样。图中使用临时演示数据，流量按实际运行状态显示。*
 
-截图来自 orca-linux 中的临时演示实例。解压后的文件大小、首次 Geo 缓存、仪表盘 / 链式 / 路由截图与功能介绍见 [图文介绍](docs/showcase.md)。这些是本地构建记录，不代表另行发版；真实系统的未验证项目见 [验收报告](docs/lite-acceptance.md)。
+**节点管理：多协议节点与 lite 能力提示**
+
+![DuoRelay lite 节点管理：协议筛选、节点列表与不支持协议提示](docs/images/showcase/nodes-lite.png)
+
+*集中管理节点、筛选协议并查看运行状态。示例域名和未测速状态保留原样，不作为公网节点可用性或延迟证明。*
+
+**链式代理：逐跳组织与配置预览**
+
+![DuoRelay 链式代理：两跳顺序、mihomo 内核与 TCP 能力预览](docs/images/showcase/chain-preview.png)
+
+*展示链路顺序和内核能力检查；截图中的示例链路仅作配置预览，未启动。*
+
+**路由编辑：文本规则与分流策略**
+
+![DuoRelay 路由编辑器：文本模式、行号与 PROXY、DIRECT、REJECT 规则](docs/images/showcase/routing-text.png)
+
+*路由支持列表与文本双模式编辑，图中展示文本模式；规则仍通过结构化校验后应用。*
+
+以上四张截图来自 orca-linux 中的临时演示实例。解压后的文件大小、首次 Geo 缓存与更多功能介绍见 [图文介绍](docs/showcase.md)。这些是本地构建记录，不代表另行发版；真实系统的未验证项目见 [验收报告](docs/lite-acceptance.md)。
 
 ---
 
