@@ -276,7 +276,15 @@ func TestConfigAndLogAPI(t *testing.T) {
 	call(t, s, "GET", "/api/config/current", "", 404)
 	settings := call(t, s, "GET", "/api/config", "", 200)
 	call(t, s, "PUT", "/api/config", string(settings), 200)
-	state := call(t, s, "POST", "/api/config/apply", `{"kernel":"sing-box","config":"{\"outbounds\":[{\"type\":\"direct\"}]}"}`, 200)
+	var settingsValue map[string]any
+	if err := json.Unmarshal(settings, &settingsValue); err != nil {
+		t.Fatal(err)
+	}
+	settingsValue["default_outbound"] = "DIRECT"
+	settingsValue["routing_mode"] = "blacklist"
+	settings, _ = json.Marshal(settingsValue)
+	call(t, s, "PUT", "/api/config", string(settings), 200)
+	state := call(t, s, "POST", "/api/config/apply", `{"kernel":"sing-box"}`, 200)
 	if strings.Contains(string(state), "secret") || strings.Contains(string(state), "path") || strings.Contains(string(state), "controller") {
 		t.Fatalf("private state leaked: %s", state)
 	}
@@ -292,7 +300,7 @@ func TestConfigAndLogAPI(t *testing.T) {
 	call(t, s, "GET", "/api/kernel/logs?source=unknown", "", 400)
 	call(t, s, "POST", "/api/kernel/stop", "", 200)
 	call(t, s, "POST", "/api/config/apply", `{"kernel":"bad"}`, 400)
-	call(t, s, "POST", "/api/config/apply", `{"config":"{\"fail_validation\":true}"}`, 422)
+	call(t, s, "POST", "/api/config/apply", `{"config":"{\"fail_validation\":true}"}`, 400)
 	node := &ir.Node{Name: "selected", Protocol: ir.ProtocolShadowsocks, Owner: ir.KernelSetBoth, Server: ir.Server{Host: "127.0.0.1", Port: 8388}, Proto: map[string]any{"method": "aes-256-gcm", "password": "test"}}
 	if err := s.Store.SaveNode(context.Background(), node); err != nil {
 		t.Fatal(err)
@@ -426,11 +434,28 @@ func TestTrafficAPIUsesDeterministicClashMock(t *testing.T) {
 	if sample.Up != 321 || sample.Down != 654 || sample.SampledAt.IsZero() {
 		t.Fatalf("unexpected traffic response: %#v", sample)
 	}
+	historyData := call(t, s, "GET", "/api/kernel/traffic/history?limit=10", "", 200)
+	var history []clashapi.TrafficSnapshot
+	if err := json.Unmarshal(historyData, &history); err != nil {
+		t.Fatalf("decode traffic history: %v", err)
+	}
+	if len(history) != 1 || history[0].Up != 321 || history[0].Down != 654 || history[0].SampledAt.IsZero() {
+		t.Fatalf("unexpected traffic history: %#v", history)
+	}
+	call(t, s, "GET", "/api/kernel/traffic/history?limit=0", "", 400)
 }
 
 func TestTrafficAPIWithoutAppliedConfigReturnsUnavailable(t *testing.T) {
 	s := apiForTest(t)
 	call(t, s, "GET", "/api/kernel/traffic", "", 503)
+	data := call(t, s, "GET", "/api/kernel/traffic/history", "", 200)
+	var history []clashapi.TrafficSnapshot
+	if err := json.Unmarshal(data, &history); err != nil {
+		t.Fatalf("decode empty traffic history: %v", err)
+	}
+	if len(history) != 0 {
+		t.Fatalf("traffic history without config = %#v, want empty", history)
+	}
 }
 
 func TestChainPreviewAPI(t *testing.T) {

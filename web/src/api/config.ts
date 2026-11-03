@@ -24,3 +24,17 @@ export function getProxyGroupStatus(): Promise<ProxyGroupStatus> {
 export function previewChain(nodeIds: string[]): Promise<ChainPlan> {
   return request<ChainPlan>({ url: '/config/chain/preview', method: 'post', data: { node_ids: nodeIds } })
 }
+
+export function exportRouting(): Promise<{ text: string }> {
+  return request<{ text: string }>({ url: '/routing/export', method: 'get' })
+}
+
+export interface RoutingTextResult { rules: AppConfig['routing_rules']; errors?: { line: number; reason: string }[] }
+
+export function validateRoutingText(text: string): Promise<RoutingTextResult> {
+  return request<RoutingTextResult>({ url: '/routing/validate', method: 'post', data: { text } })
+}
+
+export function importRoutingText(text: string): Promise<RoutingTextResult> {
+  return request<RoutingTextResult>({ url: '/routing/import', method: 'post', data: { text } })
+}

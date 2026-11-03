@@ -22,6 +22,7 @@ import (
 	"github.com/holi/duorelay/internal/configuration"
 	"github.com/holi/duorelay/internal/ir"
 	"github.com/holi/duorelay/internal/kernel"
+	"github.com/holi/duorelay/internal/routing"
 	"github.com/holi/duorelay/internal/speedtest"
 	"github.com/holi/duorelay/internal/store"
 	"github.com/holi/duorelay/internal/subscription"
@@ -208,6 +209,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /api/speedtest/tasks/{id}", s.cancelTask)
 	s.mux.HandleFunc("GET /api/config", s.settings)
 	s.mux.HandleFunc("PUT /api/config", s.saveSettings)
+	s.mux.HandleFunc("GET /api/routing/export", s.exportRouting)
+	s.mux.HandleFunc("POST /api/routing/validate", s.validateRoutingText)
+	s.mux.HandleFunc("POST /api/routing/import", s.importRouting)
 	s.mux.HandleFunc("GET /api/config/current", s.currentConfig)
 	s.mux.HandleFunc("GET /api/config/proxy-group", s.proxyGroupStatus)
 	s.mux.HandleFunc("POST /api/config/apply", s.applyConfig)
@@ -533,6 +537,41 @@ func (s *Server) saveSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	WriteJSON(w, 200, value)
 }
+
+func (s *Server) exportRouting(w http.ResponseWriter, r *http.Request) {
+	settings, err := s.Config.Settings(r.Context())
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	WriteJSON(w, http.StatusOK, map[string]string{"text": routing.Format(settings.RoutingRules)})
+}
+
+func (s *Server) validateRoutingText(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Text string `json:"text"`
+	}
+	if err := decode(w, r, &input, false); err != nil {
+		fail(w, err)
+		return
+	}
+	result := routing.Parse(input.Text)
+	WriteJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) importRouting(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Text string `json:"text"`
+	}
+	if err := decode(w, r, &input, false); err != nil {
+		fail(w, err)
+		return
+	}
+	result := routing.Parse(input.Text)
+	// Import is parse-only. Existing settings are not changed until the user
+	// submits the returned valid rules through PUT /api/config.
+	WriteJSON(w, http.StatusOK, result)
+}
 func (s *Server) currentConfig(w http.ResponseWriter, r *http.Request) {
 	value, err := s.Config.Current(r.Context())
 	if err != nil {
@@ -580,6 +619,10 @@ func (s *Server) applyConfig(w http.ResponseWriter, r *http.Request) {
 	var input configuration.ApplyRequest
 	if err := decode(w, r, &input, true); err != nil {
 		fail(w, err)
+		return
+	}
+	if input.Content != "" {
+		fail(w, fmt.Errorf("%w: raw kernel configuration is not accepted through this API; use nodes and routing settings", store.ErrInvalid))
 		return
 	}
 	value, err := s.Config.Apply(r.Context(), input)

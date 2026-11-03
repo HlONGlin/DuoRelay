@@ -22,6 +22,7 @@ import (
 	"github.com/holi/duorelay/internal/kernel"
 	"github.com/holi/duorelay/internal/store"
 	"github.com/holi/duorelay/internal/systemproxy"
+	"github.com/holi/duorelay/internal/transparent"
 	"gopkg.in/yaml.v3"
 )
 
@@ -49,6 +50,9 @@ type Settings struct {
 	DNSServers           []string                     `json:"dns_servers"`
 	DNSFakeIP            bool                         `json:"dns_fake_ip"`
 	EnableTUN            bool                         `json:"enable_tun"`
+	TransparentMode      transparent.Mode             `json:"transparent_mode"`
+	TransparentModes     []transparent.ModeInfo       `json:"transparent_modes,omitempty"`
+	TransparentActive    transparent.Mode             `json:"transparent_active,omitempty"`
 	TUNStack             string                       `json:"tun_stack"`
 	SystemProxy          bool                         `json:"system_proxy"`
 	SystemProxySupported bool                         `json:"system_proxy_supported"`
@@ -70,6 +74,7 @@ type State struct {
 	Kernel            ir.KernelType                 `json:"kernel"`
 	NodeIDs           []string                      `json:"node_ids"`
 	Mode              string                        `json:"mode"`
+	TransparentMode   transparent.Mode              `json:"transparent_mode,omitempty"`
 	LoadBalance       *generator.LoadBalanceOptions `json:"load_balance,omitempty"`
 	AppliedAt         time.Time                     `json:"applied_at"`
 	Path              string                        `json:"path,omitempty"`
@@ -102,18 +107,21 @@ func (s *State) Public() *State {
 }
 
 type Service struct {
-	mu         sync.Mutex
-	Store      *store.Store
-	Runtime    Runtime
-	Directory  string
-	Generators map[ir.KernelType]generator.Generator
+	mu          sync.Mutex
+	Store       *store.Store
+	Runtime     Runtime
+	Directory   string
+	Generators  map[ir.KernelType]generator.Generator
+	Transparent *transparent.Manager
 }
 
 func New(s *store.Store, runtime Runtime, directory string) *Service {
 	return &Service{Store: s, Runtime: runtime, Directory: directory, Generators: map[ir.KernelType]generator.Generator{ir.KernelSingBox: singbox.NewGenerator(), ir.KernelMihomo: mihomo.NewGenerator()}}
 }
+
+func (s *Service) SetTransparent(manager *transparent.Manager) { s.Transparent = manager }
 func defaults() Settings {
-	return Settings{ConfigVersion: CurrentConfigVersion, Kernel: ir.KernelSingBox, InboundHost: "127.0.0.1", InboundPort: 1080, MixedPort: 7890, SOCKSPort: 10808, LoadBalance: generator.DefaultLoadBalanceOptions(), LogLevel: "info", DNSServers: []string{"223.5.5.5", "8.8.8.8"}, TUNStack: "system", RoutingMode: "bypass_mainland", DefaultOutbound: "PROXY", RoutingRules: defaultRoutingRules()}
+	return Settings{ConfigVersion: CurrentConfigVersion, Kernel: ir.KernelSingBox, InboundHost: "127.0.0.1", InboundPort: 1080, MixedPort: 7890, SOCKSPort: 10808, LoadBalance: generator.DefaultLoadBalanceOptions(), LogLevel: "info", DNSServers: []string{"223.5.5.5", "8.8.8.8"}, TUNStack: "system", TransparentMode: transparent.ModeOff, RoutingMode: "bypass_mainland", DefaultOutbound: "PROXY", RoutingRules: defaultRoutingRules()}
 }
 
 func defaultRoutingRules() []generator.RoutingRule {
@@ -173,13 +181,68 @@ func (s *Service) Settings(ctx context.Context) (Settings, error) {
 	if len(value.RoutingRules) == 0 {
 		value.RoutingRules = defaultRoutingRules()
 	}
+	if sameRoutingRules(value.RoutingRules, defaultRoutingRules()) {
+		for i := range value.RoutingRules {
+			value.RoutingRules[i].Source = "bypass"
+			value.RoutingRules[i].Enabled = true
+			value.RoutingRules[i].ID = fmt.Sprintf("bypass-%d", i+1)
+		}
+	}
+	for i := range value.RoutingRules {
+		if value.RoutingRules[i].Source == "" {
+			value.RoutingRules[i].Source = "user"
+		}
+		if value.RoutingRules[i].ID == "" {
+			value.RoutingRules[i].ID = fmt.Sprintf("rule-%d", i+1)
+		}
+		if !value.RoutingRules[i].Enabled {
+			// The old model had no enabled field, so old rules remain active.
+			value.RoutingRules[i].Enabled = true
+		}
+	}
+	if value.TransparentMode == "" {
+		if value.EnableTUN {
+			value.TransparentMode = transparent.ModeTUN
+		} else {
+			value.TransparentMode = transparent.ModeOff
+		}
+	}
 	value.SystemProxySupported = systemproxy.Supported()
+	if s.Transparent != nil {
+		value.TransparentModes = s.Transparent.Capabilities()
+	}
+	if state, stateErr := s.Current(ctx); stateErr == nil && state != nil {
+		value.TransparentActive = state.TransparentMode
+	}
 	return value, err
 }
 func (s *Service) SaveSettings(ctx context.Context, value Settings) error {
 	if value.ConfigVersion == 0 {
 		value.ConfigVersion = CurrentConfigVersion
 	}
+	if value.SOCKSOnly && value.EnableTUN {
+		return fmt.Errorf("%w: SOCKS-only mode cannot be combined with TUN takeover", store.ErrInvalid)
+	}
+	if value.TransparentMode == "" {
+		if value.EnableTUN {
+			value.TransparentMode = transparent.ModeTUN
+		} else {
+			value.TransparentMode = transparent.ModeOff
+		}
+	}
+	if s.Transparent != nil {
+		found, supported, reason := false, false, ""
+		for _, info := range s.Transparent.Capabilities() {
+			if info.Mode == value.TransparentMode {
+				found, supported, reason = true, info.Supported, info.Reason
+				break
+			}
+		}
+		if !found || !supported {
+			return fmt.Errorf("%w: transparent mode %s unavailable: %s", store.ErrInvalid, value.TransparentMode, reason)
+		}
+	}
+	value.EnableTUN = value.TransparentMode == transparent.ModeTUN
 	// Preserve compatibility with clients that predate these optional settings.
 	if value.SOCKSPort == 0 {
 		value.SOCKSPort = defaults().SOCKSPort
@@ -229,8 +292,29 @@ func (s *Service) SaveSettings(ctx context.Context, value Settings) error {
 	if err := generator.ValidateRoutingRules(value.RoutingRules); err != nil {
 		return fmt.Errorf("%w: %v", store.ErrInvalid, err)
 	}
+	if err := validateRoutingConflicts(value.RoutingRules); err != nil {
+		return fmt.Errorf("%w: %v", store.ErrInvalid, err)
+	}
 	value.SystemProxySupported = systemproxy.Supported()
+	if s.Transparent != nil {
+		value.TransparentModes = s.Transparent.Capabilities()
+	}
 	return s.Store.SaveState(ctx, "settings", value)
+}
+
+func validateRoutingConflicts(rules []generator.RoutingRule) error {
+	seen := map[string]int{}
+	for i, rule := range rules {
+		if !rule.Enabled {
+			continue
+		}
+		key := rule.Source + "|" + rule.Match + "|" + strings.Join(rule.Values, "\x00")
+		if previous, ok := seen[key]; ok {
+			return fmt.Errorf("routing rule %d conflicts with rule %d: same matcher and values", i+1, previous+1)
+		}
+		seen[key] = i
+	}
+	return nil
 }
 func (s *Service) Current(ctx context.Context) (*State, error) {
 	var state State
@@ -262,8 +346,16 @@ func (s *Service) Resume(ctx context.Context) error {
 	if s.Runtime == nil {
 		return fmt.Errorf("kernel runtime is not configured")
 	}
+	settings, settingsErr := s.Settings(ctx)
+	if settingsErr != nil {
+		return settingsErr
+	}
+	if err := s.prepareTransparent(settings); err != nil {
+		return fmt.Errorf("%w: transparent setup: %v", ErrApply, err)
+	}
 	if err := s.startState(&state); err != nil {
 		_ = s.Runtime.StopAll()
+		_ = s.cleanupTransparent()
 		if state.SystemProxy != nil {
 			_ = systemproxy.Restore(*state.SystemProxy)
 		}
@@ -272,10 +364,37 @@ func (s *Service) Resume(ctx context.Context) error {
 	if state.SystemProxyTarget != "" {
 		if err := setSystemProxyTarget(state.SystemProxyTarget); err != nil {
 			_ = s.Runtime.StopAll()
+			_ = s.cleanupTransparent()
 			if state.SystemProxy != nil {
 				_ = systemproxy.Restore(*state.SystemProxy)
 			}
 			return fmt.Errorf("%w: restore system proxy: %v", ErrApply, err)
+		}
+	}
+	return nil
+}
+
+// Shutdown stops managed kernels and restores the previous system proxy while
+// retaining current_config and generated files for the next panel start.
+func (s *Service) Shutdown(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var state State
+	err := s.Store.State(ctx, "current_config", &state)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return err
+	}
+	if s.Runtime != nil {
+		if stopErr := s.Runtime.StopAll(); stopErr != nil {
+			return stopErr
+		}
+	}
+	if cleanupErr := s.cleanupTransparent(); cleanupErr != nil {
+		return cleanupErr
+	}
+	if err == nil && state.SystemProxy != nil {
+		if restoreErr := systemproxy.Restore(*state.SystemProxy); restoreErr != nil {
+			return restoreErr
 		}
 	}
 	return nil
@@ -296,6 +415,9 @@ func (s *Service) Stop(ctx context.Context) error {
 		if err := s.Runtime.StopAll(); err != nil {
 			return err
 		}
+	}
+	if cleanupErr := s.cleanupTransparent(); cleanupErr != nil {
+		return cleanupErr
 	}
 	if err == nil {
 		if state.SystemProxy != nil {
@@ -407,7 +529,7 @@ func (s *Service) Apply(ctx context.Context, request ApplyRequest) (*State, erro
 		if composition != nil && settings.RoutingMode != "blacklist" {
 			defaultOutbound = "PROXY"
 		}
-		options := &generator.GenerateOptions{InboundHost: settings.InboundHost, InboundPort: settings.InboundPort, MixedPort: settings.MixedPort, SystemProxy: settings.SystemProxy, DNSServers: settings.DNSServers, DNSFakeIP: settings.DNSFakeIP, EnableTUN: settings.EnableTUN, TUNStack: settings.TUNStack, LogLevel: settings.LogLevel, DefaultOutbound: defaultOutbound, RoutingRules: routingRules}
+		options := &generator.GenerateOptions{InboundHost: settings.InboundHost, InboundPort: settings.InboundPort, MixedPort: settings.MixedPort, SystemProxy: settings.SystemProxy, DNSServers: settings.DNSServers, DNSFakeIP: settings.DNSFakeIP, EnableTUN: settings.EnableTUN, TransparentMode: string(settings.TransparentMode), RedirectPort: settings.InboundPort, TProxyPort: settings.InboundPort + 1, TUNStack: settings.TUNStack, LogLevel: settings.LogLevel, DefaultOutbound: defaultOutbound, RoutingRules: routingRules}
 		options.SOCKSOnly, options.SOCKSPort, options.Composition = settings.SOCKSOnly, settings.SOCKSPort, composition
 		if settings.AllowLAN {
 			options.InboundHost = "0.0.0.0"
@@ -488,6 +610,7 @@ func (s *Service) Apply(ctx context.Context, request ApplyRequest) (*State, erro
 	}
 	rollback := func(cause error) error {
 		stopErr := s.Runtime.StopAll()
+		cleanupErr := s.cleanupTransparent()
 		var restoreErr error
 		if previous != nil {
 			restoreErr = s.startState(previous)
@@ -497,7 +620,10 @@ func (s *Service) Apply(ctx context.Context, request ApplyRequest) (*State, erro
 		} else if proxySnapshot != nil {
 			restoreErr = errors.Join(restoreErr, systemproxy.Restore(*proxySnapshot))
 		}
-		return errors.Join(fmt.Errorf("%w: %v", ErrApply, cause), stopErr, restoreErr)
+		return errors.Join(fmt.Errorf("%w: %v", ErrApply, cause), stopErr, cleanupErr, restoreErr)
+	}
+	if err := s.prepareTransparent(settings); err != nil {
+		return nil, rollback(fmt.Errorf("transparent setup: %w", err))
 	}
 	if runtime, ok := s.Runtime.(interface{ SetMode(kernel.RunMode) error }); ok {
 		if err := runtime.SetMode(kernel.ModeSingleSwitch); err != nil {
@@ -523,7 +649,7 @@ func (s *Service) Apply(ctx context.Context, request ApplyRequest) (*State, erro
 			mode = "select"
 		}
 	}
-	state := &State{ConfigVersion: CurrentConfigVersion, ID: id, Kernel: request.Kernel, NodeIDs: nodeIDs, Mode: mode, LoadBalance: request.LoadBalance, AppliedAt: time.Now().UTC(), Path: path, Controller: controller, Secret: secret, SystemProxy: proxySnapshot, SystemProxyTarget: proxyTarget}
+	state := &State{ConfigVersion: CurrentConfigVersion, ID: id, Kernel: request.Kernel, NodeIDs: nodeIDs, Mode: mode, TransparentMode: settings.TransparentMode, LoadBalance: request.LoadBalance, AppliedAt: time.Now().UTC(), Path: path, Controller: controller, Secret: secret, SystemProxy: proxySnapshot, SystemProxyTarget: proxyTarget}
 	// Finish the durable state update even if the HTTP client disconnected.
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
@@ -549,8 +675,32 @@ func effectiveRouting(settings Settings, requestedOutbound string) (string, []ge
 	if requestedOutbound != "" && mode != "blacklist" {
 		outbound = requestedOutbound
 	}
-	rules := append([]generator.RoutingRule(nil), settings.RoutingRules...)
+	rules := make([]generator.RoutingRule, 0, len(settings.RoutingRules))
+	for _, rule := range settings.RoutingRules {
+		if rule.Source == "internal" || rule.Source == "bypass" || rule.Source == "" {
+			rules = append(rules, rule)
+		}
+	}
+	for _, rule := range settings.RoutingRules {
+		if rule.Source == "user" {
+			rules = append(rules, rule)
+		}
+	}
 	return outbound, rules
+}
+
+func (s *Service) prepareTransparent(settings Settings) error {
+	if s.Transparent == nil {
+		return nil
+	}
+	return s.Transparent.Prepare(settings.TransparentMode, settings.InboundPort, settings.InboundPort+1)
+}
+
+func (s *Service) cleanupTransparent() error {
+	if s.Transparent == nil {
+		return nil
+	}
+	return s.Transparent.Cleanup()
 }
 
 func systemProxyTarget(settings Settings, kernel ir.KernelType) string {

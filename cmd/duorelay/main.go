@@ -19,6 +19,7 @@ import (
 	"github.com/holi/duorelay/internal/store"
 	"github.com/holi/duorelay/internal/subscription"
 	"github.com/holi/duorelay/internal/task"
+	"github.com/holi/duorelay/internal/transparent"
 )
 
 var (
@@ -69,11 +70,12 @@ func run() (runErr error) {
 		return err
 	}
 	config := configuration.New(database, runtime, *configDir)
+	config.SetTransparent(transparent.New())
 	defer func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cleanupCancel()
-		if err := config.Stop(cleanupCtx); err != nil {
-			runErr = errors.Join(runErr, fmt.Errorf("restore proxy settings during shutdown: %w", err))
+		if err := config.Shutdown(cleanupCtx); err != nil {
+			runErr = errors.Join(runErr, fmt.Errorf("stop runtime during shutdown: %w", err))
 		}
 	}()
 	subs := subscription.NewManager(database)

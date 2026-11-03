@@ -80,12 +80,15 @@ func TestSingBoxRoutingRules(t *testing.T) {
 	}
 	route := config["route"].(map[string]any)
 	rules := route["rules"].([]any)
-	if len(rules) != 4 {
-		t.Fatalf("route rule count = %d, want 4", len(rules))
+	if len(rules) != 5 {
+		t.Fatalf("route rule count = %d, want 5 (one sing-box rule per port)", len(rules))
 	}
 	first := rules[0].(map[string]any)
 	if first["domain_suffix"].([]any)[0] != "example.com" || first["outbound"] != "PROXY" {
 		t.Fatalf("unexpected first sing-box rule: %#v", first)
+	}
+	if portRule, ok := rules[2].(map[string]any); !ok || portRule["port"] != float64(443) {
+		t.Fatalf("unexpected first sing-box port rule: %#v", rules[2])
 	}
 	if route["final"] != "DIRECT" {
 		t.Fatalf("route final = %v, want DIRECT", route["final"])

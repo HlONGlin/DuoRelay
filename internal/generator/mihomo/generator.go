@@ -96,7 +96,11 @@ func (g *Generator) Generate(nodes []*ir.Node, opts *generator.GenerateOptions) 
 		"proxy-groups": proxyGroups,
 		"rules":        g.generateRules(opts),
 	}
+	mode := opts.TransparentMode
 	if opts.EnableTUN {
+		mode = "tun"
+	}
+	if mode == "tun" {
 		config["ipv6"] = true
 		tun := map[string]any{
 			"enable":                true,
@@ -112,6 +116,10 @@ func (g *Generator) Generate(nodes []*ir.Node, opts *generator.GenerateOptions) 
 			tun["auto-redirect"] = true
 		}
 		config["tun"] = tun
+	} else if mode == "redirect" {
+		config["redir-port"] = opts.RedirectPort
+	} else if mode == "tproxy" {
+		config["tproxy-port"] = opts.TProxyPort
 	}
 	if opts.SOCKSOnly {
 		config["bind-address"] = opts.InboundHost
@@ -204,6 +212,9 @@ func (g *Generator) generateRules(opts *generator.GenerateOptions) []string {
 		rules = append(rules, "NOT,((IN-NAME,socks-in)),DIRECT")
 	}
 	for _, rule := range opts.RoutingRules {
+		if !rule.Enabled && rule.ID != "" {
+			continue
+		}
 		kind := map[string]string{
 			"domain":         "DOMAIN",
 			"domain_suffix":  "DOMAIN-SUFFIX",

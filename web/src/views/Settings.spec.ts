@@ -16,6 +16,10 @@ describe('settings workflows', () => {
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
     vi.mocked(nodeApi.listNodes).mockResolvedValue([])
     const config = defaultConfig()
+    config.transparent_modes = [
+      { mode: 'off', supported: true, prerequisites: '', dns_description: '' },
+      { mode: 'tun', supported: true, prerequisites: '', dns_description: '' }
+    ]
     config.routing_rules.unshift({ match: 'domain_suffix', values: ['example.com'], outbound: 'PROXY' })
     vi.mocked(configApi.getConfig).mockResolvedValue(config)
     vi.mocked(configApi.updateConfig).mockImplementation(async next => next)
@@ -36,7 +40,7 @@ describe('settings workflows', () => {
     await flushPromises()
     expect(configApi.updateConfig).toHaveBeenCalledWith(expect.objectContaining({
       routing_mode: 'global', default_outbound: 'PROXY',
-      routing_rules: [{ match: 'domain_suffix', values: ['example.com'], outbound: 'PROXY' }]
+      routing_rules: [{ id: 'rule-1', source: 'user', enabled: true, match: 'domain_suffix', values: ['example.com'], outbound: 'PROXY' }]
     }))
     wrapper.unmount()
   })

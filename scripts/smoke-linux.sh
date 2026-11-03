@@ -5,6 +5,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="${TMPDIR:-/tmp}/duorelay-smoke"
 PORT="${DUORELAY_SMOKE_PORT:-18080}"
 BASE="http://127.0.0.1:${PORT}"
+export NO_PROXY="127.0.0.1,localhost"
+export no_proxy="$NO_PROXY"
 
 rm -rf "$WORK"
 mkdir -p "$WORK"
@@ -37,8 +39,10 @@ curl -fsS -X POST "$BASE/api/auth/register" -H 'Content-Type: application/json' 
 curl -fsS -c "$WORK/cookies" -X POST "$BASE/api/auth/login" -H 'Content-Type: application/json' \
   --data '{"username":"admin","password":"password123"}' >"$WORK/login.json"
 
+curl -fsS -b "$WORK/cookies" -X PUT "$BASE/api/config" -H 'Content-Type: application/json' \
+  --data '{"kernel":"sing-box","inbound_host":"127.0.0.1","inbound_port":18082,"mixed_port":18083,"socks_only":false,"socks_port":10808,"allow_lan":false,"log_level":"info","dns_servers":["223.5.5.5"],"dns_fake_ip":false,"enable_tun":false,"transparent_mode":"off","system_proxy":false,"routing_mode":"blacklist","default_outbound":"DIRECT","routing_rules":[]}' >"$WORK/settings.json"
 curl -fsS -b "$WORK/cookies" -X POST "$BASE/api/config/apply" -H 'Content-Type: application/json' \
-  --data '{"kernel":"sing-box","config":"{\"log\":{\"level\":\"info\"},\"inbounds\":[{\"type\":\"mixed\",\"tag\":\"mixed-in\",\"listen\":\"127.0.0.1\",\"listen_port\":18082}],\"outbounds\":[{\"type\":\"direct\",\"tag\":\"direct\"}],\"route\":{\"rules\":[{\"outbound\":\"direct\"}]}}"}' >"$WORK/applied.json"
+  --data '{"kernel":"sing-box"}' >"$WORK/applied.json"
 curl -fsS -b "$WORK/cookies" "$BASE/api/kernel/status" >"$WORK/running.json"
 grep -q '"running":true' "$WORK/running.json"
 

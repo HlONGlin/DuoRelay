@@ -409,7 +409,7 @@ func (m *Manager) stopProcess(p *Process) error {
 	defer timer.Stop()
 	select {
 	case <-p.done:
-		return nil
+		return m.cleanupStoppedTUN(p)
 	case <-timer.C:
 		m.mu.RLock()
 		cmd := p.Cmd
@@ -423,10 +423,17 @@ func (m *Manager) stopProcess(p *Process) error {
 	timer.Reset(m.stopTimeout)
 	select {
 	case <-p.done:
-		return nil
+		return m.cleanupStoppedTUN(p)
 	case <-timer.C:
 		return fmt.Errorf("timed out stopping %s", p.Name)
 	}
+}
+
+func (m *Manager) cleanupStoppedTUN(p *Process) error {
+	if p == nil || p.Name != "mihomo" || runtime.GOOS != "linux" || !mihomoTUNEnabled(p.Config) {
+		return nil
+	}
+	return cleanupMihomoTUNNetwork()
 }
 
 func readController(name, config string) (string, string, error) {

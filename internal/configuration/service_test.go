@@ -92,6 +92,25 @@ func TestResumeRestartsPersistedConfiguration(t *testing.T) {
 	}
 }
 
+func TestShutdownKeepsPersistedConfigurationForResume(t *testing.T) {
+	s, runtime := testService(t)
+	ctx := context.Background()
+	state, err := s.Apply(ctx, ApplyRequest{Kernel: ir.KernelSingBox, Content: `{"outbounds":[{"type":"direct"}]}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Shutdown(ctx); err != nil {
+		t.Fatal(err)
+	}
+	current, err := s.Current(ctx)
+	if err != nil || current.ID != state.ID {
+		t.Fatalf("shutdown removed persisted configuration: state=%#v err=%v", current, err)
+	}
+	if runtime.current != "" {
+		t.Fatalf("shutdown left runtime active: %q", runtime.current)
+	}
+}
+
 func TestApplyValidationAndRollback(t *testing.T) {
 	s, runtime := testService(t)
 	ctx := context.Background()

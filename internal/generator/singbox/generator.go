@@ -124,6 +124,9 @@ func usesProxyOutbound(opts *generator.GenerateOptions) bool {
 		return true
 	}
 	for _, rule := range opts.RoutingRules {
+		if !rule.Enabled && rule.ID != "" {
+			continue
+		}
 		if rule.Outbound == "PROXY" {
 			return true
 		}
@@ -185,7 +188,11 @@ func (g *Generator) generateDNS(opts *generator.GenerateOptions) (map[string]any
 func (g *Generator) generateInbounds(opts *generator.GenerateOptions) []map[string]any {
 	inbounds := []map[string]any{}
 
+	mode := opts.TransparentMode
 	if opts.EnableTUN {
+		mode = "tun"
+	}
+	if mode == "tun" {
 		tun := map[string]any{
 			"type":         "tun",
 			"tag":          "tun-in",
@@ -199,8 +206,16 @@ func (g *Generator) generateInbounds(opts *generator.GenerateOptions) []map[stri
 			tun["auto_redirect"] = true
 		}
 		inbounds = append(inbounds, tun)
+	} else if mode == "redirect" || mode == "tproxy" {
+		port := opts.RedirectPort
+		if mode == "tproxy" {
+			port = opts.TProxyPort
+		}
+		inbounds = append(inbounds, map[string]any{
+			"type": mode, "tag": mode + "-in", "listen": "127.0.0.1", "listen_port": port,
+		})
 	}
-	if !opts.EnableTUN || opts.SOCKSOnly || opts.SystemProxy {
+	if mode == "off" || opts.SOCKSOnly || opts.SystemProxy {
 		inbounds = append(inbounds, map[string]any{
 			"type":        "mixed",
 			"tag":         "mixed-in",
@@ -277,7 +292,11 @@ func (g *Generator) generateOutboundsAndEndpoints(nodes []*ir.Node) ([]map[strin
 
 func (g *Generator) generateRoute(opts *generator.GenerateOptions, resolver string) map[string]any {
 	rules := make([]map[string]any, 0, len(opts.RoutingRules)+1)
+	mode := opts.TransparentMode
 	if opts.EnableTUN {
+		mode = "tun"
+	}
+	if mode == "tun" {
 		rules = append(rules, map[string]any{"protocol": []string{"dns"}, "action": "hijack-dns"})
 	}
 	if opts.SOCKSOnly {
@@ -285,6 +304,19 @@ func (g *Generator) generateRoute(opts *generator.GenerateOptions, resolver stri
 	}
 	ruleSets := make([]map[string]any, 0)
 	for _, rule := range opts.RoutingRules {
+		if !rule.Enabled && rule.ID != "" {
+			continue
+		}
+		if rule.Match == "port" {
+			for _, value := range rule.Values {
+				port, err := strconv.ParseUint(strings.TrimSpace(value), 10, 16)
+				if err != nil || port == 0 {
+					continue
+				}
+				rules = append(rules, map[string]any{"port": uint16(port), "outbound": rule.Outbound})
+			}
+			continue
+		}
 		if rule.Match == "geosite" || rule.Match == "geoip" {
 			tags := make([]string, 0, len(rule.Values))
 			for _, value := range rule.Values {
@@ -314,6 +346,9 @@ func (g *Generator) generateRoute(opts *generator.GenerateOptions, resolver stri
 		})
 	}
 	catchInbounds := []string{"tun-in", "mixed-in"}
+	if mode == "redirect" || mode == "tproxy" {
+		catchInbounds = []string{mode + "-in", "mixed-in"}
+	}
 	if opts.SOCKSOnly {
 		catchInbounds = append(catchInbounds, "socks-in")
 	}
@@ -325,7 +360,7 @@ func (g *Generator) generateRoute(opts *generator.GenerateOptions, resolver stri
 		"rules": rules,
 		"final": opts.DefaultOutbound,
 	}
-	if opts.EnableTUN {
+	if mode == "tun" {
 		route["auto_detect_interface"] = true
 	}
 	if len(ruleSets) > 0 {

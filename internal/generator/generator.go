@@ -2,6 +2,7 @@ package generator
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/holi/duorelay/internal/ir"
@@ -23,15 +24,18 @@ type Generator interface {
 // GenerateOptions contains options for config generation
 type GenerateOptions struct {
 	// Inbound config
-	InboundPort int
-	InboundHost string
-	EnableTUN   bool
-	TUNStack    string
-	MixedPort   int
-	SystemProxy bool
-	SOCKSOnly   bool
-	SOCKSPort   int
-	Composition *Composition
+	InboundPort     int
+	InboundHost     string
+	EnableTUN       bool
+	TransparentMode string
+	RedirectPort    int
+	TProxyPort      int
+	TUNStack        string
+	MixedPort       int
+	SystemProxy     bool
+	SOCKSOnly       bool
+	SOCKSPort       int
+	Composition     *Composition
 
 	// DNS config
 	DNSServers []string
@@ -53,6 +57,9 @@ type GenerateOptions struct {
 // Each rule has one matcher kind and one or more values; values are OR'ed within
 // the matcher and rules are evaluated in order.
 type RoutingRule struct {
+	ID       string   `json:"id,omitempty"`
+	Source   string   `json:"source,omitempty"`
+	Enabled  bool     `json:"enabled"`
 	Match    string   `json:"match"`
 	Values   []string `json:"values"`
 	Outbound string   `json:"outbound"`
@@ -78,6 +85,14 @@ func ValidateRoutingRules(rules []RoutingRule) error {
 		return fmt.Errorf("too many routing rules: %d", len(rules))
 	}
 	for i, rule := range rules {
+		if rule.Source == "" {
+			rule.Source = "user"
+		}
+		switch rule.Source {
+		case "internal", "bypass", "user":
+		default:
+			return fmt.Errorf("routing rule %d: unsupported source %q", i, rule.Source)
+		}
 		if _, ok := routingMatchKinds[rule.Match]; !ok {
 			return fmt.Errorf("routing rule %d: unsupported match %q", i, rule.Match)
 		}
@@ -88,8 +103,15 @@ func ValidateRoutingRules(rules []RoutingRule) error {
 			return fmt.Errorf("routing rule %d: outbound is required", i)
 		}
 		for j, value := range rule.Values {
-			if strings.TrimSpace(value) == "" {
+			value = strings.TrimSpace(value)
+			if value == "" {
 				return fmt.Errorf("routing rule %d value %d is empty", i, j)
+			}
+			if rule.Match == "port" {
+				port, err := strconv.ParseUint(value, 10, 16)
+				if err != nil || port == 0 {
+					return fmt.Errorf("routing rule %d value %d: port must be 1..65535", i, j)
+				}
 			}
 		}
 	}
@@ -126,6 +148,9 @@ func DefaultGenerateOptions() *GenerateOptions {
 		InboundPort:     1080,
 		InboundHost:     "127.0.0.1",
 		EnableTUN:       false,
+		TransparentMode: "off",
+		RedirectPort:    12345,
+		TProxyPort:      12346,
 		TUNStack:        "system",
 		MixedPort:       7890,
 		DNSServers:      []string{"223.5.5.5", "8.8.8.8"},

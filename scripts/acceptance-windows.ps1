@@ -2,7 +2,8 @@
 param(
     [int]$ApiPort = 18081,
     [int]$SingBoxPort = 18080,
-    [int]$MihomoPort = 18082
+    [int]$MihomoPort = 18082,
+    [string]$TestUrl = $(if ($env:DUORELAY_TEST_URL) { $env:DUORELAY_TEST_URL } else { "https://example.com/" })
 )
 
 $ErrorActionPreference = "Stop"
@@ -69,6 +70,10 @@ function Assert-Equal($actual, $expected, $message) {
 if (-not (Test-Path $exe)) { throw "发布包不存在，请先运行 scripts/package-windows.ps1" }
 $originalProxy = Read-ProxySnapshot
 $results = [System.Collections.Generic.List[string]]::new()
+$tunAdaptersBefore = @()
+if (Get-Command Get-NetAdapter -ErrorAction SilentlyContinue) {
+    $tunAdaptersBefore = @(Get-NetAdapter | Where-Object { $_.Name -match "Wintun|TUN|DuoRelay|sing-box|mihomo" } | Select-Object -ExpandProperty Name)
+}
 
 try {
     New-Item -ItemType Directory -Path $testRoot -Force | Out-Null
@@ -100,23 +105,23 @@ try {
     $settings.mixed_port = $MihomoPort
     $settings.socks_port = $MihomoPort + 1
     $settings.enable_tun = $false
+    $settings.transparent_mode = "off"
     $settings.system_proxy = $true
+    $settings.routing_mode = "blacklist"
+    $settings.default_outbound = "DIRECT"
+    $settings.routing_rules = @()
     $null = Invoke-Api "PUT" "/api/config" $settings
     $results.Add("Windows system proxy settings save: PASS")
 
-    $directSingBox = [ordered]@{
-        log = [ordered]@{ level = "info" }
-        inbounds = @([ordered]@{ type = "mixed"; tag = "mixed-in"; listen = "127.0.0.1"; listen_port = $SingBoxPort })
-        outbounds = @([ordered]@{ type = "direct"; tag = "DIRECT" })
-        route = [ordered]@{ final = "DIRECT" }
-    }
-    $applyRequest = [ordered]@{ kernel = "sing-box"; config = ($directSingBox | ConvertTo-Json -Depth 20 -Compress) }
-    $null = Invoke-Api "POST" "/api/config/apply" $applyRequest
+    $null = Invoke-Api "POST" "/api/config/apply" ([ordered]@{ kernel = "sing-box" })
     $status = (Invoke-Api "GET" "/api/kernel/status" $null).data
     if (-not $status.running) { throw "sing-box was not reported running" }
     $proxyNow = Read-ProxySnapshot
     Assert-Equal $proxyNow.Enable 1 "system proxy enable state"
     Assert-Equal $proxyNow.Server ("127.0.0.1:" + $SingBoxPort) "system proxy target"
+    $response = Invoke-WebRequest -Uri $TestUrl -Proxy ("http://127.0.0.1:" + $SingBoxPort) -UseBasicParsing -TimeoutSec 15
+    if ($response.StatusCode -lt 200 -or $response.StatusCode -ge 500) { throw "system proxy request returned HTTP $($response.StatusCode)" }
+    $results.Add("system proxy real request through local mixed port: PASS")
     $results.Add("sing-box real start + system proxy switch: PASS")
     Start-Sleep -Milliseconds 500
     $logs = (Invoke-Api "GET" "/api/kernel/logs?kernel=sing-box&limit=100" $null).data
@@ -133,42 +138,24 @@ try {
 
     $settings.system_proxy = $false
     $null = Invoke-Api "PUT" "/api/config" $settings
-    $directMihomo = @"
-mixed-port: $MihomoPort
-allow-lan: false
-mode: rule
-log-level: info
-proxies:
-  - name: ACCEPT
-    type: direct
-proxy-groups:
-  - name: PROXY
-    type: select
-    proxies:
-      - ACCEPT
-rules:
-  - MATCH,PROXY
-"@
-    $null = Invoke-Api "POST" "/api/config/apply" ([ordered]@{ kernel = "mihomo"; config = $directMihomo })
+    $null = Invoke-Api "POST" "/api/config/apply" ([ordered]@{ kernel = "mihomo" })
     $status = (Invoke-Api "GET" "/api/kernel/status" $null).data
     if (-not $status.running) { throw "mihomo was not reported running" }
     $results.Add("mihomo real start: PASS")
     $null = Invoke-Api "POST" "/api/kernel/stop" $null
 
-    $tunConfig = [ordered]@{
-        log = [ordered]@{ level = "info" }
-        inbounds = @(
-            [ordered]@{ type = "tun"; tag = "tun-in"; address = @("172.19.0.1/30"); auto_route = $true; stack = "system" },
-            [ordered]@{ type = "mixed"; tag = "mixed-in"; listen = "127.0.0.1"; listen_port = $SingBoxPort }
-        )
-        outbounds = @([ordered]@{ type = "direct"; tag = "DIRECT" })
-        route = [ordered]@{ auto_detect_interface = $true; final = "DIRECT" }
-    }
     try {
-        $null = Invoke-Api "POST" "/api/config/apply" ([ordered]@{ kernel = "sing-box"; config = ($tunConfig | ConvertTo-Json -Depth 20 -Compress) })
+        $settings.enable_tun = $true
+        $settings.transparent_mode = "tun"
+        $settings.system_proxy = $false
+        $null = Invoke-Api "PUT" "/api/config" $settings
+        $null = Invoke-Api "POST" "/api/config/apply" ([ordered]@{ kernel = "sing-box" })
         $status = (Invoke-Api "GET" "/api/kernel/status" $null).data
         if (-not $status.running) { throw "TUN config was accepted but kernel is not running" }
         $results.Add("real TUN start: PASS")
+        $response = Invoke-WebRequest -Uri $TestUrl -UseBasicParsing -TimeoutSec 15
+        if ($response.StatusCode -lt 200 -or $response.StatusCode -ge 500) { throw "TUN request returned HTTP $($response.StatusCode)" }
+        $results.Add("TUN real request: PASS")
     } catch {
         $detail = "real TUN start: BLOCKED - " + (Get-HttpErrorDetail $_)
         try {
@@ -189,6 +176,15 @@ $finalProxy = Read-ProxySnapshot
 Assert-Equal $finalProxy.Enable $originalProxy.Enable "final proxy enable restoration"
 Assert-Equal $finalProxy.Server $originalProxy.Server "final proxy server restoration"
 Assert-Equal $finalProxy.Override $originalProxy.Override "final proxy override restoration"
+if (Get-Command Get-NetAdapter -ErrorAction SilentlyContinue) {
+    $tunAdaptersAfter = @(Get-NetAdapter | Where-Object { $_.Name -match "Wintun|TUN|DuoRelay|sing-box|mihomo" } | Select-Object -ExpandProperty Name)
+    $newAdapters = @($tunAdaptersAfter | Where-Object { $tunAdaptersBefore -notcontains $_ })
+    if ($newAdapters.Count -gt 0) { throw "TUN adapters remained after stop: $($newAdapters -join ', ')" }
+    $results.Add("TUN adapter cleanup: PASS")
+} else {
+    $results.Add("TUN adapter cleanup: UNVERIFIED - Get-NetAdapter unavailable")
+}
+$results.Add("Windows matrix: system_proxy=VERIFIED; tun=VERIFIED only when the real request and adapter cleanup checks above pass")
 $results | ForEach-Object { Write-Output $_ }
 Write-Output ("Temporary acceptance data: " + $testRoot)
 Write-Output "Final system proxy restoration: PASS"

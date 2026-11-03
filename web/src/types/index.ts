@@ -198,6 +198,7 @@ export interface TrafficSnapshot {
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 export type TunStack = 'system' | 'gvisor' | 'mixed'
+export type TransparentMode = 'off' | 'redirect' | 'tproxy' | 'tun'
 export type RoutingMode = 'bypass_mainland' | 'global' | 'blacklist'
 
 export type RoutingMatch =
@@ -213,6 +214,9 @@ export type RoutingMatch =
   | 'geoip'
 
 export interface RoutingRule {
+  id?: string
+  source?: 'internal' | 'bypass' | 'user' | string
+  enabled?: boolean
   match: RoutingMatch
   values: string[]
   outbound: string
@@ -231,12 +235,23 @@ export interface AppConfig {
   dns_servers: string[]
   dns_fake_ip: boolean
   enable_tun: boolean
+  transparent_mode: TransparentMode
+  transparent_modes?: TransparentModeInfo[]
+  transparent_active?: TransparentMode
   tun_stack: TunStack
   system_proxy: boolean
   system_proxy_supported: boolean
   routing_mode: RoutingMode
   default_outbound: string
   routing_rules: RoutingRule[]
+}
+
+export interface TransparentModeInfo {
+  mode: TransparentMode
+  supported: boolean
+  reason?: string
+  prerequisites: string
+  dns_description: string
 }
 
 export type ProxyGroupMode = 'load_balance' | 'chain'

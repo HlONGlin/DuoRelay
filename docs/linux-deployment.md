@@ -13,7 +13,7 @@ DuoRelay 的主要运行目标是 Linux。服务器和无桌面环境优先使�
 
 ## 安装
 
-带 TUN 的系统服务需要 root 安装。服务账户只获得 `CAP_NET_ADMIN`、`CAP_NET_RAW` 和 `/dev/net/tun` 访问权限；内核通过 TUN 自动配置 IPv4/IPv6 路由，Linux 上同时启用自动重定向和严格路由，并将 TCP/UDP DNS 请求交给代理内核。停止或内核进程退出时，内核负责撤销其创建的路由与网络规则。
+带透明接管的系统服务需要 root 安装。服务账户只获得 `CAP_NET_ADMIN`、`CAP_NET_RAW` 和 `/dev/net/tun` 访问权限；TUN 的路由和 DNS hijack 由内核管理，redirect/tproxy 的自有 nftables/iptables 链与策略路由由 DuoRelay 管理。停止、启动失败或回滚时必须清理这些状态；是否完成真实接管以 [透明代理验收记录](transparent-proxy-acceptance.md) 为准。
 
 ```bash
 sudo ./scripts/install-linux.sh --package ./dist/duorelay-linux-amd64-0.3.0
@@ -38,7 +38,7 @@ sudo ./scripts/acceptance-linux.sh
 
 ```bash
 ./scripts/acceptance-linux.sh
-./scripts/acceptance-linux.sh --tun
+DUORELAY_ACCEPTANCE_REAL=1 DUORELAY_TEST_URL=https://example.com/ ./scripts/acceptance-linux.sh
 ```
 
-脚本验证 API、内核状态、systemd 状态和 TUN 设备权限。真正的 TUN 接管仍需要已选节点、有效内核配置以及目标系统允许创建路由和虚拟网卡。Docker/容器测试需要显式提供 `/dev/net/tun` 和 `NET_ADMIN`；不要使用 host networking，避免测试路由影响宿主机。启用 TUN 后，“仅 SOCKS5 端口使用代理”会自动关闭，因为该模式会让其他入口直连。严格路由会阻止无法按当前规则转发的流量回落直连；本地网络、组播、门户认证和应用自带 VPN 仍受各自路由规则与操作系统限制。
+脚本按发行版和模式输出矩阵；只有在提供临时节点、真实测试 URL、权限和 `DUORELAY_ACCEPTANCE_REAL=1` 后，才会执行开启、真实请求、关闭和状态恢复检查。缺少条件会明确输出 `UNVERIFIED`。Docker/容器测试需要显式提供 `/dev/net/tun` 和 `NET_ADMIN`；不要使用 host networking，避免测试路由影响宿主机。启用 TUN 后，“仅 SOCKS5 端口使用代理”会自动关闭，因为该模式会让其他入口直连。严格路由会阻止无法按当前规则转发的流量回落直连；本地网络、组播、门户认证和应用自带 VPN 仍受各自路由规则与操作系统限制。

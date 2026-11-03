@@ -26,7 +26,15 @@
           <template v-if="category === 'kernel'">
             <el-form-item label="首选内核"><el-radio-group v-model="form.kernel"><el-radio-button value="sing-box">sing-box</el-radio-button><el-radio-button value="mihomo">mihomo</el-radio-button></el-radio-group><div class="field-hint">节点仅支持另一内核时，会按协议能力选择。</div></el-form-item>
             <el-divider />
-            <el-form-item label="TUN 全流量接管"><el-switch v-model="form.enable_tun" aria-label="TUN 全流量接管" @change="changeTun" /><div class="field-hint">接管 IPv4/IPv6 系统流量并劫持 TCP/UDP DNS；启用严格路由防止流量回落直连。需要管理员或 NET_ADMIN 权限及可用的 TUN 设备。路由规则仍决定哪些流量直连。</div></el-form-item>
+            <el-form-item label="透明代理模式">
+              <el-select v-model="form.transparent_mode" @change="changeTransparentMode">
+                <el-option v-for="mode in transparentModes" :key="mode.mode" :value="mode.mode" :label="transparentModeLabel(mode.mode)" :disabled="!mode.supported"><span>{{ transparentModeLabel(mode.mode) }}</span><small v-if="!mode.supported">{{ mode.reason }}</small></el-option>
+              </el-select>
+              <div class="field-hint">{{ selectedTransparentMode?.prerequisites }}</div>
+              <div class="field-hint">DNS：{{ selectedTransparentMode?.dns_description }}</div>
+              <div class="field-hint">当前生效：{{ transparentModeLabel(form.transparent_active ?? 'off') }}</div>
+            </el-form-item>
+            <el-form-item label="TUN 全流量接管"><el-switch v-model="form.enable_tun" :disabled="!transparentModes.find((mode) => mode.mode === 'tun')?.supported" aria-label="TUN 全流量接管" @change="changeTun" /><div class="field-hint">接管 IPv4/IPv6 系统流量并劫持 TCP/UDP DNS；启用严格路由防止流量回落直连。需要管理员或 NET_ADMIN 权限及可用的 TUN 设备。路由规则仍决定哪些流量直连。</div></el-form-item>
             <el-form-item label="TUN 网络栈"><el-select v-model="form.tun_stack" :disabled="!form.enable_tun"><el-option v-for="stack in ['system', 'gvisor', 'mixed']" :key="stack" :value="stack" :label="stack" /></el-select></el-form-item>
             <el-divider />
             <el-form-item label="系统代理"><el-switch v-model="form.system_proxy" :disabled="!form.system_proxy_supported" /><div class="field-hint">{{ form.system_proxy_supported ? '将系统代理指向本地入口，退出或启动失败时恢复原设置。只接管遵循系统代理设置的应用；要接管设备的全部流量，请启用 TUN。' : '当前环境不支持系统代理接管；Windows 或带 GNOME D-Bus 会话的 Linux 可用。要接管设备的全部流量，请启用 TUN。' }}</div></el-form-item>
@@ -37,12 +45,20 @@
             <el-form-item label="未匹配流量出口"><el-select v-model="form.default_outbound"><el-option v-for="outbound in outboundOptions" :key="outbound" :label="outbound === 'PROXY' ? '使用当前选择的代理节点' : outbound === 'DIRECT' ? '直接连接（DIRECT）' : outbound === 'REJECT' ? '阻断连接（REJECT）' : outbound" :value="outbound" /></el-select><div class="field-hint">流量未命中下方规则时使用此出口。代理出口会跟随当前启用的节点。</div></el-form-item>
             <div class="rules-heading"><span class="type-p-card-title">自定义规则 <span class="muted mono">{{ routingForms.length }}</span></span><el-button size="small" @click="openAddRule"><UiIcon name="plus" :size="16" />添加规则</el-button></div>
             <p class="field-hint rule-hint">从上到下匹配。切换分组会保留自定义规则；大陆分流范围取决于已配置的域名与 IP 规则。</p>
+            <el-radio-group v-model="routingEditorMode" size="small" @change="syncRoutingTextFromList"><el-radio-button value="list">列表</el-radio-button><el-radio-button value="text">文本</el-radio-button></el-radio-group>
+            <template v-if="routingEditorMode === 'text'">
+              <div class="routing-text-wrap"><div class="line-numbers"><span v-for="line in routingTextLineCount" :key="line">{{ line }}</span></div><el-input v-model="routingText" type="textarea" :rows="14" class="routing-text" @input="validateRoutingEditor" /></div>
+              <div v-for="error in routingTextErrors" :key="`${error.line}-${error.reason}`" class="routing-error">{{ error.line ? `第 ${error.line} 行：` : '' }}{{ error.reason }}</div>
+              <div class="routing-actions"><el-button size="small" @click="applyRoutingText">回填列表</el-button><el-button size="small" @click="downloadRoutingText">导出文本</el-button><el-button size="small" @click="chooseRoutingFile">导入文本</el-button><input ref="routingFileInput" type="file" accept=".txt,text/plain" hidden @change="readRoutingFile" /></div>
+            </template>
             <div class="table-scroll"><el-table :data="routingForms" class="rules-table" size="small" empty-text="暂无自定义规则">
               <el-table-column type="index" label="#" width="44" />
               <el-table-column label="匹配类型" width="116"><template #default="{ row }">{{ matchLabel(row.match) }}</template></el-table-column>
+              <el-table-column label="来源" width="90"><template #default="{ row }">{{ row.source }}</template></el-table-column>
               <el-table-column label="域名 / IP / 规则值" min-width="200"><template #default="{ row, $index }"><button type="button" class="rule-summary" :title="row.valuesText" @click="openEditRule($index)">{{ valueSummary(row) }}</button></template></el-table-column>
               <el-table-column label="出口" width="100"><template #default="{ row }"><span class="neutral-badge">{{ row.outbound }}</span></template></el-table-column>
-              <el-table-column label="操作" width="100"><template #default="{ $index }"><el-button link aria-label="编辑规则" @click="openEditRule($index)"><UiIcon name="edit" :size="16" /></el-button><el-button link aria-label="删除规则" @click="removeRoutingRule($index)"><UiIcon name="trash" :size="16" /></el-button></template></el-table-column>
+              <el-table-column label="启用" width="70"><template #default="{ row }"><el-switch v-model="row.enabled" /></template></el-table-column>
+              <el-table-column label="操作" width="150"><template #default="{ $index }"><el-button link aria-label="上移规则" :disabled="$index === 0" @click="moveRoutingRule($index, -1)"><UiIcon name="up" :size="16" /></el-button><el-button link aria-label="下移规则" :disabled="$index === routingForms.length - 1" @click="moveRoutingRule($index, 1)"><UiIcon name="down" :size="16" /></el-button><el-button link aria-label="编辑规则" @click="openEditRule($index)"><UiIcon name="edit" :size="16" /></el-button><el-button link aria-label="删除规则" @click="removeRoutingRule($index)"><UiIcon name="trash" :size="16" /></el-button></template></el-table-column>
             </el-table></div>
           </template>
           <template v-if="category === 'subscription'">
@@ -68,6 +84,7 @@
     <div v-if="category !== 'appearance' && category !== 'subscription'" class="save-bar"><span>修改保存后，重新选择并启动节点以应用。</span><el-button type="primary" :disabled="store.loading" :loading="store.saving" @click="handleSave">保存设置</el-button></div>
     <el-dialog v-model="ruleDialogVisible" :title="editingIndex < 0 ? '添加路由规则' : '编辑路由规则'" width="560px">
       <el-form @submit.prevent label-position="top">
+        <el-form-item label="来源"><el-select v-model="editingRule.source" :disabled="editingRule.source !== 'user'"><el-option label="用户规则" value="user" /><el-option label="绕过规则" value="bypass" /><el-option label="内部路由" value="internal" /></el-select></el-form-item>
         <el-form-item label="匹配类型"><el-select v-model="editingRule.match"><el-option v-for="option in routingMatchOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select></el-form-item>
         <el-form-item label="域名 / IP / 规则值"><el-input v-model="editingRule.valuesText" type="textarea" :rows="8" placeholder="每行填写一条规则" class="rule-input" /><div class="field-hint">内容需要与匹配类型一致，例如域名后缀 example.com，或 CIDR 192.168.1.0/24。</div></el-form-item>
         <el-form-item label="流量出口"><el-select v-model="editingRule.outbound" filterable><el-option v-for="outbound in outboundOptions" :key="outbound" :label="outbound" :value="outbound" /></el-select></el-form-item>
@@ -87,6 +104,7 @@ import UiIcon from '@/components/UiIcon.vue'
 import LoadBalanceFields from '@/components/LoadBalanceFields.vue'
 import { formatDate } from '@/utils/format'
 import type { AppConfig, RoutingMatch, RoutingMode, RoutingRule } from '@/types'
+import { exportRouting, importRoutingText, validateRoutingText } from '@/api/config'
 
 const store = useConfigStore()
 const nodes = useNodesStore()
@@ -125,15 +143,23 @@ const routingMatchOptions: Array<{ label: string; value: RoutingMatch }> = [
 ]
 
 interface RoutingForm {
+  id?: string
+  source?: string
+  enabled?: boolean
   match: RoutingMatch
   valuesText: string
   outbound: string
 }
 
 const routingForms = ref<RoutingForm[]>([])
+const routingEditorMode = ref<'list' | 'text'>('list')
+const routingText = ref('')
+const routingTextErrors = ref<{ line: number; reason: string }[]>([])
+const routingFileInput = ref<HTMLInputElement>()
+const routingTextLineCount = computed(() => Math.max(1, routingText.value.split('\n').length))
 const ruleDialogVisible = ref(false)
 const editingIndex = ref(-1)
-const editingRule = reactive<RoutingForm>({ match: 'domain_suffix', valuesText: '', outbound: 'PROXY' })
+const editingRule = reactive<RoutingForm>({ source: 'user', enabled: true, match: 'domain_suffix', valuesText: '', outbound: 'PROXY' })
 
 const outboundOptions = computed(() =>
   Array.from(new Set(['DIRECT', 'PROXY', 'REJECT', ...nodes.items.map((node) => node.name)]))
@@ -141,6 +167,15 @@ const outboundOptions = computed(() =>
 const currentModeDescription = computed(
   () => routingModes.find((mode) => mode.value === form.routing_mode)?.description ?? ''
 )
+const fallbackTransparentModes = [
+  { mode: 'off', supported: true, prerequisites: '无需系统权限', dns_description: '不接管 DNS。' },
+  { mode: 'redirect', supported: false, reason: '当前系统未报告可用能力', prerequisites: '需要 Linux nftables/iptables、iproute2 和 NET_ADMIN。', dns_description: '不接管 UDP DNS。' },
+  { mode: 'tproxy', supported: false, reason: '当前系统未报告可用能力', prerequisites: '需要 Linux TPROXY、策略路由和 NET_ADMIN。', dns_description: '需要显式配置代理 DNS。' },
+  { mode: 'tun', supported: false, reason: '当前系统未报告可用能力', prerequisites: '需要 /dev/net/tun 和 NET_ADMIN。', dns_description: '由内核 DNS hijack 接管。' }
+] as AppConfig['transparent_modes']
+const transparentModes = computed(() => (store.config.transparent_modes?.length ? store.config.transparent_modes : fallbackTransparentModes) as NonNullable<AppConfig['transparent_modes']>)
+const selectedTransparentMode = computed(() => transparentModes.value.find((mode) => mode.mode === form.transparent_mode))
+function transparentModeLabel(mode: string) { return ({ off: '关闭', redirect: 'Linux redirect', tproxy: 'Linux TPROXY', tun: 'TUN 全流量' } as Record<string, string>)[mode] ?? mode }
 
 function chinaRules(): RoutingForm[] {
   return [
@@ -153,10 +188,15 @@ function syncFromStore(config: AppConfig) {
   Object.assign(form, config, { routing_mode: config.routing_mode || 'bypass_mainland', load_balance: { ...config.load_balance } })
   dnsText.value = config.dns_servers.join('\n')
   routingForms.value = (config.routing_rules ?? []).map((rule) => ({
+    id: rule.id,
+    source: rule.source ?? 'user',
+    enabled: rule.enabled !== false,
     match: rule.match,
     valuesText: rule.values.join('\n'),
     outbound: rule.outbound
   }))
+  routingText.value = formatRoutingText()
+  routingTextErrors.value = []
 }
 
 function applyRoutingMode(mode: RoutingMode) {
@@ -171,15 +211,20 @@ function applyRoutingMode(mode: RoutingMode) {
 }
 
 function changeTun(enabled: string | number | boolean) {
-  if (enabled) form.socks_only = false
+  if (enabled) { form.socks_only = false; form.transparent_mode = 'tun' }
 }
 
 function changeSocksOnly(enabled: string | number | boolean) {
-  if (enabled) form.enable_tun = false
+  if (enabled) { form.enable_tun = false; if (form.transparent_mode === 'tun') form.transparent_mode = 'off' }
+}
+
+function changeTransparentMode(mode: string) {
+  form.enable_tun = mode === 'tun'
+  if (mode === 'tun') form.socks_only = false
 }
 
 function emptyRule(): RoutingForm {
-  return { match: 'domain_suffix', valuesText: '', outbound: form.routing_mode === 'blacklist' ? 'PROXY' : 'DIRECT' }
+  return { source: 'user', enabled: true, match: 'domain_suffix', valuesText: '', outbound: form.routing_mode === 'blacklist' ? 'PROXY' : 'DIRECT' }
 }
 
 function openAddRule() {
@@ -209,7 +254,7 @@ function saveRule() {
     ElMessage.warning('请选择流量出口')
     return
   }
-  const next = { match: editingRule.match, valuesText: values.join('\n'), outbound }
+  const next = { ...editingRule, match: editingRule.match, valuesText: values.join('\n'), outbound }
   if (editingIndex.value < 0) routingForms.value.push(next)
   else routingForms.value.splice(editingIndex.value, 1, next)
   ruleDialogVisible.value = false
@@ -217,6 +262,13 @@ function saveRule() {
 
 function removeRoutingRule(index: number) {
   routingForms.value.splice(index, 1)
+}
+
+function moveRoutingRule(index: number, delta: number) {
+  const target = index + delta
+  if (target < 0 || target >= routingForms.value.length) return
+  const [rule] = routingForms.value.splice(index, 1)
+  routingForms.value.splice(target, 0, rule)
 }
 
 function matchLabel(match: RoutingMatch): string {
@@ -229,11 +281,46 @@ function valueSummary(rule: RoutingForm): string {
 }
 
 function routingRules(): RoutingRule[] {
-  return routingForms.value.map((rule) => ({
+	return routingForms.value.map((rule, index) => ({
+		id: rule.id ?? `rule-${index + 1}`,
+    source: rule.source ?? 'user',
+    enabled: rule.enabled !== false,
     match: rule.match,
     values: parseValues(rule.valuesText),
     outbound: rule.outbound.trim()
   }))
+}
+
+function formatRoutingText() {
+  return routingForms.value.map((rule) => `${rule.enabled ? '1' : '0'}\t${rule.source}\t${rule.match}\t${parseValues(rule.valuesText).join(',')}\t${rule.outbound}`).join('\n') + (routingForms.value.length ? '\n' : '')
+}
+function syncRoutingTextFromList() { if (routingEditorMode.value === 'text') routingText.value = formatRoutingText() }
+
+async function validateRoutingEditor() {
+  try { routingTextErrors.value = (await validateRoutingText(routingText.value)).errors ?? [] } catch (err) { routingTextErrors.value = [{ line: 0, reason: err instanceof Error ? err.message : '文本校验失败' }] }
+}
+
+async function applyRoutingText() {
+  const result = await importRoutingText(routingText.value)
+  routingTextErrors.value = result.errors ?? []
+  if (routingTextErrors.value.length) { ElMessage.warning('文本存在错误，非法行未回填'); return }
+  routingForms.value = result.rules.map((rule) => ({ id: rule.id, source: rule.source ?? 'user', enabled: rule.enabled !== false, match: rule.match, valuesText: rule.values.join('\n'), outbound: rule.outbound }))
+  ElMessage.success('文本已回填列表')
+}
+
+async function downloadRoutingText() {
+  const result = await exportRouting()
+  const url = URL.createObjectURL(new Blob([result.text], { type: 'text/plain;charset=utf-8' }))
+  const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'duorelay-routing.txt'; anchor.click(); URL.revokeObjectURL(url)
+}
+
+function chooseRoutingFile() { routingFileInput.value?.click() }
+async function readRoutingFile(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  routingText.value = await file.text()
+  await validateRoutingEditor()
+  routingEditorMode.value = 'text'
 }
 
 async function handleSave() {
@@ -250,6 +337,10 @@ async function handleSave() {
   if (rules.some((rule) => rule.values.length === 0 || !rule.outbound)) {
     ElMessage.warning('请完善路由规则后再保存')
     return
+  }
+  if (routingEditorMode.value === 'text') {
+    await validateRoutingEditor()
+    if (routingTextErrors.value.length) { ElMessage.warning('请先修复文本规则错误'); return }
   }
   try {
     await store.save({ ...form, dns_servers: servers, routing_rules: rules })
@@ -289,6 +380,13 @@ onMounted(async () => {
 .rule-summary { border: 0; background: transparent; color: var(--ink-muted); text-align: left; font-family: var(--font-mono); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; text-decoration: underline dotted var(--hairline-tertiary); text-underline-offset: 4px; }
 .rule-summary:hover { color: var(--primary); }
 .rule-input :deep(textarea) { font-family: var(--font-mono); }
+.routing-text-wrap { display: grid; grid-template-columns: 42px minmax(0, 1fr); margin-top: 16px; border: 1px solid var(--hairline); background: var(--surface-1); }
+.line-numbers { padding: 12px 8px; text-align: right; color: var(--ink-subtle); background: var(--surface-2); font: 12px/1.5 var(--font-mono); user-select: none; }
+.line-numbers span { display: block; }
+.routing-text :deep(textarea) { border: 0; border-radius: 0; font: 12px/1.5 var(--font-mono); min-height: 280px; }
+.routing-actions { display: flex; gap: 8px; margin: 12px 0; flex-wrap: wrap; }
+.routing-error { color: var(--danger); font: 12px/1.5 var(--font-mono); margin-top: 4px; }
+.routing-text-wrap + .routing-error { margin-top: 8px; }
 .save-bar { position: sticky; bottom: 16px; align-self: flex-end; display: flex; align-items: center; gap: 24px; padding: 12px 16px; background: var(--surface-2); border: 1px solid var(--hairline-strong); border-radius: var(--rounded-lg); z-index: 5; }
 .save-bar span { color: var(--ink-subtle); font-size: var(--typography-p-caption-font-size); }
 .theme-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; max-width: 600px; }

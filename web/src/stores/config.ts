@@ -21,6 +21,7 @@ export function defaultConfig(): AppConfig {
     dns_servers: ['223.5.5.5', '8.8.8.8'],
     dns_fake_ip: false,
     enable_tun: false,
+    transparent_mode: 'off',
     tun_stack: 'system',
     system_proxy: false,
     system_proxy_supported: false,
