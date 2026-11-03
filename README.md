@@ -1,5 +1,13 @@
 # DuoRelay
 
+同库提供 **duorelay（full 双核）** 与 **duorelay-lite（mihomo 单核）**，共用版本号、完整面板和数据格式。lite 保留节点、订阅、负载均衡、原生链式、路由双模式编辑、透明代理、真核校验和失败回滚；支持 mihomo 的 24 项协议/端点能力，禁用 ShadowTLS、Naive、Tor、OpenConnect。协议对照、Geo 下载、构建与数据迁移见 [精简版说明](docs/lite.md)，实测结果见 [lite 验收报告](docs/lite-acceptance.md)。
+
+```bash
+make build-lite
+bash scripts/package-linux.sh 0.3.0 amd64 --lite
+# Windows: powershell -File scripts/package-windows.ps1 -Version 0.3.0 -Lite
+```
+
 > 基于 sing-box 与 mihomo 的双内核代理管理面板，使用 Web 界面管理节点、订阅、路由和内核运行状态。
 
 ![Go](https://img.shields.io/badge/Go-1.27+-00ADD8?logo=go&logoColor=white)

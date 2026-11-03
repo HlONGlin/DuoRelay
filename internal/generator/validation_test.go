@@ -1,3 +1,5 @@
+//go:build !lite
+
 package generator_test
 
 import (

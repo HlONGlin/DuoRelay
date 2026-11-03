@@ -9,9 +9,11 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"github.com/holi/duorelay/internal/variant"
 	"math/big"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -123,7 +125,11 @@ func TestChainProtocolKernelChecks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "sing-box.exe")); err != nil {
+	filename := variant.DefaultKernel
+	if runtime.GOOS == "windows" {
+		filename += ".exe"
+	}
+	if _, err := os.Stat(filepath.Join(dir, filename)); err != nil {
 		t.Skip("pinned kernels unavailable")
 	}
 	for _, protocol := range ir.GetAllProtocols() {
@@ -131,6 +137,9 @@ func TestChainProtocolKernelChecks(t *testing.T) {
 			continue
 		} // non-network routing adapter, covered by planner tests
 		for _, k := range []ir.KernelType{ir.KernelSingBox, ir.KernelMihomo} {
+			if !variant.SupportsKernel(string(k)) {
+				continue
+			}
 			fixture := chainFixture(t, protocol)
 			if !fixture.CanRunOn(k) {
 				continue
@@ -176,6 +185,9 @@ func TestChainProtocolKernelChecks(t *testing.T) {
 
 func TestBlacklistChainKeepsDirectDefault(t *testing.T) {
 	for _, k := range []ir.KernelType{ir.KernelSingBox, ir.KernelMihomo} {
+		if !variant.SupportsKernel(string(k)) {
+			continue
+		}
 		s, _ := testService(t)
 		settings := defaults()
 		settings.Kernel = k

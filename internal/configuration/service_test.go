@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/holi/duorelay/internal/variant"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -74,6 +75,9 @@ func TestSettingsReportsSystemProxyCapability(t *testing.T) {
 }
 
 func TestResumeRestartsPersistedConfiguration(t *testing.T) {
+	if variant.Name == "lite" {
+		t.Skip("full-only sing-box / cross-kernel assertions")
+	}
 	s, runtime := testService(t)
 	ctx := context.Background()
 	state, err := s.Apply(ctx, ApplyRequest{Kernel: ir.KernelSingBox, Content: `{"outbounds":[{"type":"direct"}]}`})
@@ -93,6 +97,9 @@ func TestResumeRestartsPersistedConfiguration(t *testing.T) {
 }
 
 func TestShutdownKeepsPersistedConfigurationForResume(t *testing.T) {
+	if variant.Name == "lite" {
+		t.Skip("full-only sing-box / cross-kernel assertions")
+	}
 	s, runtime := testService(t)
 	ctx := context.Background()
 	state, err := s.Apply(ctx, ApplyRequest{Kernel: ir.KernelSingBox, Content: `{"outbounds":[{"type":"direct"}]}`})
@@ -112,6 +119,9 @@ func TestShutdownKeepsPersistedConfigurationForResume(t *testing.T) {
 }
 
 func TestApplyValidationAndRollback(t *testing.T) {
+	if variant.Name == "lite" {
+		t.Skip("full-only sing-box / cross-kernel assertions")
+	}
 	s, runtime := testService(t)
 	ctx := context.Background()
 	state, err := s.Apply(ctx, ApplyRequest{Kernel: ir.KernelSingBox, Content: `{"outbounds":[{"type":"direct"}]}`})
@@ -145,6 +155,9 @@ func TestApplyValidationAndRollback(t *testing.T) {
 }
 
 func TestActivationAndSettings(t *testing.T) {
+	if variant.Name == "lite" {
+		t.Skip("full-only sing-box / cross-kernel assertions")
+	}
 	s, _ := testService(t)
 	ctx := context.Background()
 	settings, err := s.Settings(ctx)
@@ -195,6 +208,9 @@ func TestActivationAndSettings(t *testing.T) {
 }
 
 func TestActivationRespectsPreferredKernel(t *testing.T) {
+	if variant.Name == "lite" {
+		t.Skip("full-only sing-box / cross-kernel assertions")
+	}
 	for _, tc := range []struct {
 		name      string
 		preferred ir.KernelType
@@ -232,6 +248,9 @@ func TestActivationRespectsPreferredKernel(t *testing.T) {
 }
 
 func TestStopClearsCurrentConfiguration(t *testing.T) {
+	if variant.Name == "lite" {
+		t.Skip("full-only sing-box / cross-kernel assertions")
+	}
 	s, runtime := testService(t)
 	ctx := context.Background()
 	node := &ir.Node{Name: "selected", Protocol: ir.ProtocolShadowsocks, Owner: ir.KernelSetBoth, Server: ir.Server{Host: "127.0.0.1", Port: 8388}, Proto: map[string]any{"method": "aes-256-gcm", "password": "test"}}
@@ -316,6 +335,9 @@ func TestLegacyRemoteDefaultsMigrateToStaticRules(t *testing.T) {
 }
 
 func TestLegacySettingsAndStateVersionMigrate(t *testing.T) {
+	if variant.Name == "lite" {
+		t.Skip("full-only sing-box / cross-kernel assertions")
+	}
 	s, _ := testService(t)
 	ctx := context.Background()
 	legacySettings := defaults()
@@ -346,6 +368,9 @@ func TestLegacySettingsAndStateVersionMigrate(t *testing.T) {
 }
 
 func TestHTTPProbeMembership(t *testing.T) {
+	if variant.Name == "lite" {
+		t.Skip("full-only sing-box / cross-kernel assertions")
+	}
 	s, _ := testService(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer secret" || !strings.HasSuffix(r.URL.Path, "/delay") {
@@ -368,6 +393,9 @@ func TestHTTPProbeMembership(t *testing.T) {
 }
 
 func TestRealConfigurationApply(t *testing.T) {
+	if variant.Name == "lite" {
+		t.Skip("full-only sing-box / cross-kernel assertions")
+	}
 	if os.Getenv("DUORELAY_BACKEND_KERNEL_INTEGRATION") != "1" {
 		t.Skip("set DUORELAY_BACKEND_KERNEL_INTEGRATION=1")
 	}

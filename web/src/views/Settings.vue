@@ -13,7 +13,7 @@
             <div class="form-grid">
               <el-form-item label="监听地址"><el-input v-model="form.inbound_host" placeholder="127.0.0.1" /><div class="field-hint">仅本机使用时保留 127.0.0.1。</div></el-form-item>
               <el-form-item label="允许局域网连接"><el-switch v-model="form.allow_lan" /><div class="field-hint">其他设备访问时需同时调整监听地址。</div></el-form-item>
-              <el-form-item label="sing-box 混合代理端口"><el-input-number v-model="form.inbound_port" :min="1" :max="65535" /></el-form-item>
+              <el-form-item :label="isLite ? '透明代理监听端口' : 'sing-box 混合代理端口'"><el-input-number v-model="form.inbound_port" :min="1" :max="65535" /></el-form-item>
               <el-form-item label="mihomo 混合代理端口"><el-input-number v-model="form.mixed_port" :min="1" :max="65535" /></el-form-item>
             </div>
             <el-divider />
@@ -24,7 +24,7 @@
             <el-form-item label="Fake-IP"><el-switch v-model="form.dns_fake_ip" /><div class="field-hint">使用虚拟 IP 映射域名，需配合对应内核的 DNS 配置。</div></el-form-item>
           </template>
           <template v-if="category === 'kernel'">
-            <el-form-item label="首选内核"><el-radio-group v-model="form.kernel"><el-radio-button value="sing-box">sing-box</el-radio-button><el-radio-button value="mihomo">mihomo</el-radio-button></el-radio-group><div class="field-hint">节点仅支持另一内核时，会按协议能力选择。</div></el-form-item>
+            <el-form-item label="首选内核"><el-radio-group v-model="form.kernel"><el-radio-button value="sing-box" :disabled="isLite">sing-box{{ isLite ? '（精简版不支持）' : '' }}</el-radio-button><el-radio-button value="mihomo">mihomo</el-radio-button></el-radio-group><div class="field-hint">节点仅支持另一内核时，会按协议能力选择。</div></el-form-item>
             <el-divider />
             <el-form-item label="透明代理模式">
               <el-select v-model="form.transparent_mode" @change="changeTransparentMode">
@@ -74,6 +74,7 @@
               </button>
             </div>
           </template>
+          <template v-if="category === 'about'"><p>DuoRelay {{ buildInfo.version || 'dev' }} · {{ variant }}{{ isLite ? '（精简版 · mihomo 单核）' : '（完整版 · 双核）' }}</p><p class="field-hint">构建 {{ buildInfo.commit || 'unknown' }}</p></template>
           <template v-if="category === 'advanced'">
             <el-form-item label="日志级别"><el-select v-model="form.log_level"><el-option v-for="level in ['debug', 'info', 'warn', 'error']" :key="level" :value="level" :label="level" /></el-select><div class="field-hint">日常使用推荐 info；排查问题时选择 debug。</div></el-form-item>
             <el-divider /><div class="reset-settings"><div><h3>恢复默认配置</h3><p class="field-hint">先填入默认值，保存后才会覆盖服务器配置。</p></div><el-button @click="handleReset">填入默认值</el-button></div>
@@ -81,7 +82,7 @@
         </el-form>
       </section>
     </div>
-    <div v-if="category !== 'appearance' && category !== 'subscription'" class="save-bar"><span>修改保存后，重新选择并启动节点以应用。</span><el-button type="primary" :disabled="store.loading" :loading="store.saving" @click="handleSave">保存设置</el-button></div>
+    <div v-if="category !== 'appearance' && category !== 'subscription' && category !== 'about'" class="save-bar"><span>修改保存后，重新选择并启动节点以应用。</span><el-button type="primary" :disabled="store.loading" :loading="store.saving" @click="handleSave">保存设置</el-button></div>
     <el-dialog v-model="ruleDialogVisible" :title="editingIndex < 0 ? '添加路由规则' : '编辑路由规则'" width="560px">
       <el-form @submit.prevent label-position="top">
         <el-form-item label="来源"><el-select v-model="editingRule.source" :disabled="editingRule.source !== 'user'"><el-option label="用户规则" value="user" /><el-option label="绕过规则" value="bypass" /><el-option label="内部路由" value="internal" /></el-select></el-form-item>
@@ -99,6 +100,8 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { defaultConfig, useConfigStore } from '@/stores/config'
 import { useNodesStore } from '@/stores/nodes'
+import { isLite, variant } from '@/stores/variant'
+import { request } from '@/api/client'
 import { useAppearanceStore } from '@/stores/appearance'
 import UiIcon from '@/components/UiIcon.vue'
 import LoadBalanceFields from '@/components/LoadBalanceFields.vue'
@@ -109,6 +112,8 @@ import { exportRouting, importRoutingText, validateRoutingText } from '@/api/con
 const store = useConfigStore()
 const nodes = useNodesStore()
 const appearance = useAppearanceStore()
+const buildInfo = ref<{ version?: string; commit?: string }>({})
+void request<{ version?: string; commit?: string }>({ url: '/build' }).then(info => { buildInfo.value = info ?? {} }).catch(() => {})
 const category = ref('general')
 const categories = [
   { id: 'general', title: '通用', icon: 'settings', description: '监听地址、端口与 DNS' },
@@ -117,6 +122,7 @@ const categories = [
   { id: 'balance', title: '负载均衡', icon: 'nodes', description: '多出口分配策略与健康检查默认值' },
   { id: 'subscription', title: '订阅', icon: 'link', description: '订阅更新与内容导入' },
   { id: 'appearance', title: '外观', icon: 'sun', description: '浅色与深色主题' },
+  { id: 'about', title: '关于', icon: 'grid', description: '版本与构建变体' },
   { id: 'advanced', title: '高级', icon: 'grid', description: '日志与配置恢复' }
 ]
 const currentCategory = computed(() => categories.find(item => item.id === category.value)!)
@@ -185,7 +191,7 @@ function chinaRules(): RoutingForm[] {
 }
 
 function syncFromStore(config: AppConfig) {
-  Object.assign(form, config, { routing_mode: config.routing_mode || 'bypass_mainland', load_balance: { ...config.load_balance } })
+  Object.assign(form, config, { ...(isLite.value ? { kernel: 'mihomo' } : {}), routing_mode: config.routing_mode || 'bypass_mainland', load_balance: { ...config.load_balance } })
   dnsText.value = config.dns_servers.join('\n')
   routingForms.value = (config.routing_rules ?? []).map((rule) => ({
     id: rule.id,

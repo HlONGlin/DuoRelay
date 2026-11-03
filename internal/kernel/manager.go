@@ -17,14 +17,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/holi/duorelay/internal/variant"
 	"gopkg.in/yaml.v3"
 )
 
 // Manager serializes lifecycle operations while allowing concurrent status/log reads.
 type Manager struct {
-	opMu              sync.Mutex
-	mu                sync.RWMutex
-	singboxProc       *Process
+	opMu sync.Mutex
+	mu   sync.RWMutex
+	kernelProcesses
 	mihomoProc        *Process
 	mode              RunMode
 	kernelsDir        string
@@ -92,36 +93,9 @@ func NewManager(kernelsDir ...string) *Manager {
 	}
 }
 
-// SetMode retains sing-box when switching from coexistence to single mode.
-func (m *Manager) SetMode(mode RunMode) error {
-	if mode != ModeSingleSwitch && mode != ModeCoexist {
-		return fmt.Errorf("unknown run mode %q", mode)
-	}
-	m.opMu.Lock()
-	defer m.opMu.Unlock()
-	m.mu.RLock()
-	both := m.active(m.singboxProc) && m.active(m.mihomoProc)
-	other := m.mihomoProc
-	m.mu.RUnlock()
-	if mode == ModeSingleSwitch && both {
-		if err := m.stopProcess(other); err != nil {
-			return err
-		}
-	}
-	m.mu.Lock()
-	m.mode = mode
-	m.mu.Unlock()
-	return nil
-}
-
-func (m *Manager) StartSingBox(configPath string) error { return m.start("sing-box", configPath) }
-func (m *Manager) StartMihomo(configPath string) error  { return m.start("mihomo", configPath) }
-func (m *Manager) StopSingBox() error                   { return m.stop("sing-box") }
-func (m *Manager) StopMihomo() error                    { return m.stop("mihomo") }
-
 // Validate checks a configuration without disrupting any running process.
 func (m *Manager) Validate(name, configPath string) error {
-	if name != "sing-box" && name != "mihomo" {
+	if !variant.SupportsKernel(name) {
 		return fmt.Errorf("unknown kernel %q", name)
 	}
 	m.opMu.Lock()
@@ -137,13 +111,6 @@ func (m *Manager) Validate(name, configPath string) error {
 	return m.validate(name, binary, config)
 }
 
-func (m *Manager) process(name string) *Process {
-	if name == "sing-box" {
-		return m.singboxProc
-	}
-	return m.mihomoProc
-}
-
 func (m *Manager) active(p *Process) bool {
 	if p == nil {
 		return false
@@ -157,15 +124,15 @@ func (m *Manager) active(p *Process) bool {
 }
 
 func (m *Manager) start(name, configPath string) error {
+	if !variant.SupportsKernel(name) {
+		return fmt.Errorf("unknown kernel %q", name)
+	}
 	m.opMu.Lock()
 	defer m.opMu.Unlock()
 	m.mu.RLock()
 	busy := m.active(m.process(name))
 	mode := m.mode
-	other := m.singboxProc
-	if name == "sing-box" {
-		other = m.mihomoProc
-	}
+	other := m.otherProcess(name)
 	m.mu.RUnlock()
 	if busy {
 		return fmt.Errorf("%s is already running or restarting", name)
@@ -206,11 +173,7 @@ func (m *Manager) start(name, configPath string) error {
 	m.mu.Lock()
 	a, err := m.launch(p)
 	if err == nil {
-		if name == "sing-box" {
-			m.singboxProc = p
-		} else {
-			m.mihomoProc = p
-		}
+		m.setProcess(name, p)
 	}
 	m.mu.Unlock()
 	if err != nil {
@@ -241,21 +204,6 @@ func (m *Manager) binaryPath(name string) (string, error) {
 		return "", fmt.Errorf("%s binary is a directory", path)
 	}
 	return path, nil
-}
-
-func kernelArgs(name, config string, check bool) []string {
-	if name == "sing-box" {
-		verb := "run"
-		if check {
-			verb = "check"
-		}
-		return []string{verb, "-c", config}
-	}
-	args := []string{"-d", filepath.Dir(config), "-f", config}
-	if check {
-		args = append(args, "-t")
-	}
-	return args
 }
 
 func (m *Manager) validate(name, binary, config string) error {
@@ -340,7 +288,7 @@ func withEnvironment(environment []string, key, value string) []string {
 // SubscribeLogs returns a live stream of log entries for one kernel. The
 // cancel function removes the subscriber and closes its channel.
 func (m *Manager) SubscribeLogs(name string) (<-chan LogEntry, func(), error) {
-	if name != "sing-box" && name != "mihomo" {
+	if !variant.SupportsKernel(name) {
 		return nil, nil, fmt.Errorf("unknown kernel %q", name)
 	}
 	ch := make(chan LogEntry, 128)
@@ -392,7 +340,7 @@ func (m *Manager) StopAll() error {
 	m.opMu.Lock()
 	defer m.opMu.Unlock()
 	m.mu.RLock()
-	a, b := m.singboxProc, m.mihomoProc
+	a, b := m.otherProcess("mihomo"), m.mihomoProc
 	m.mu.RUnlock()
 	return errors.Join(m.stopProcess(a), m.stopProcess(b))
 }
@@ -578,7 +526,7 @@ func probeVersion(ctx context.Context, baseURL, secret string) error {
 
 // HealthCheck probes a running kernel's configured Clash API on demand.
 func (m *Manager) HealthCheck(ctx context.Context, name string) error {
-	if name != "sing-box" && name != "mihomo" {
+	if !variant.SupportsKernel(name) {
 		return fmt.Errorf("unknown kernel %q", name)
 	}
 	m.mu.RLock()
@@ -610,7 +558,7 @@ func (m *Manager) HealthCheck(ctx context.Context, name string) error {
 func (m *Manager) GetLogs(name string, n int) []LogEntry {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if name != "sing-box" && name != "mihomo" {
+	if !variant.SupportsKernel(name) {
 		return []LogEntry{}
 	}
 	p := m.process(name)
@@ -648,7 +596,7 @@ func (m *Manager) Status() map[string]any {
 		}
 		return s
 	}
-	return map[string]any{"mode": m.mode, "singbox": status(m.singboxProc), "mihomo": status(m.mihomoProc)}
+	return m.statusSnapshot(status)
 }
 
 // limitedOutput retains bounded validator diagnostics while draining all output.

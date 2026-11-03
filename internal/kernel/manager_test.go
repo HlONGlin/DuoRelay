@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/holi/duorelay/internal/variant"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -140,6 +141,9 @@ func TestMihomoTUNEnvironmentDetection(t *testing.T) {
 }
 
 func TestWithEnvironmentReplacesExistingValue(t *testing.T) {
+	if variant.Name == "lite" {
+		t.Skip("full-only sing-box / cross-kernel assertions")
+	}
 	got := withEnvironment([]string{"PATH=/bin", "SKIP_SYSTEM_IPV6_CHECK=0", "OTHER=x"}, "SKIP_SYSTEM_IPV6_CHECK", "1")
 	count := 0
 	for _, entry := range got {
@@ -241,6 +245,9 @@ func eventually(t *testing.T, condition func() bool) {
 }
 
 func TestSubscribeLogsReceivesAndCloses(t *testing.T) {
+	if variant.Name == "lite" {
+		t.Skip("full-only sing-box / cross-kernel assertions")
+	}
 	m := testManager(t)
 	entries, cancel, err := m.SubscribeLogs("sing-box")
 	if err != nil {
@@ -273,7 +280,7 @@ func TestSubscribeLogsReceivesAndCloses(t *testing.T) {
 }
 
 func TestManagerLifecycle(t *testing.T) {
-	for _, name := range []string{"sing-box", "mihomo"} {
+	for _, name := range variant.Kernels() {
 		t.Run(name, func(t *testing.T) {
 			m := testManager(t)
 			config := writeConfig(t, name, nil)
@@ -319,6 +326,9 @@ func TestManagerLifecycle(t *testing.T) {
 }
 
 func TestManagerModesAndInvalidReplacement(t *testing.T) {
+	if variant.Name == "lite" {
+		t.Skip("full-only sing-box / cross-kernel assertions")
+	}
 	m := testManager(t)
 	singbox := writeConfig(t, "sing-box", nil)
 	mihomo := writeConfig(t, "mihomo", nil)
@@ -358,7 +368,7 @@ func TestManagerModesAndInvalidReplacement(t *testing.T) {
 }
 
 func TestManagerCrashRecovery(t *testing.T) {
-	for _, name := range []string{"sing-box", "mihomo"} {
+	for _, name := range variant.Kernels() {
 		t.Run(name, func(t *testing.T) {
 			m := testManager(t)
 			config := writeConfig(t, name, map[string]any{"crash_after": 250, "exit_code": 23, "marker": filepath.Join(t.TempDir(), "once")})
@@ -387,6 +397,9 @@ func TestManagerCrashRecovery(t *testing.T) {
 }
 
 func TestManagerExternalKillRecovery(t *testing.T) {
+	if variant.Name == "lite" {
+		t.Skip("full-only sing-box / cross-kernel assertions")
+	}
 	m := testManager(t)
 	if err := m.StartSingBox(writeConfig(t, "sing-box", nil)); err != nil {
 		t.Fatal(err)
@@ -407,6 +420,9 @@ func TestManagerExternalKillRecovery(t *testing.T) {
 }
 
 func TestManagerCleanUnexpectedExitRecovery(t *testing.T) {
+	if variant.Name == "lite" {
+		t.Skip("full-only sing-box / cross-kernel assertions")
+	}
 	m := testManager(t)
 	config := writeConfig(t, "sing-box", map[string]any{"crash_after": 200, "exit_code": 0, "marker": filepath.Join(t.TempDir(), "once")})
 	if err := m.StartSingBox(config); err != nil {
@@ -420,6 +436,9 @@ func TestManagerCleanUnexpectedExitRecovery(t *testing.T) {
 }
 
 func TestManagerStopDuringBackoff(t *testing.T) {
+	if variant.Name == "lite" {
+		t.Skip("full-only sing-box / cross-kernel assertions")
+	}
 	m := testManager(t)
 	m.restartPolicy = func() *RestartPolicy { p := NewRestartPolicy(); p.backoffBase = time.Hour; return p }
 	if err := m.StartSingBox(writeConfig(t, "sing-box", map[string]any{"crash_after": 250, "exit_code": 4})); err != nil {
@@ -463,6 +482,9 @@ func TestManagerRestartBudget(t *testing.T) {
 }
 
 func TestManagerRestartLaunchFailure(t *testing.T) {
+	if variant.Name == "lite" {
+		t.Skip("full-only sing-box / cross-kernel assertions")
+	}
 	m := testManager(t)
 	base := m.command
 	launches := 0
@@ -489,6 +511,9 @@ func TestManagerRestartLaunchFailure(t *testing.T) {
 }
 
 func TestManagerValidationAndHealthFailure(t *testing.T) {
+	if variant.Name == "lite" {
+		t.Skip("full-only sing-box / cross-kernel assertions")
+	}
 	t.Run("missing binary", func(t *testing.T) {
 		m := NewManager(t.TempDir())
 		if err := m.StartSingBox(writeConfig(t, "sing-box", nil)); err == nil {
@@ -534,6 +559,9 @@ func TestManagerValidationAndHealthFailure(t *testing.T) {
 }
 
 func TestManagerConcurrentObservation(t *testing.T) {
+	if variant.Name == "lite" {
+		t.Skip("full-only sing-box / cross-kernel assertions")
+	}
 	m := testManager(t)
 	if err := m.StartSingBox(writeConfig(t, "sing-box", nil)); err != nil {
 		t.Fatal(err)
@@ -722,7 +750,7 @@ func TestRealKernels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"sing-box", "mihomo"} {
+	for _, name := range variant.Kernels() {
 		t.Run(name, func(t *testing.T) {
 			m := NewManager(dir)
 			t.Cleanup(func() {

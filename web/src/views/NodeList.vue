@@ -1,6 +1,7 @@
 <template>
   <div class="page-stack node-list">
     <div class="page-heading"><h1>节点管理 <span class="heading-count mono">{{ nodes.items.length }}</span></h1><div class="actions"><el-button :disabled="nodes.items.length < 2 || mutationBusy || kernel.busy" @click="openGroup('chain')">链式代理</el-button><el-button :disabled="nodes.items.length < 2 || mutationBusy || kernel.busy" @click="openGroup('load_balance')">负载均衡</el-button><el-button :loading="nodes.loading" @click="refresh"><UiIcon name="refresh" :size="16" />刷新</el-button><el-button @click="importVisible = true"><UiIcon name="plus" :size="16" />导入节点</el-button></div></div>
+    <el-alert v-if="isLite" title="精简版不支持 ShadowTLS、Naive、Tor、OpenConnect；这些节点会保留，可切换完整版使用。" type="info" :closable="false" />
     <el-alert v-if="nodes.error" :title="nodes.error" type="error" show-icon :closable="false" />
     <div class="active-banner">
       <div class="active-banner-content"><span class="status-dot" :class="{ running: nodes.activeNodes.length > 0 }" /><div><strong>{{ activeSummary }}</strong><p v-if="!nodes.activeNodes.length">可单独启动，或勾选多个节点组成负载均衡、链式代理。</p><p v-else-if="activeState?.mode === 'chain'">本机 → {{ activeNames.join(' → ') }} → 目标网站</p><p v-else-if="activeState?.mode === 'load_balance'">{{ balanceStrategyLabel }} · {{ activeState.kernel }} · 新连接按策略分配到健康节点</p></div></div>
@@ -36,13 +37,13 @@
           <tbody>
             <tr v-if="startIndex" aria-hidden="true" class="spacer-row" :style="{ height: startIndex * rowHeight + 'px' }"><td colspan="7" /></tr>
             <tr v-for="(node, index) in visibleNodes" :key="node.id" class="node-row" :class="{ 'is-active': node.status === 'active', 'is-failed': (node.last_delay_ms ?? 0) < 0 }" :aria-rowindex="startIndex + index + 2">
-              <td><input type="checkbox" :checked="selected.has(node.id)" :aria-label="'勾选 ' + node.name" @change="toggleSelected(node.id)" /></td>
+              <td><input type="checkbox" :disabled="Boolean(nodeUnavailableReason(node))" :title="nodeUnavailableReason(node)" :checked="selected.has(node.id)" :aria-label="'勾选 ' + node.name" @change="toggleSelected(node.id)" /></td>
               <td><div class="node-name" :title="node.name"><span v-if="node.status === 'active'" class="status-dot running" /><span>{{ node.name }}</span><span v-if="node.status === 'active'" class="active-label">使用中</span></div></td>
               <td><span class="neutral-badge" :title="protocolDescription(node.protocol)">{{ protocolLabel(node.protocol) }}</span></td>
               <td class="kernel-cell">{{ ownerLabel(node.owner) }}</td>
               <td class="endpoint mono" :title="nodeEndpointLabel(node)">{{ nodeEndpointLabel(node) }}</td>
               <td class="numeric"><span v-if="testing.has(node.id)" class="muted type-p-caption">测试中…</span><DelayBadge v-else :delay="node.last_delay_ms" /></td>
-              <td><div class="row-actions"><el-button v-if="node.status !== 'active'" class="activate-button" size="small" :loading="activatingId === node.id" :disabled="mutationBusy || kernel.busy" @click="handleActivate(node)">选择并启动</el-button><el-button v-else size="small" :loading="kernel.busy" :disabled="mutationBusy" @click="handleStopCurrent">{{ nodes.activeNodes.length > 1 ? '停止组合' : '取消选择' }}</el-button><el-button size="small" text :disabled="testing.has(node.id) || batchRunning || groupBusy" @click="handleTest(node)">测速</el-button><el-button size="small" text :disabled="node.status === 'active' || testing.has(node.id) || batchRunning || mutationBusy" @click="handleRemove(node)">删除</el-button></div></td>
+              <td><div class="row-actions"><el-button v-if="node.status !== 'active'" class="activate-button" size="small" :loading="activatingId === node.id" :disabled="mutationBusy || kernel.busy || Boolean(nodeUnavailableReason(node))" :title="nodeUnavailableReason(node)" @click="handleActivate(node)">{{ nodeUnavailableReason(node) || '选择并启动' }}</el-button><el-button v-else size="small" :loading="kernel.busy" :disabled="mutationBusy" @click="handleStopCurrent">{{ nodes.activeNodes.length > 1 ? '停止组合' : '取消选择' }}</el-button><el-button size="small" text :disabled="testing.has(node.id) || batchRunning || groupBusy" @click="handleTest(node)">测速</el-button><el-button size="small" text :disabled="node.status === 'active' || testing.has(node.id) || batchRunning || mutationBusy" @click="handleRemove(node)">删除</el-button></div></td>
             </tr>
             <tr v-if="endIndex < sorted.length" aria-hidden="true" class="spacer-row" :style="{ height: (sorted.length - endIndex) * rowHeight + 'px' }"><td colspan="7" /></tr>
           </tbody>
@@ -72,6 +73,7 @@ import { getCurrentConfig, getProxyGroupStatus } from '@/api/config'
 import { useConfigStore } from '@/stores/config'
 import { useNodesStore } from '@/stores/nodes'
 import { useKernelStore } from '@/stores/kernel'
+import { isLite, nodeUnavailableReason } from '@/stores/variant'
 import { useSubscriptionsStore } from '@/stores/subscriptions'
 import { nodeEndpointLabel, ownerLabel, protocolDescription, protocolLabel } from '@/utils/format'
 import { protocolCatalog, protocolGroupLabel, type ProtocolGroup } from '@/utils/protocols'
@@ -114,10 +116,10 @@ const sorted = computed(() => {
 const startIndex = computed(() => Math.min(Math.max(0, sorted.value.length - 1), Math.max(0, Math.floor(Math.max(0, scrollTop.value - 36) / rowHeight.value) - 6)))
 const endIndex = computed(() => Math.min(sorted.value.length, startIndex.value + Math.ceil(viewportHeight.value / rowHeight.value) + 12))
 const visibleNodes = computed(() => sorted.value.slice(startIndex.value, endIndex.value))
-const allSelected = computed(() => sorted.value.length > 0 && sorted.value.every(n => selected.value.has(n.id)))
+const allSelected = computed(() => sorted.value.length > 0 && sorted.value.filter(n => !nodeUnavailableReason(n)).every(n => selected.value.has(n.id)))
 const someSelected = computed(() => sorted.value.some(n => selected.value.has(n.id)))
 function toggleSelected(id: string) { if (selected.value.has(id)) selected.value.delete(id); else selected.value.add(id) }
-function toggleAll() { const remove = allSelected.value; for (const n of sorted.value) { if (remove) selected.value.delete(n.id); else selected.value.add(n.id) } }
+function toggleAll() { const remove = allSelected.value; for (const n of sorted.value.filter(n => !nodeUnavailableReason(n))) { if (remove) selected.value.delete(n.id); else selected.value.add(n.id) } }
 function toggleSort(key: 'name' | 'delay') { sortDescending.value = sortKey.value === key ? !sortDescending.value : false; sortKey.value = key }
 function sortIndicator(key: string) { return sortKey.value === key ? (sortDescending.value ? '↓' : '↑') : '↕' }
 function onScroll(event: Event) { scrollTop.value = (event.target as HTMLElement).scrollTop }
@@ -187,6 +189,7 @@ async function submitImport() {
   finally { importLoading.value = false }
 }
 async function handleActivate(node: ProxyNode) {
+  if (nodeUnavailableReason(node)) return
   if (mutationBusy.value) return
   activatingId.value = node.id
   try { await nodes.activate(node.id); await Promise.all([kernel.fetchStatus(), fetchActiveState()]); ElMessage.success('已选择并启动：' + node.name) }

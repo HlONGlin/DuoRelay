@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/holi/duorelay/internal/variant"
 	"os"
 	"testing"
 
@@ -13,6 +14,9 @@ import (
 )
 
 func TestRoutingRulesPersistAndGenerate(t *testing.T) {
+	if variant.Name == "lite" {
+		t.Skip("full-only sing-box / cross-kernel assertions")
+	}
 	service, _ := testService(t)
 	ctx := context.Background()
 	settings, err := service.Settings(ctx)

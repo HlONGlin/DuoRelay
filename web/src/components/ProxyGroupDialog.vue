@@ -5,7 +5,7 @@
     <el-form label-position="top" :disabled="busy" @submit.prevent>
       <el-form-item :label="isBalance ? '参与负载均衡的节点' : '按经过顺序选择节点'">
         <el-select v-model="ids" multiple filterable :disabled="busy" placeholder="选择至少两个节点" :multiple-limit="isBalance ? 64 : 8" aria-label="组合代理节点">
-          <el-option v-for="node in nodes" :key="node.id" :label="node.name" :value="node.id" :disabled="!eligible(node)"><span>{{ node.name }}</span><span v-if="!eligible(node)" class="unavailable"> · 不支持 mihomo</span></el-option>
+          <el-option v-for="node in nodes" :key="node.id" :label="node.name" :value="node.id" :disabled="!eligible(node)"><span>{{ node.name }}</span><span v-if="!eligible(node)" class="unavailable"> · {{ nodeUnavailableReason(node) || '不支持 mihomo' }}</span></el-option>
         </el-select>
       </el-form-item>
       <ol class="group-members" :aria-label="isBalance ? '负载均衡节点' : '链式代理顺序'">
@@ -37,6 +37,7 @@ import { computed, ref, watch } from 'vue'
 import { applyConfig, previewChain } from '@/api/config'
 import { ApiError } from '@/api/client'
 import { defaultLoadBalance } from '@/stores/config'
+import { isLite, nodeUnavailableReason } from '@/stores/variant'
 import LoadBalanceFields from './LoadBalanceFields.vue'
 import type { ChainPlan, ConfigurationState, LoadBalanceOptions, ProxyGroupMode, ProxyNode } from '@/types'
 
@@ -55,7 +56,7 @@ const balanceStrategyDescription = computed(() => balance.value.strategy === 'fa
 const plan = ref<ChainPlan>()
 const checking = ref(false)
 let previewVersion = 0
-function eligible(node: ProxyNode) { return isBalance.value ? Boolean(node.owner & 2) : true }
+function eligible(node: ProxyNode) { return !nodeUnavailableReason(node) && (isBalance.value ? Boolean(node.owner & 2) : true) }
 watch([() => [...ids.value], () => props.modelValue, () => props.mode], async () => {
   const version = ++previewVersion
   plan.value = undefined
@@ -73,7 +74,7 @@ function nodeName(id: string) { return props.nodes.find(node => node.id === id)?
 function move(index: number, offset: number) { const next = [...ids.value]; [next[index], next[index + offset]] = [next[index + offset], next[index]]; ids.value = next }
 watch(() => props.modelValue, visible => {
   if (!visible) return
-  ids.value = [...props.selectedIds]
+  ids.value = isLite.value ? props.selectedIds.filter(id => { const node = props.nodes.find(n => n.id === id); return node && eligible(node) }) : [...props.selectedIds]
   balance.value = { ...defaultLoadBalance(), ...props.defaults }
   error.value = ''
 })

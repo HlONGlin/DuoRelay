@@ -27,6 +27,7 @@ import (
 	"github.com/holi/duorelay/internal/store"
 	"github.com/holi/duorelay/internal/subscription"
 	"github.com/holi/duorelay/internal/task"
+	"github.com/holi/duorelay/internal/variant"
 	embeddedweb "github.com/holi/duorelay/web"
 )
 
@@ -52,6 +53,7 @@ type Server struct {
 	Kernel        KernelReader
 	Auth          *auth.Service
 	CookieSecure  bool
+	BuildInfo     map[string]string
 	loginLimiter  *loginLimiter
 	Context       context.Context
 	mux           *http.ServeMux
@@ -187,6 +189,12 @@ func (s *Server) authLogout(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusOK, map[string]bool{"authenticated": false})
 }
 func (s *Server) routes() {
+	s.mux.HandleFunc("GET /api/build", func(w http.ResponseWriter, r *http.Request) {
+		WriteJSON(w, 200, s.BuildInfo)
+	})
+	s.mux.HandleFunc("GET /api/auth/variant", func(w http.ResponseWriter, r *http.Request) {
+		WriteJSON(w, 200, map[string]any{"variant": variant.Name, "kernels": variant.Kernels()})
+	})
 	s.mux.HandleFunc("GET /api/auth/status", s.authStatus)
 	s.mux.HandleFunc("POST /api/auth/register", s.authRegister)
 	s.mux.HandleFunc("POST /api/auth/login", s.authLogin)
@@ -670,7 +678,7 @@ func (s *Server) activeKernel() string {
 			}
 		}
 	}
-	for _, name := range []string{"sing-box", "mihomo"} {
+	for _, name := range variant.Kernels() {
 		key := name
 		if name == "sing-box" {
 			key = "singbox"
@@ -801,7 +809,7 @@ func (s *Server) parseLogQuery(r *http.Request) (logQuery, error) {
 	if name == "" {
 		name = s.activeKernel()
 		if name == "" {
-			name = "sing-box"
+			name = variant.DefaultKernel
 		}
 	}
 	if name != "sing-box" && name != "mihomo" {

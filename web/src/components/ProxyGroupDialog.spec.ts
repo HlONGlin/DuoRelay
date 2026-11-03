@@ -5,6 +5,7 @@ import ProxyGroupDialog from './ProxyGroupDialog.vue'
 import { applyConfig, previewChain } from '@/api/config'
 import { defaultLoadBalance } from '@/stores/config'
 import type { ConfigurationState, ProxyGroupMode, ProxyNode } from '@/types'
+import { variant } from '@/stores/variant'
 
 vi.mock('@/api/config', () => ({ applyConfig: vi.fn(), previewChain: vi.fn() }))
 
@@ -15,9 +16,21 @@ const nodes: ProxyNode[] = [
 
 describe('multi-node start dialog', () => {
   beforeEach(() => {
+    variant.value = 'full'
     vi.clearAllMocks()
     vi.mocked(previewChain).mockImplementation(async ids => ({ supported: true, kernel: 'sing-box', cross_kernel: false, udp: false, warnings: [], hops: ids.map(id => ({ id, name: id, protocol: 'http', kernel: 'sing-box', network: 'tcp', udp: false })) }))
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
+  })
+  it('disables lite-exclusive protocols in chain selection and drops preselected unsupported nodes', async () => {
+    variant.value = 'lite'
+    const unsupported = { ...nodes[0], id: 'naive', protocol: 'naive' as const, owner: 1 }
+    const wrapper = await render('chain', ['a', 'naive'], [...nodes, unsupported])
+    const option = wrapper.findAllComponents({ name: 'ElOption' }).find(item => item.props('value') === 'naive')!
+    expect(option.props('disabled')).toBe(true)
+    expect(wrapper.findAll('.group-members li')).toHaveLength(1)
+    expect(applyConfig).not.toHaveBeenCalled()
+    variant.value = 'full'
+    wrapper.unmount()
   })
   async function render(mode: ProxyGroupMode, selectedIds = ['a', 'b'], choices = nodes, defaults = defaultLoadBalance()) {
     const wrapper = mount(ProxyGroupDialog, {

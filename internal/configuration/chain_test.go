@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/holi/duorelay/internal/variant"
 	"os"
 	"strings"
 	"testing"
@@ -41,6 +42,9 @@ func (r *chainRuntime) start(k, path string) error {
 }
 
 func TestCrossKernelLifecycle(t *testing.T) {
+	if variant.Name == "lite" {
+		t.Skip("full-only sing-box / cross-kernel assertions")
+	}
 	s, _ := testService(t)
 	runtime := &chainRuntime{}
 	s.Runtime = runtime

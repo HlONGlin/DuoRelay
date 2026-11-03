@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/holi/duorelay/internal/variant"
 	"os"
 	"path/filepath"
 )
@@ -21,7 +22,7 @@ func (m *Manager) SetLogDirectory(directory string) error {
 		return err
 	}
 	history := map[string]*RingBuffer{}
-	for _, name := range []string{"sing-box", "mihomo"} {
+	for _, name := range variant.Kernels() {
 		buffer := NewRingBuffer(persistentLogCapacity)
 		if err := loadLogFile(filepath.Join(directory, logFileName(name)), buffer); err != nil {
 			return fmt.Errorf("load %s log history: %w", name, err)

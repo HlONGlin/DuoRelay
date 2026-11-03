@@ -26,10 +26,11 @@
           size="small"
           type="primary"
           plain
-          :disabled="node.status === 'active'"
+          :disabled="node.status === 'active' || Boolean(nodeUnavailableReason(node))"
+          :title="nodeUnavailableReason(node)"
           @click="$emit('activate', node)"
         >
-          使用
+          {{ nodeUnavailableReason(node) || '使用' }}
         </el-button>
         <el-button size="small" @click="$emit('test', node)">测速</el-button>
         <el-button size="small" plain @click="$emit('remove', node)">
@@ -42,6 +43,7 @@
 
 <script setup lang="ts">
 import DelayBadge from './DelayBadge.vue'
+import { nodeUnavailableReason } from '@/stores/variant'
 import {
   nodeEndpointLabel,
   ownerLabel,

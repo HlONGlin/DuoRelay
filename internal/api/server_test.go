@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/holi/duorelay/internal/variant"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -272,6 +273,9 @@ func TestNodeImportAPIAcceptsV2RayNAndModernLinks(t *testing.T) {
 }
 
 func TestConfigAndLogAPI(t *testing.T) {
+	if variant.Name == "lite" {
+		t.Skip("full-only sing-box / cross-kernel assertions")
+	}
 	s := apiForTest(t)
 	call(t, s, "GET", "/api/config/current", "", 404)
 	settings := call(t, s, "GET", "/api/config", "", 200)
@@ -400,6 +404,9 @@ func TestClassifyLogLevelTreatsInfoOnStderrAsInfo(t *testing.T) {
 }
 
 func TestTrafficAPIUsesDeterministicClashMock(t *testing.T) {
+	if variant.Name == "lite" {
+		t.Skip("full-only sing-box / cross-kernel assertions")
+	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer traffic-secret" {
 			w.WriteHeader(http.StatusUnauthorized)
@@ -459,6 +466,9 @@ func TestTrafficAPIWithoutAppliedConfigReturnsUnavailable(t *testing.T) {
 }
 
 func TestChainPreviewAPI(t *testing.T) {
+	if variant.Name == "lite" {
+		t.Skip("full-only sing-box / cross-kernel assertions")
+	}
 	s := apiForTest(t)
 	ctx := context.Background()
 	var ids []string

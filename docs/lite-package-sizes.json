@@ -1,0 +1,138 @@
+[
+  {
+    "archive": "duorelay-linux-amd64-0.3.0.tar.gz",
+    "platform": "linux/amd64",
+    "variant": "full",
+    "version": "0.3.0",
+    "compressed_bytes": 62342500,
+    "panel_bytes": 21745491,
+    "mihomo_bytes": 62017662,
+    "singbox_bytes": 81416421,
+    "cronet_bytes": 0,
+    "geo_bytes": 0,
+    "other_bytes": 14042,
+    "files": {
+      "duorelay-linux-amd64-0.3.0/build-info.json": 141,
+      "duorelay-linux-amd64-0.3.0/deploy/docker/download-kernels.go": 3915,
+      "duorelay-linux-amd64-0.3.0/deploy/systemd/duorelay-user.service": 415,
+      "duorelay-linux-amd64-0.3.0/deploy/systemd/duorelay.service": 664,
+      "duorelay-linux-amd64-0.3.0/duorelay": 21745491,
+      "duorelay-linux-amd64-0.3.0/kernels/mihomo": 62017662,
+      "duorelay-linux-amd64-0.3.0/kernels/sing-box": 81416421,
+      "duorelay-linux-amd64-0.3.0/kernels.lock": 1390,
+      "duorelay-linux-amd64-0.3.0/README.md": 7517
+    }
+  },
+  {
+    "archive": "duorelay-lite-0.3.0-amd64.tar.gz",
+    "platform": "linux/amd64",
+    "variant": "lite",
+    "version": "0.3.0",
+    "compressed_bytes": 34663941,
+    "panel_bytes": 21516546,
+    "mihomo_bytes": 62017662,
+    "singbox_bytes": 0,
+    "cronet_bytes": 0,
+    "geo_bytes": 0,
+    "other_bytes": 14042,
+    "files": {
+      "duorelay-lite-0.3.0-amd64/build-info.json": 141,
+      "duorelay-lite-0.3.0-amd64/deploy/docker/download-kernels.go": 3915,
+      "duorelay-lite-0.3.0-amd64/deploy/systemd/duorelay-user.service": 415,
+      "duorelay-lite-0.3.0-amd64/deploy/systemd/duorelay.service": 664,
+      "duorelay-lite-0.3.0-amd64/duorelay": 21516546,
+      "duorelay-lite-0.3.0-amd64/kernels/mihomo": 62017662,
+      "duorelay-lite-0.3.0-amd64/kernels.lock": 1390,
+      "duorelay-lite-0.3.0-amd64/README.md": 7517
+    }
+  },
+  {
+    "archive": "duorelay-linux-arm64-0.3.0.tar.gz",
+    "platform": "linux/arm64",
+    "variant": "full",
+    "version": "0.3.0",
+    "compressed_bytes": 56908686,
+    "panel_bytes": 20672027,
+    "mihomo_bytes": 57475198,
+    "singbox_bytes": 75956453,
+    "cronet_bytes": 0,
+    "geo_bytes": 0,
+    "other_bytes": 14042,
+    "files": {
+      "duorelay-linux-arm64-0.3.0/build-info.json": 141,
+      "duorelay-linux-arm64-0.3.0/deploy/docker/download-kernels.go": 3915,
+      "duorelay-linux-arm64-0.3.0/deploy/systemd/duorelay-user.service": 415,
+      "duorelay-linux-arm64-0.3.0/deploy/systemd/duorelay.service": 664,
+      "duorelay-linux-arm64-0.3.0/duorelay": 20672027,
+      "duorelay-linux-arm64-0.3.0/kernels/mihomo": 57475198,
+      "duorelay-linux-arm64-0.3.0/kernels/sing-box": 75956453,
+      "duorelay-linux-arm64-0.3.0/kernels.lock": 1390,
+      "duorelay-linux-arm64-0.3.0/README.md": 7517
+    }
+  },
+  {
+    "archive": "duorelay-lite-0.3.0-arm64.tar.gz",
+    "platform": "linux/arm64",
+    "variant": "lite",
+    "version": "0.3.0",
+    "compressed_bytes": 31832481,
+    "panel_bytes": 20489042,
+    "mihomo_bytes": 57475198,
+    "singbox_bytes": 0,
+    "cronet_bytes": 0,
+    "geo_bytes": 0,
+    "other_bytes": 14042,
+    "files": {
+      "duorelay-lite-0.3.0-arm64/build-info.json": 141,
+      "duorelay-lite-0.3.0-arm64/deploy/docker/download-kernels.go": 3915,
+      "duorelay-lite-0.3.0-arm64/deploy/systemd/duorelay-user.service": 415,
+      "duorelay-lite-0.3.0-arm64/deploy/systemd/duorelay.service": 664,
+      "duorelay-lite-0.3.0-arm64/duorelay": 20489042,
+      "duorelay-lite-0.3.0-arm64/kernels/mihomo": 57475198,
+      "duorelay-lite-0.3.0-arm64/kernels.lock": 1390,
+      "duorelay-lite-0.3.0-arm64/README.md": 7517
+    }
+  },
+  {
+    "archive": "duorelay-windows-amd64-0.3.0.zip",
+    "platform": "windows/amd64",
+    "variant": "full",
+    "version": "0.3.0",
+    "compressed_bytes": 66558506,
+    "panel_bytes": 21812224,
+    "mihomo_bytes": 61247488,
+    "singbox_bytes": 82074624,
+    "cronet_bytes": 9529344,
+    "geo_bytes": 0,
+    "other_bytes": 9126,
+    "files": {
+      "kernels/libcronet.dll": 9529344,
+      "kernels/mihomo.exe": 61247488,
+      "kernels/sing-box.exe": 82074624,
+      "build-info.json": 219,
+      "duorelay.exe": 21812224,
+      "kernels.lock": 1390,
+      "README.md": 7517
+    }
+  },
+  {
+    "archive": "duorelay-lite-0.3.0-amd64.zip",
+    "platform": "windows/amd64",
+    "variant": "lite",
+    "version": "0.3.0",
+    "compressed_bytes": 34336092,
+    "panel_bytes": 21584384,
+    "mihomo_bytes": 61247488,
+    "singbox_bytes": 0,
+    "cronet_bytes": 0,
+    "geo_bytes": 0,
+    "other_bytes": 9126,
+    "files": {
+      "kernels/mihomo.exe": 61247488,
+      "build-info.json": 219,
+      "duorelay.exe": 21584384,
+      "kernels.lock": 1390,
+      "README.md": 7517
+    }
+  }
+]

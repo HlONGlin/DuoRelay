@@ -11,6 +11,17 @@ LDFLAGS=-ldflags "-X main.Version=$(VERSION) -X main.Commit=$(COMMIT) -X main.Bu
 
 all: build
 
+.PHONY: build-lite package-linux-lite package-windows-lite
+build-lite: web-build
+	@mkdir -p $(BUILD_DIR)
+	go build -tags lite $(LDFLAGS) -o $(BUILD_DIR)/duorelay-lite ./cmd/duorelay
+
+package-linux-lite:
+	bash scripts/package-linux.sh $(VERSION) $(if $(ARCH),$(ARCH),$$(uname -m)) --lite
+
+package-windows-lite:
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows.ps1 -Version $(VERSION) -Lite
+
 # Build the binary
 build: web-build
 	@echo "Building $(BINARY_NAME)..."

@@ -20,6 +20,7 @@ import (
 	"github.com/holi/duorelay/internal/subscription"
 	"github.com/holi/duorelay/internal/task"
 	"github.com/holi/duorelay/internal/transparent"
+	"github.com/holi/duorelay/internal/variant"
 )
 
 var (
@@ -55,6 +56,9 @@ func run() (runErr error) {
 	if *workers < 1 || *workers > 64 {
 		return fmt.Errorf("workers must be 1..64")
 	}
+	if err := kernel.PrepareData(context.Background(), *configDir); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(*dbPath), 0700); err != nil {
 		return err
 	}
@@ -89,6 +93,7 @@ func run() (runErr error) {
 	handler := api.NewServer(database, subs, speed, config, runtime)
 	handler.Context = ctx
 	handler.CookieSecure = *cookieSecure
+	handler.BuildInfo = map[string]string{"version": Version, "commit": Commit, "build_time": BuildTime, "variant": variant.Name}
 	server := &http.Server{Addr: *listen, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 60 * time.Second}
 	scheduled := make(chan error, 1)
 	go func() { scheduled <- subs.Run(ctx, time.Minute) }()

@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"github.com/holi/duorelay/internal/variant"
 	"io"
 	"net"
 	"os"
@@ -20,6 +21,9 @@ import (
 // Two real encrypted SS servers plus an echo destination exercise native UDP
 // through both bridge directions. No network outside loopback is contacted.
 func TestRealChainUDP(t *testing.T) {
+	if variant.Name == "lite" {
+		t.Skip("full-only sing-box / cross-kernel assertions")
+	}
 	if testing.Short() || os.Getenv("DUORELAY_CHAIN_INTEGRATION") != "1" {
 		t.Skip("set DUORELAY_CHAIN_INTEGRATION=1")
 	}

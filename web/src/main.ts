@@ -6,6 +6,7 @@ import App from './App.vue'
 import router from './router'
 import './assets/styles/main.css'
 import { initializeTheme } from './stores/appearance'
+import { loadVariant } from './stores/variant'
 
 initializeTheme()
 
@@ -15,4 +16,4 @@ app.use(createPinia())
 app.use(router)
 app.use(ElementPlus, { message: { placement: 'bottom-right', offset: 24 } })
 
-app.mount('#app')
+void loadVariant().then(() => app.mount('#app'))

@@ -16,13 +16,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/holi/duorelay/internal/clashapi"
 	"github.com/holi/duorelay/internal/generator"
-	"github.com/holi/duorelay/internal/generator/mihomo"
-	"github.com/holi/duorelay/internal/generator/singbox"
 	"github.com/holi/duorelay/internal/ir"
 	"github.com/holi/duorelay/internal/kernel"
 	"github.com/holi/duorelay/internal/store"
 	"github.com/holi/duorelay/internal/systemproxy"
 	"github.com/holi/duorelay/internal/transparent"
+	"github.com/holi/duorelay/internal/variant"
 	"gopkg.in/yaml.v3"
 )
 
@@ -67,6 +66,7 @@ type ApplyRequest struct {
 	Mode        string                        `json:"mode,omitempty"`
 	LoadBalance *generator.LoadBalanceOptions `json:"load_balance,omitempty"`
 	outbound    string
+	chain       *generator.ChainPlan
 }
 type State struct {
 	ConfigVersion     int                           `json:"config_version"`
@@ -116,12 +116,12 @@ type Service struct {
 }
 
 func New(s *store.Store, runtime Runtime, directory string) *Service {
-	return &Service{Store: s, Runtime: runtime, Directory: directory, Generators: map[ir.KernelType]generator.Generator{ir.KernelSingBox: singbox.NewGenerator(), ir.KernelMihomo: mihomo.NewGenerator()}}
+	return &Service{Store: s, Runtime: runtime, Directory: directory, Generators: registeredGenerators()}
 }
 
 func (s *Service) SetTransparent(manager *transparent.Manager) { s.Transparent = manager }
 func defaults() Settings {
-	return Settings{ConfigVersion: CurrentConfigVersion, Kernel: ir.KernelSingBox, InboundHost: "127.0.0.1", InboundPort: 1080, MixedPort: 7890, SOCKSPort: 10808, LoadBalance: generator.DefaultLoadBalanceOptions(), LogLevel: "info", DNSServers: []string{"223.5.5.5", "8.8.8.8"}, TUNStack: "system", TransparentMode: transparent.ModeOff, RoutingMode: "bypass_mainland", DefaultOutbound: "PROXY", RoutingRules: defaultRoutingRules()}
+	return Settings{ConfigVersion: CurrentConfigVersion, Kernel: ir.KernelType(variant.DefaultKernel), InboundHost: "127.0.0.1", InboundPort: 1080, MixedPort: 7890, SOCKSPort: 10808, LoadBalance: generator.DefaultLoadBalanceOptions(), LogLevel: "info", DNSServers: []string{"223.5.5.5", "8.8.8.8"}, TUNStack: "system", TransparentMode: transparent.ModeOff, RoutingMode: "bypass_mainland", DefaultOutbound: "PROXY", RoutingRules: defaultRoutingRules()}
 }
 
 func defaultRoutingRules() []generator.RoutingRule {
@@ -214,6 +214,9 @@ func (s *Service) Settings(ctx context.Context) (Settings, error) {
 	if state, stateErr := s.Current(ctx); stateErr == nil && state != nil {
 		value.TransparentActive = state.TransparentMode
 	}
+	if variant.Name == "lite" {
+		value.Kernel = ir.KernelMihomo
+	}
 	return value, err
 }
 func (s *Service) SaveSettings(ctx context.Context, value Settings) error {
@@ -259,7 +262,7 @@ func (s *Service) SaveSettings(ctx context.Context, value Settings) error {
 	if err := value.LoadBalance.Validate(); err != nil {
 		return fmt.Errorf("%w: %v", store.ErrInvalid, err)
 	}
-	if value.Kernel != ir.KernelSingBox && value.Kernel != ir.KernelMihomo {
+	if !variant.SupportsKernel(string(value.Kernel)) {
 		return fmt.Errorf("%w: invalid kernel", store.ErrInvalid)
 	}
 	if value.SystemProxy && !systemproxy.Supported() {
@@ -345,6 +348,9 @@ func (s *Service) Resume(ctx context.Context) error {
 	}
 	if s.Runtime == nil {
 		return fmt.Errorf("kernel runtime is not configured")
+	}
+	if variant.Name == "lite" && (!variant.SupportsKernel(string(state.Kernel)) || len(state.Auxiliary) > 0) {
+		return fmt.Errorf("精简版不支持已保存的双核配置；数据保留，请重新选择 mihomo 节点")
 	}
 	settings, settingsErr := s.Settings(ctx)
 	if settingsErr != nil {
@@ -440,6 +446,9 @@ func (s *Service) Stop(ctx context.Context) error {
 	return nil
 }
 func (s *Service) start(kernel ir.KernelType, path string) error {
+	if variant.Name == "lite" && !variant.SupportsKernel(string(kernel)) {
+		return fmt.Errorf("精简版不支持内核 %s", kernel)
+	}
 	if kernel == ir.KernelSingBox {
 		return s.Runtime.StartSingBox(path)
 	}
@@ -456,13 +465,18 @@ func (s *Service) Apply(ctx context.Context, request ApplyRequest) (*State, erro
 	if request.Mode == "chain" {
 		return s.applyChain(ctx, request, settings)
 	}
+	return s.applyPrepared(ctx, request, settings)
+}
+
+func (s *Service) applyPrepared(ctx context.Context, request ApplyRequest, settings Settings) (*State, error) {
+	var err error
 	if request.Kernel == "" {
 		request.Kernel = settings.Kernel
 		if request.Mode == "load_balance" {
 			request.Kernel = ir.KernelMihomo
 		}
 	}
-	if request.Kernel != ir.KernelSingBox && request.Kernel != ir.KernelMihomo {
+	if !variant.SupportsKernel(string(request.Kernel)) {
 		return nil, fmt.Errorf("%w: invalid kernel", store.ErrInvalid)
 	}
 	if len(request.NodeIDs) > 10000 {
@@ -473,16 +487,18 @@ func (s *Service) Apply(ctx context.Context, request ApplyRequest) (*State, erro
 	}
 	var composition *generator.Composition
 	if request.Mode != "" {
-		if request.Content != "" || len(request.NodeIDs) < 2 || len(request.NodeIDs) > 64 || request.Mode != "load_balance" {
+		if request.Content != "" || len(request.NodeIDs) < 2 || len(request.NodeIDs) > 64 || (request.Mode != "load_balance" && !(variant.Name == "lite" && request.Mode == "chain")) {
 			return nil, fmt.Errorf("%w: 多节点启动需指定方式并选择 2–64 个节点", store.ErrInvalid)
 		}
 		composition = &generator.Composition{Mode: request.Mode}
-		lb := settings.LoadBalance
-		if request.LoadBalance != nil {
-			lb = *request.LoadBalance
+		if request.Mode == "load_balance" {
+			lb := settings.LoadBalance
+			if request.LoadBalance != nil {
+				lb = *request.LoadBalance
+			}
+			composition.LoadBalance = &lb
+			request.LoadBalance = &lb
 		}
-		composition.LoadBalance = &lb
-		request.LoadBalance = &lb
 	} else if request.LoadBalance != nil {
 		return nil, fmt.Errorf("%w: 负载均衡设置需要配合负载均衡启动方式", store.ErrInvalid)
 	}
@@ -499,7 +515,7 @@ func (s *Service) Apply(ctx context.Context, request ApplyRequest) (*State, erro
 				return nil, err
 			}
 			for _, node := range all {
-				if node.CanRunOn(request.Kernel) {
+				if node.CanRunOn(request.Kernel) && variant.SupportsProtocol(node.Protocol) {
 					nodes = append(nodes, node)
 					nodeIDs = append(nodeIDs, node.ID)
 				}
@@ -517,6 +533,9 @@ func (s *Service) Apply(ctx context.Context, request ApplyRequest) (*State, erro
 				node, err := s.Store.Node(ctx, id)
 				if err != nil {
 					return nil, err
+				}
+				if !variant.SupportsProtocol(node.Protocol) {
+					return nil, fmt.Errorf("%w: 精简版不支持 %s", store.ErrInvalid, node.Protocol)
 				}
 				if !node.CanRunOn(request.Kernel) {
 					return nil, fmt.Errorf("%w: 节点 %q 不支持内核 %s", store.ErrInvalid, node.Name, request.Kernel)
@@ -650,6 +669,7 @@ func (s *Service) Apply(ctx context.Context, request ApplyRequest) (*State, erro
 		}
 	}
 	state := &State{ConfigVersion: CurrentConfigVersion, ID: id, Kernel: request.Kernel, NodeIDs: nodeIDs, Mode: mode, TransparentMode: settings.TransparentMode, LoadBalance: request.LoadBalance, AppliedAt: time.Now().UTC(), Path: path, Controller: controller, Secret: secret, SystemProxy: proxySnapshot, SystemProxyTarget: proxyTarget}
+	state.Chain = request.chain
 	// Finish the durable state update even if the HTTP client disconnected.
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
@@ -740,6 +760,9 @@ func (s *Service) Activate(ctx context.Context, id string, kernel ir.KernelType)
 		if !node.CanRunOn(kernel) {
 			kernel = node.PreferredKernel()
 		}
+	}
+	if variant.Name == "lite" && (!variant.SupportsProtocol(node.Protocol) || !variant.SupportsKernel(string(kernel))) {
+		return nil, fmt.Errorf("%w: 精简版不支持该协议或内核", store.ErrInvalid)
 	}
 	if !node.CanRunOn(kernel) {
 		return nil, fmt.Errorf("%w: incompatible kernel", store.ErrInvalid)

@@ -3,6 +3,7 @@ package configuration
 import (
 	"context"
 	"errors"
+	"github.com/holi/duorelay/internal/variant"
 	"testing"
 
 	"github.com/holi/duorelay/internal/generator"
@@ -11,6 +12,9 @@ import (
 )
 
 func TestApplyComposedNodes(t *testing.T) {
+	if variant.Name == "lite" {
+		t.Skip("full-only sing-box / cross-kernel assertions")
+	}
 	s, runtime := testService(t)
 	ctx := context.Background()
 	settings := defaults()

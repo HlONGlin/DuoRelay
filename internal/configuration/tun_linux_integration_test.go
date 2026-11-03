@@ -13,8 +13,6 @@ import (
 	"time"
 
 	"github.com/holi/duorelay/internal/generator"
-	"github.com/holi/duorelay/internal/generator/mihomo"
-	"github.com/holi/duorelay/internal/generator/singbox"
 	"github.com/holi/duorelay/internal/ir"
 	"github.com/holi/duorelay/internal/kernel"
 )
@@ -36,9 +34,12 @@ func TestLinuxTUNCaptureAndCleanup(t *testing.T) {
 		kernel    ir.KernelType
 		generator generator.Generator
 	}{
-		{name: "sing-box", kernel: ir.KernelSingBox, generator: singbox.NewGenerator()},
-		{name: "mihomo", kernel: ir.KernelMihomo, generator: mihomo.NewGenerator()},
+		{name: "sing-box", kernel: ir.KernelSingBox, generator: registeredGenerators()[ir.KernelSingBox]},
+		{name: "mihomo", kernel: ir.KernelMihomo, generator: registeredGenerators()[ir.KernelMihomo]},
 	} {
+		if item.generator == nil {
+			continue
+		}
 		t.Run(item.name, func(t *testing.T) {
 			options := generator.DefaultGenerateOptions()
 			options.EnableTUN = true
