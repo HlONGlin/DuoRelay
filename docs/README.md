@@ -8,6 +8,7 @@
 |------|------|
 | [项目 README](../README.md) | 功能概览、快速开始和能力边界 |
 | [Linux 部署](linux-deployment.md) | 打包、systemd 服务、权限和验收 |
+| [Docker 部署](docker-deployment.md) | 单容器安装、数据备份和更新 |
 | [Windows 部署](windows-deployment.md) | 打包、启动、数据迁移和系统代理 |
 | [订阅格式](subscription-formats.md) | 支持的输入格式及限制 |
 | [多节点代理](multi-node-proxy.md) | 负载均衡与链式代理说明 |

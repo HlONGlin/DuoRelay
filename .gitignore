@@ -48,6 +48,7 @@ web/.output/
 *.db.key
 kernels/
 data/
+/duorelay-data-backup*.tar.gz
 
 # Config
 config.yaml

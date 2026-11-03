@@ -48,6 +48,16 @@
 
 ## 快速开始
 
+### Docker 部署
+
+在支持 Docker Compose 的 Linux amd64 主机上，从项目根目录执行：
+
+```bash
+docker compose up -d --build
+```
+
+面板默认只在宿主机 `127.0.0.1:8080` 开放。安装、代理端口、备份及升级步骤见 [Docker 部署](docs/docker-deployment.md)。
+
 ### Linux 一键部署
 
 在使用 systemd 的 Linux amd64/arm64 系统上，执行：

@@ -1,0 +1,16 @@
+.git
+.opencode
+data
+kernels
+build
+dist
+web/node_modules
+web/dist
+*.exe
+*.db
+*.db-*
+*.key
+*.log
+.env
+duorelay-data-backup*.tar.gz
+scripts/orca-vm
