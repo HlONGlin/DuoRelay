@@ -97,7 +97,7 @@ curl -fsSL https://raw.githubusercontent.com/HlONGlin/DuoRelay/master/scripts/bo
 curl -fsSL https://raw.githubusercontent.com/HlONGlin/DuoRelay/master/scripts/bootstrap-linux.sh | sudo bash -s -- --lite
 ```
 
-脚本从源码构建前端与后端、下载对应内核并安装 systemd 服务。Debian/Ubuntu 及采用 apt-get 的常规衍生系统可尝试自动补装依赖；Fedora、Rocky/AlmaLinux、Arch、openSUSE 等需先手动安装依赖。需要满足 `go.mod` 的 Go（当前 1.27.0）、Node.js 18 或 20+（推荐 22）、npm、Git 等工具。Alpine、OpenWrt、无运行中 systemd 的容器以及 32 位系统不适用此一键入口。各发行版真实主机安装仍为 UNVERIFIED，完整条件见 [Linux 部署](docs/linux-deployment.md#一键脚本的系统范围)。
+脚本从源码构建前端与后端、下载对应内核并安装 systemd 服务，支持用 apt-get、dnf/yum、pacman、zypper 补装基础依赖，覆盖 Debian/Ubuntu、Fedora、Rocky/AlmaLinux/RHEL、Arch、openSUSE 等发行版。需要运行中的 systemd、glibc 2.28+、amd64/arm64 和 root 权限。Go 或 Node.js/npm 缺失、过旧时，会从官方渠道下载并校验临时工具链，不替换系统版本。已用 root 登录时去掉命令中的 `sudo`；缺少 curl 时可用文档中的 wget 入口。Alpine、OpenWrt、CentOS 7 等旧 glibc 系统、普通容器及 32 位系统不适用此入口。各发行版真实主机安装仍为 **UNVERIFIED**，完整条件及故障处理见 [Linux 部署](docs/linux-deployment.md#一键脚本的系统范围)。
 
 脚本仅处理首次安装，检测到已有系统安装会退出；数据目录为 `/var/lib/duorelay`。私有仓库需要配置访问凭据。已有安装升级或切换 full/lite 请按部署文档操作。
 

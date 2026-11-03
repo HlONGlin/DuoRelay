@@ -38,7 +38,16 @@ if [[ "$USER_UNIT" == 1 ]]; then
 fi
 
 [[ "$(id -u)" == 0 ]] || { echo "system installation requires root; use --user-mode for a desktop user service" >&2; exit 1; }
-id "$SERVICE_USER" >/dev/null 2>&1 || useradd --system --home-dir "$DATA_DIR" --shell /usr/sbin/nologin "$SERVICE_USER"
+NOLOGIN="$(command -v nologin || true)"
+if [[ -z "$NOLOGIN" ]]; then
+  for candidate in /usr/sbin/nologin /sbin/nologin /usr/bin/nologin /bin/false; do
+    if [[ -x "$candidate" ]]; then NOLOGIN="$candidate"; break; fi
+  done
+fi
+[[ -n "$NOLOGIN" ]] || { echo "no nologin or false executable found" >&2; exit 1; }
+# 部分发行版默认不为 system 用户创建同名组，显式准备服务使用的组。
+getent group "$SERVICE_USER" >/dev/null || groupadd --system "$SERVICE_USER"
+id "$SERVICE_USER" >/dev/null 2>&1 || useradd --system --gid "$SERVICE_USER" --home-dir "$DATA_DIR" --shell "$NOLOGIN" "$SERVICE_USER"
 install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0750 "$DATA_DIR" "$DATA_DIR/configs"
 install -d -m 0755 "$PREFIX" "$PREFIX/kernels"
 install -m 0755 "$PACKAGE_DIR/duorelay" "$PREFIX/duorelay"
