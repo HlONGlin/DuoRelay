@@ -25,7 +25,9 @@ bash scripts/package-linux.sh 0.3.0 amd64 --lite
 | Linux arm64 | 56.91 MB | **31.83 MB** |
 | Windows amd64 | 66.56 MB | **34.34 MB** |
 
-![DuoRelay lite 节点管理实际界面](docs/images/showcase/nodes-lite.png)
+![DuoRelay lite 开始使用后的仪表盘：连接概览、当前节点、内核状态与实时流量](docs/images/showcase/dashboard-dark.png)
+
+*开始使用后的仪表盘效果：集中查看节点概览、当前代理节点、内核运行状态与流量采样。图中使用临时演示数据，流量按实际运行状态显示。*
 
 截图来自 orca-linux 中的临时演示实例。解压后的文件大小、首次 Geo 缓存、仪表盘 / 链式 / 路由截图与功能介绍见 [图文介绍](docs/showcase.md)。这些是本地构建记录，不代表另行发版；真实系统的未验证项目见 [验收报告](docs/lite-acceptance.md)。
 
