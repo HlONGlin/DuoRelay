@@ -1,61 +1,61 @@
 <template>
   <div class="page-stack node-list">
-    <div class="page-heading"><h1>节点管理 <span class="heading-count mono">{{ nodes.items.length }}</span></h1><div class="actions"><el-button :disabled="nodes.items.length < 2 || mutationBusy || kernel.busy" @click="openGroup('chain')">链式代理</el-button><el-button :disabled="nodes.items.length < 2 || mutationBusy || kernel.busy" @click="openGroup('load_balance')">负载均衡</el-button><el-button :loading="nodes.loading" @click="refresh"><UiIcon name="refresh" :size="16" />刷新</el-button><el-button @click="importVisible = true"><UiIcon name="plus" :size="16" />导入节点</el-button></div></div>
-    <el-alert v-if="isLite" title="精简版不支持 ShadowTLS、Naive、Tor、OpenConnect；这些节点会保留，可切换完整版使用。" type="info" :closable="false" />
+    <div class="page-heading"><h1>{{ t('节点管理', 'Nodes') }} <span class="heading-count mono">{{ nodes.items.length }}</span></h1><div class="actions"><el-button :disabled="nodes.items.length < 2 || mutationBusy || kernel.busy" @click="openGroup('chain')">{{ t('链式代理', 'Proxy chain') }}</el-button><el-button :disabled="nodes.items.length < 2 || mutationBusy || kernel.busy" @click="openGroup('load_balance')">{{ t('负载均衡', 'Load balancing') }}</el-button><el-button :loading="nodes.loading" @click="refresh"><UiIcon name="refresh" :size="16" />{{ t('刷新', 'Refresh') }}</el-button><el-button @click="importVisible = true"><UiIcon name="plus" :size="16" />{{ t('导入节点', 'Import nodes') }}</el-button></div></div>
+    <el-alert v-if="isLite" :title="t('精简版不支持 ShadowTLS、Naive、Tor、OpenConnect；这些节点会保留，可切换完整版使用。', 'Lite does not support ShadowTLS, Naive, Tor or OpenConnect. These nodes are retained for use with the full version.')" type="info" :closable="false" />
     <el-alert v-if="nodes.error" :title="nodes.error" type="error" show-icon :closable="false" />
     <div class="active-banner">
-      <div class="active-banner-content"><span class="status-dot" :class="{ running: nodes.activeNodes.length > 0 }" /><div><strong>{{ activeSummary }}</strong><p v-if="!nodes.activeNodes.length">可单独启动，或勾选多个节点组成负载均衡、链式代理。</p><p v-else-if="activeState?.mode === 'chain'">本机 → {{ activeNames.join(' → ') }} → 目标网站</p><p v-else-if="activeState?.mode === 'load_balance'">{{ balanceStrategyLabel }} · {{ activeState.kernel }} · 新连接按策略分配到健康节点</p></div></div>
+      <div class="active-banner-content"><span class="status-dot" :class="{ running: nodes.activeNodes.length > 0 }" /><div><strong>{{ activeSummary }}</strong><p v-if="!nodes.activeNodes.length">{{ t('可单独启动，或勾选多个节点组成负载均衡、链式代理。', 'Start a node or select multiple nodes for load balancing or a proxy chain.') }}</p><p v-else-if="activeState?.mode === 'chain'">{{ t('本机', 'Local device') }} → {{ activeNames.join(' → ') }} → {{ t('目标网站', 'Destination') }}</p><p v-else-if="activeState?.mode === 'load_balance'">{{ balanceStrategyLabel }} · {{ activeState.kernel }} · {{ t('新连接按策略分配到健康节点', 'New connections are assigned to healthy nodes by strategy') }}</p></div></div>
       <div v-if="activeState?.mode === 'load_balance' && proxyGroupStatus?.active" class="proxy-group-status" aria-live="polite">
-        <p>当前节点：<strong>{{ proxyGroupStatus.now || '健康检查中' }}</strong></p>
-        <ul><li v-for="member in proxyGroupStatus.members" :key="member.name"><span class="status-dot" :class="{ running: member.alive }" /><span>{{ member.name }}</span><span>{{ member.alive ? '健康' : '不可用' }}</span><span class="mono">{{ member.delay_ms != null ? member.delay_ms + ' ms' : '未测速' }}</span></li></ul>
+        <p>{{ t('当前节点：', 'Current node: ') }}<strong>{{ proxyGroupStatus.now || t('健康检查中', 'Checking health') }}</strong></p>
+        <ul><li v-for="member in proxyGroupStatus.members" :key="member.name"><span class="status-dot" :class="{ running: member.alive }" /><span>{{ member.name }}</span><span>{{ member.alive ? t('健康', 'Healthy') : t('不可用', 'Unavailable') }}</span><span class="mono">{{ member.delay_ms != null ? member.delay_ms + ' ms' : t('未测速', 'Not tested') }}</span></li></ul>
       </div>
       <p v-else-if="proxyGroupStatusError" class="proxy-group-status-error" role="status">{{ proxyGroupStatusError }}</p>
-      <el-button v-if="nodes.activeNodes.length" :loading="kernel.busy" :disabled="mutationBusy" @click="handleStopCurrent">停止并取消选择</el-button>
+      <el-button v-if="nodes.activeNodes.length" :loading="kernel.busy" :disabled="mutationBusy" @click="handleStopCurrent">{{ t('停止并取消选择', 'Stop and deselect') }}</el-button>
     </div>
     <section class="node-panel">
       <div class="filter-bar">
-        <el-input v-model="nodes.search" placeholder="搜索名称、服务器或协议" clearable class="search-input" aria-label="搜索节点"><template #prefix><UiIcon name="search" :size="16" /></template></el-input>
-        <el-select v-model="nodes.protocolFilter" placeholder="全部协议" clearable class="filter-select" aria-label="筛选协议"><el-option-group v-for="group in protocolGroups" :key="group.id" :label="group.label"><el-option v-for="protocol in group.protocols" :key="protocol" :label="protocolLabel(protocol)" :value="protocol" /></el-option-group></el-select>
-        <el-select v-model="nodes.subscriptionFilter" placeholder="全部订阅" clearable class="filter-select" aria-label="筛选订阅"><el-option v-for="id in nodes.subscriptionIds" :key="id" :label="subscriptionLabel(id)" :value="id" /></el-select>
-        <el-button v-if="hasFilters" text @click="nodes.resetFilters">清除筛选</el-button>
+        <el-input v-model="nodes.search" :placeholder="t('搜索名称、服务器或协议', 'Search name, server or protocol')" clearable class="search-input" :aria-label="t('搜索节点', 'Search nodes')"><template #prefix><UiIcon name="search" :size="16" /></template></el-input>
+        <el-select v-model="nodes.protocolFilter" :placeholder="t('全部协议', 'All protocols')" clearable class="filter-select" :aria-label="t('筛选协议', 'Filter protocols')"><el-option-group v-for="group in protocolGroups" :key="group.id" :label="group.label"><el-option v-for="protocol in group.protocols" :key="protocol" :label="protocolLabel(protocol)" :value="protocol" /></el-option-group></el-select>
+        <el-select v-model="nodes.subscriptionFilter" :placeholder="t('全部订阅', 'All subscriptions')" clearable class="filter-select" :aria-label="t('筛选订阅', 'Filter subscriptions')"><el-option v-for="id in nodes.subscriptionIds" :key="id" :label="subscriptionLabel(id)" :value="id" /></el-select>
+        <el-button v-if="hasFilters" text @click="nodes.resetFilters">{{ t('清除筛选', 'Clear filters') }}</el-button>
         <div class="filter-spacer" />
-        <el-select v-model="density" class="density-select" aria-label="列表密度"><el-option label="舒适" value="comfortable" /><el-option label="紧凑" value="compact" /></el-select>
+        <el-select v-model="density" class="density-select" :aria-label="t('列表密度', 'List density')"><el-option :label="t('舒适', 'Comfortable')" value="comfortable" /><el-option :label="t('紧凑', 'Compact')" value="compact" /></el-select>
       </div>
       <div class="batch-bar">
-        <span class="muted type-p-caption">{{ selected.size ? '已勾选 ' + selected.size + ' 个' : '匹配 ' + sorted.length + ' 个节点' }}</span>
-        <el-button v-if="selected.size" size="small" text @click="selected.clear()">取消勾选</el-button>
+        <span class="muted type-p-caption">{{ appearance.language === 'en' ? (selected.size ? `${selected.size} selected` : `${sorted.length} matching nodes`) : (selected.size ? '已勾选 ' + selected.size + ' 个' : '匹配 ' + sorted.length + ' 个节点') }}</span>
+        <el-button v-if="selected.size" size="small" text @click="selected.clear()">{{ t('取消勾选', 'Clear selection') }}</el-button>
         <div class="filter-spacer" />
         <span v-if="batchRunning" class="batch-progress mono" role="status">{{ batchDone }} / {{ batchTotal }}</span>
-        <el-button v-if="batchRunning" size="small" @click="cancelBatch = true">停止测速</el-button>
-        <el-button v-else type="primary" size="small" :disabled="!sorted.length || mutationBusy" @click="testBatch">{{ selected.size ? '测速勾选节点' : '一键测速' }}</el-button>
+        <el-button v-if="batchRunning" size="small" @click="cancelBatch = true">{{ t('停止测速', 'Stop testing') }}</el-button>
+        <el-button v-else type="primary" size="small" :disabled="!sorted.length || mutationBusy" @click="testBatch">{{ selected.size ? t('测速勾选节点', 'Test selected') : t('一键测速', 'Test all') }}</el-button>
       </div>
       <el-progress v-if="batchRunning" :percentage="batchTotal ? Math.round(batchDone / batchTotal * 100) : 0" :stroke-width="2" :show-text="false" />
       <div ref="scrollArea" v-loading="nodes.loading" class="node-scroll" :style="{ height: sorted.length ? Math.min(560, 36 + sorted.length * rowHeight) + 'px' : '280px' }" @scroll="onScroll">
-        <table v-if="sorted.length" class="node-table" :style="{ '--row-height': rowHeight + 'px' }" aria-label="节点列表" :aria-rowcount="sorted.length + 1">
+        <table v-if="sorted.length" class="node-table" :style="{ '--row-height': rowHeight + 'px' }" :aria-label="t('节点列表', 'Node list')" :aria-rowcount="sorted.length + 1">
           <colgroup><col style="width:44px" /><col style="width:240px" /><col style="width:120px" /><col style="width:110px" /><col style="width:210px" /><col style="width:140px" /><col style="width:260px" /></colgroup>
-          <thead><tr><th><input type="checkbox" aria-label="勾选全部筛选结果" :checked="allSelected" :indeterminate="someSelected && !allSelected" @change="toggleAll" /></th><th><button type="button" class="sort-button" @click="toggleSort('name')">节点名称 <span>{{ sortIndicator('name') }}</span></button></th><th>协议</th><th>支持内核</th><th>服务器</th><th class="numeric"><button type="button" class="sort-button" @click="toggleSort('delay')">延迟 <span>{{ sortIndicator('delay') }}</span></button></th><th class="row-actions-head">操作</th></tr></thead>
+          <thead><tr><th><input type="checkbox" :aria-label="t('勾选全部筛选结果', 'Select all matching nodes')" :checked="allSelected" :indeterminate="someSelected && !allSelected" @change="toggleAll" /></th><th><button type="button" class="sort-button" @click="toggleSort('name')">{{ t('节点名称', 'Node name') }} <span>{{ sortIndicator('name') }}</span></button></th><th>{{ t('协议', 'Protocol') }}</th><th>{{ t('支持内核', 'Kernels') }}</th><th>{{ t('服务器', 'Server') }}</th><th class="numeric"><button type="button" class="sort-button" @click="toggleSort('delay')">{{ t('延迟', 'Latency') }} <span>{{ sortIndicator('delay') }}</span></button></th><th class="row-actions-head">{{ t('操作', 'Actions') }}</th></tr></thead>
           <tbody>
             <tr v-if="startIndex" aria-hidden="true" class="spacer-row" :style="{ height: startIndex * rowHeight + 'px' }"><td colspan="7" /></tr>
             <tr v-for="(node, index) in visibleNodes" :key="node.id" class="node-row" :class="{ 'is-active': node.status === 'active', 'is-failed': (node.last_delay_ms ?? 0) < 0 }" :aria-rowindex="startIndex + index + 2">
-              <td><input type="checkbox" :disabled="Boolean(nodeUnavailableReason(node))" :title="nodeUnavailableReason(node)" :checked="selected.has(node.id)" :aria-label="'勾选 ' + node.name" @change="toggleSelected(node.id)" /></td>
-              <td><div class="node-name" :title="node.name"><span v-if="node.status === 'active'" class="status-dot running" /><span>{{ node.name }}</span><span v-if="node.status === 'active'" class="active-label">使用中</span></div></td>
+              <td><input type="checkbox" :disabled="Boolean(nodeUnavailableReason(node))" :title="unavailableLabel(node)" :checked="selected.has(node.id)" :aria-label="t('勾选 ', 'Select ') + node.name" @change="toggleSelected(node.id)" /></td>
+              <td><div class="node-name" :title="node.name"><span v-if="node.status === 'active'" class="status-dot running" /><span>{{ node.name }}</span><span v-if="node.status === 'active'" class="active-label">{{ t('使用中', 'Active') }}</span></div></td>
               <td><span class="neutral-badge" :title="protocolDescription(node.protocol)">{{ protocolLabel(node.protocol) }}</span></td>
               <td class="kernel-cell">{{ ownerLabel(node.owner) }}</td>
               <td class="endpoint mono" :title="nodeEndpointLabel(node)">{{ nodeEndpointLabel(node) }}</td>
-              <td class="numeric"><span v-if="testing.has(node.id)" class="muted type-p-caption">测试中…</span><DelayBadge v-else :delay="node.last_delay_ms" /></td>
-              <td><div class="row-actions"><el-button v-if="node.status !== 'active'" class="activate-button" size="small" :loading="activatingId === node.id" :disabled="mutationBusy || kernel.busy || Boolean(nodeUnavailableReason(node))" :title="nodeUnavailableReason(node)" @click="handleActivate(node)">{{ nodeUnavailableReason(node) || '选择并启动' }}</el-button><el-button v-else size="small" :loading="kernel.busy" :disabled="mutationBusy" @click="handleStopCurrent">{{ nodes.activeNodes.length > 1 ? '停止组合' : '取消选择' }}</el-button><el-button size="small" text :disabled="testing.has(node.id) || batchRunning || groupBusy" @click="handleTest(node)">测速</el-button><el-button size="small" text :disabled="node.status === 'active' || testing.has(node.id) || batchRunning || mutationBusy" @click="handleRemove(node)">删除</el-button></div></td>
+              <td class="numeric"><span v-if="testing.has(node.id)" class="muted type-p-caption">{{ t('测试中…', 'Testing…') }}</span><DelayBadge v-else :delay="node.last_delay_ms" /></td>
+              <td><div class="row-actions"><el-button v-if="node.status !== 'active'" class="activate-button" size="small" :loading="activatingId === node.id" :disabled="mutationBusy || kernel.busy || Boolean(nodeUnavailableReason(node))" :title="unavailableLabel(node)" @click="handleActivate(node)">{{ unavailableLabel(node) || t('选择并启动', 'Select and start') }}</el-button><el-button v-else size="small" :loading="kernel.busy" :disabled="mutationBusy" @click="handleStopCurrent">{{ nodes.activeNodes.length > 1 ? t('停止组合', 'Stop group') : t('取消选择', 'Deselect') }}</el-button><el-button size="small" text :disabled="testing.has(node.id) || batchRunning || groupBusy" @click="handleTest(node)">{{ t('测速', 'Test') }}</el-button><el-button size="small" text :disabled="node.status === 'active' || testing.has(node.id) || batchRunning || mutationBusy" @click="handleRemove(node)">{{ t('删除', 'Delete') }}</el-button></div></td>
             </tr>
             <tr v-if="endIndex < sorted.length" aria-hidden="true" class="spacer-row" :style="{ height: (sorted.length - endIndex) * rowHeight + 'px' }"><td colspan="7" /></tr>
           </tbody>
         </table>
-        <EmptyState v-else :title="hasFilters ? '没有匹配的节点' : '暂无节点'" :description="hasFilters ? '请调整搜索或筛选条件。' : '支持导入节点链接或订阅内容。'"><el-button v-if="hasFilters" @click="nodes.resetFilters">清除筛选</el-button><el-button v-else @click="importVisible = true">导入节点</el-button></EmptyState>
+        <EmptyState v-else :title="hasFilters ? t('没有匹配的节点', 'No matching nodes') : t('暂无节点', 'No nodes yet')" :description="hasFilters ? t('请调整搜索或筛选条件。', 'Adjust your search or filters.') : t('支持导入节点链接或订阅内容。', 'Import node links or subscription content.')"><el-button v-if="hasFilters" @click="nodes.resetFilters">{{ t('清除筛选', 'Clear filters') }}</el-button><el-button v-else @click="importVisible = true">{{ t('导入节点', 'Import nodes') }}</el-button></EmptyState>
       </div>
-      <div class="table-footer"><span>勾选节点后，可批量测速或配置负载均衡、链式代理；点击启动后生效。</span><span class="mono">{{ sorted.length }} 个节点</span></div>
+      <div class="table-footer"><span>{{ t('勾选节点后，可批量测速或配置负载均衡、链式代理；点击启动后生效。', 'Select nodes to test them or configure load balancing or a proxy chain. Changes apply after starting.') }}</span><span class="mono">{{ sorted.length }} {{ t('个节点', 'nodes') }}</span></div>
     </section>
-    <el-dialog v-model="importVisible" title="导入节点或订阅内容" width="620px" destroy-on-close>
-      <p class="import-hint">支持 v2rayN 链接合集、Base64、Clash、sing-box、Xray JSON、SIP008、SSD 及 Surge / Loon / Quantumult X 节点配置，包括 AnyTLS 和 Mieru 原生链接。</p>
-      <el-input v-model="importContent" type="textarea" :rows="10" placeholder="粘贴链接或配置内容，每行一个节点链接" aria-label="节点链接或配置" />
-      <template #footer><el-button @click="importVisible = false">取消</el-button><el-button type="primary" :loading="importLoading" @click="submitImport">导入节点</el-button></template>
+    <el-dialog v-model="importVisible" :title="t('导入节点或订阅内容', 'Import nodes or subscription content')" width="620px" destroy-on-close>
+      <p class="import-hint">{{ t('支持 v2rayN 链接合集、Base64、Clash、sing-box、Xray JSON、SIP008、SSD 及 Surge / Loon / Quantumult X 节点配置，包括 AnyTLS 和 Mieru 原生链接。', 'Supports v2rayN link lists, Base64, Clash, sing-box, Xray JSON, SIP008, SSD and Surge / Loon / Quantumult X configurations, including native AnyTLS and Mieru links.') }}</p>
+      <el-input v-model="importContent" type="textarea" :rows="10" :placeholder="t('粘贴链接或配置内容，每行一个节点链接', 'Paste links or configuration, one node link per line')" :aria-label="t('节点链接或配置', 'Node links or configuration')" />
+      <template #footer><el-button @click="importVisible = false">{{ t('取消', 'Cancel') }}</el-button><el-button type="primary" :loading="importLoading" @click="submitImport">{{ t('导入节点', 'Import nodes') }}</el-button></template>
     </el-dialog>
     <ProxyGroupDialog v-model="groupVisible" :mode="groupMode" :nodes="nodes.items" :selected-ids="groupSelection" :defaults="config.config.load_balance" @started="groupStarted" @busy="groupBusy = $event" />
   </div>
@@ -73,13 +73,20 @@ import { getCurrentConfig, getProxyGroupStatus } from '@/api/config'
 import { useConfigStore } from '@/stores/config'
 import { useNodesStore } from '@/stores/nodes'
 import { useKernelStore } from '@/stores/kernel'
-import { isLite, nodeUnavailableReason } from '@/stores/variant'
+import { isLite, nodeUnavailableReason, variant } from '@/stores/variant'
+import { useAppearanceStore } from '@/stores/appearance'
 import { useSubscriptionsStore } from '@/stores/subscriptions'
 import { nodeEndpointLabel, ownerLabel, protocolDescription, protocolLabel } from '@/utils/format'
 import { protocolCatalog, protocolGroupLabel, type ProtocolGroup } from '@/utils/protocols'
 import type { ConfigurationState, ProxyGroupMode, ProxyGroupStatus, ProxyNode } from '@/types'
 
 const nodes = useNodesStore()
+const appearance = useAppearanceStore()
+const t = (zh: string, en: string) => appearance.language === 'en' ? en : zh
+function unavailableLabel(node: ProxyNode) {
+  const reason = nodeUnavailableReason(node)
+  return reason && appearance.language === 'en' ? (variant.value === 'unknown' ? 'Unable to read build capabilities; refresh and try again' : 'Not supported in lite') : reason
+}
 const kernel = useKernelStore()
 const subscriptions = useSubscriptionsStore()
 const config = useConfigStore()
@@ -93,9 +100,9 @@ const route = useRoute()
 const importVisible = ref(false), importLoading = ref(false), importContent = ref('')
 const activatingId = ref('')
 const mutationBusy = computed(() => Boolean(activatingId.value) || groupBusy.value)
-const activeNames = computed(() => (activeState.value?.node_ids ?? nodes.activeNodes.map(node => node.id)).map(id => nodes.items.find(node => node.id === id)?.name ?? '节点已移除'))
-const activeSummary = computed(() => !nodes.activeNodes.length ? '未选择节点' : activeState.value?.mode === 'load_balance' ? `负载均衡 · ${nodes.activeNodes.length} 个节点` : activeState.value?.mode === 'chain' ? `链式代理 · ${nodes.activeNodes.length} 跳` : '当前节点：' + nodes.activeNodes.map(node => node.name).join('、'))
-const balanceStrategyLabel = computed(() => ({ 'round-robin': '轮询', 'consistent-hashing': '一致性哈希', 'sticky-sessions': '会话保持', 'url-test': '自动选优', fallback: '故障切换' })[activeState.value?.load_balance?.strategy ?? 'round-robin'])
+const activeNames = computed(() => (activeState.value?.node_ids ?? nodes.activeNodes.map(node => node.id)).map(id => nodes.items.find(node => node.id === id)?.name ?? t('节点已移除', 'Node removed')))
+const activeSummary = computed(() => !nodes.activeNodes.length ? t('未选择节点', 'No node selected') : activeState.value?.mode === 'load_balance' ? `${t('负载均衡', 'Load balancing')} · ${nodes.activeNodes.length} ${t('个节点', 'nodes')}` : activeState.value?.mode === 'chain' ? `${t('链式代理', 'Proxy chain')} · ${nodes.activeNodes.length} ${t('跳', 'hops')}` : t('当前节点：', 'Current node: ') + nodes.activeNodes.map(node => node.name).join(appearance.language === 'en' ? ', ' : '、'))
+const balanceStrategyLabel = computed(() => ({ 'round-robin': t('轮询', 'Round robin'), 'consistent-hashing': t('一致性哈希', 'Consistent hashing'), 'sticky-sessions': t('会话保持', 'Sticky sessions'), 'url-test': t('自动选优', 'Automatic selection'), fallback: t('故障切换', 'Fallback') })[activeState.value?.load_balance?.strategy ?? 'round-robin'])
 const testing = ref(new Set<string>())
 const selected = ref(new Set<string>())
 const density = ref('compact')
@@ -141,7 +148,7 @@ async function testBatch() {
     }
   }))
   batchRunning.value = false
-  if (!disposed) ElMessage.info((cancelBatch.value ? '测速已停止' : '测速完成') + '：已测 ' + batchDone.value + ' 个，失败 ' + failed + ' 个')
+  if (!disposed) ElMessage.info(appearance.language === 'en' ? `${cancelBatch.value ? 'Testing stopped' : 'Testing complete'}: ${batchDone.value} tested, ${failed} failed` : (cancelBatch.value ? '测速已停止' : '测速完成') + '：已测 ' + batchDone.value + ' 个，失败 ' + failed + ' 个')
 }
 const protocolGroups = computed(() => {
   const available = new Set(nodes.protocols)
@@ -166,7 +173,7 @@ async function fetchProxyGroupStatus() {
     proxyGroupStatusError.value = ''
   } catch (err) {
     proxyGroupStatus.value = null
-    proxyGroupStatusError.value = err instanceof Error ? err.message : '无法读取节点健康状态'
+    proxyGroupStatusError.value = err instanceof Error ? err.message : t('无法读取节点健康状态', 'Unable to read node health')
   }
 }
 async function refresh() { await Promise.all([nodes.fetchAllNodes(), fetchActiveState()]) }
@@ -179,40 +186,40 @@ async function groupStarted(state: ConfigurationState) {
   activeState.value = state
   await fetchProxyGroupStatus()
   await Promise.all([nodes.fetchAllNodes(), kernel.fetchStatus()])
-  ElMessage.success(state.mode === 'chain' ? '链式代理已启动' : '负载均衡已启动')
+  ElMessage.success(state.mode === 'chain' ? t('链式代理已启动', 'Proxy chain started') : t('负载均衡已启动', 'Load balancing started'))
 }
 async function submitImport() {
-  if (!importContent.value.trim()) { ElMessage.warning('请粘贴节点链接或订阅内容'); return }
+  if (!importContent.value.trim()) { ElMessage.warning(t('请粘贴节点链接或订阅内容', 'Paste node links or subscription content')); return }
   importLoading.value = true
-  try { const result = await nodes.importContent(importContent.value.trim()); ElMessage.success('已导入 ' + result.nodes_total + ' 个节点'); importContent.value = ''; importVisible.value = false }
-  catch (err) { ElMessage.error(err instanceof Error ? err.message : '导入节点失败') }
+  try { const result = await nodes.importContent(importContent.value.trim()); ElMessage.success(appearance.language === 'en' ? `Imported ${result.nodes_total} nodes` : '已导入 ' + result.nodes_total + ' 个节点'); importContent.value = ''; importVisible.value = false }
+  catch (err) { ElMessage.error(err instanceof Error ? err.message : t('导入节点失败', 'Failed to import nodes')) }
   finally { importLoading.value = false }
 }
 async function handleActivate(node: ProxyNode) {
   if (nodeUnavailableReason(node)) return
   if (mutationBusy.value) return
   activatingId.value = node.id
-  try { await nodes.activate(node.id); await Promise.all([kernel.fetchStatus(), fetchActiveState()]); ElMessage.success('已选择并启动：' + node.name) }
-  catch (err) { ElMessage.error(err instanceof Error ? err.message : '启动节点失败') }
+  try { await nodes.activate(node.id); await Promise.all([kernel.fetchStatus(), fetchActiveState()]); ElMessage.success(t('已选择并启动：', 'Selected and started: ') + node.name) }
+  catch (err) { ElMessage.error(err instanceof Error ? err.message : t('启动节点失败', 'Failed to start node')) }
   finally { activatingId.value = '' }
 }
 async function handleStopCurrent() {
   try {
-    await ElMessageBox.confirm(nodes.activeNodes.length > 1 ? '这会停止整个代理组合，并取消所有成员节点的运行选择。' : '停止后会清除当前节点选择，代理也会停止。', '停止并取消选择', { type: 'warning', confirmButtonText: '停止并取消选择', cancelButtonText: '保留运行' })
-    await kernel.stop(); activeState.value = null; proxyGroupStatus.value = null; await nodes.fetchAllNodes(); ElMessage.success('已停止代理并取消当前节点选择')
-  } catch (err) { if (err !== 'cancel' && err !== 'close') ElMessage.error(err instanceof Error ? err.message : '停止代理失败') }
+    await ElMessageBox.confirm(nodes.activeNodes.length > 1 ? t('这会停止整个代理组合，并取消所有成员节点的运行选择。', 'This stops the entire proxy group and deselects all its nodes.') : t('停止后会清除当前节点选择，代理也会停止。', 'This stops the proxy and clears the selected node.'), t('停止并取消选择', 'Stop and deselect'), { type: 'warning', confirmButtonText: t('停止并取消选择', 'Stop and deselect'), cancelButtonText: t('保留运行', 'Keep running') })
+    await kernel.stop(); activeState.value = null; proxyGroupStatus.value = null; await nodes.fetchAllNodes(); ElMessage.success(t('已停止代理并取消当前节点选择', 'Proxy stopped and selection cleared'))
+  } catch (err) { if (err !== 'cancel' && err !== 'close') ElMessage.error(err instanceof Error ? err.message : t('停止代理失败', 'Failed to stop proxy')) }
 }
 async function handleTest(node: ProxyNode) {
   testing.value.add(node.id)
-  try { const delay = await nodes.testNode(node.id); if (delay > 0) ElMessage.success(node.name + '：' + delay + ' ms'); else ElMessage.warning(node.name + '：测速失败') }
-  catch (err) { ElMessage.error(err instanceof Error ? err.message : '测速失败') }
+  try { const delay = await nodes.testNode(node.id); if (delay > 0) ElMessage.success(node.name + '：' + delay + ' ms'); else ElMessage.warning(node.name + t('：测速失败', ': latency test failed')) }
+  catch (err) { ElMessage.error(err instanceof Error ? err.message : t('测速失败', 'Latency test failed')) }
   finally { testing.value.delete(node.id) }
 }
 async function handleRemove(node: ProxyNode) {
   try {
-    await ElMessageBox.confirm('确定删除节点「' + node.name + '」吗？', '删除节点', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' })
-    await nodes.remove(node.id); selected.value.delete(node.id); ElMessage.success('节点已删除')
-  } catch (err) { if (err !== 'cancel' && err !== 'close') ElMessage.error(err instanceof Error ? err.message : '删除节点失败') }
+    await ElMessageBox.confirm(appearance.language === 'en' ? `Delete node "${node.name}"?` : '确定删除节点「' + node.name + '」吗？', t('删除节点', 'Delete node'), { type: 'warning', confirmButtonText: t('删除', 'Delete'), cancelButtonText: t('取消', 'Cancel') })
+    await nodes.remove(node.id); selected.value.delete(node.id); ElMessage.success(t('节点已删除', 'Node deleted'))
+  } catch (err) { if (err !== 'cancel' && err !== 'close') ElMessage.error(err instanceof Error ? err.message : t('删除节点失败', 'Failed to delete node')) }
 }
 let observer: ResizeObserver | undefined
 let media: MediaQueryList | undefined

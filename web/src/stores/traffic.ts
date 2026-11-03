@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
+import { localize } from './appearance'
 import { getTraffic, getTrafficHistory } from '@/api/traffic'
 import type { TrafficSnapshot } from '@/types'
 
@@ -26,7 +27,7 @@ export const useTrafficStore = defineStore('traffic', () => {
       error.value = null
       return value
     } catch (err) {
-      error.value = err instanceof Error ? err.message : '获取流量统计失败'
+      error.value = err instanceof Error ? err.message : localize('获取流量统计失败', 'Failed to fetch traffic statistics')
       throw err
     } finally {
       loading.value = false
@@ -41,7 +42,7 @@ export const useTrafficStore = defineStore('traffic', () => {
       if (latest) snapshot.value = latest
       return values
     } catch (err) {
-      error.value = err instanceof Error ? err.message : '获取流量历史失败'
+      error.value = err instanceof Error ? err.message : localize('获取流量历史失败', 'Failed to fetch traffic history')
       return []
     }
   }

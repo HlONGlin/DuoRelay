@@ -1,4 +1,5 @@
 ---
+# 简体中文 | [English](DESIGN-dark.en.md)
 version: beta
 name: Iceflow-linear-route-dark
 description: "项目自有设计系统的深色主题（可选，非默认）。与默认浅色主题结构完全镜像：同一套字阶（含营销/产品双轨与中文规则）、圆角、间距、动效、组件命名，仅 colors 不同。画布为带蓝调的近黑 #05070d（禁用纯黑），accent 为提亮版信号蓝以保证深色对比。"

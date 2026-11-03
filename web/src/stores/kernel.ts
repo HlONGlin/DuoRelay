@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
+import { localize } from './appearance'
 import {
   getConnections,
   getKernelLogSummary,
@@ -37,8 +38,8 @@ export const useKernelStore = defineStore('kernel', () => {
   const error = ref<string | null>(null)
 
   const displayStatus = computed(() => {
-    if (status.value.running) return '运行中'
-    return status.value.active_kernel ? '已停止' : '未配置'
+    if (status.value.running) return localize('运行中', 'Running')
+    return status.value.active_kernel ? localize('已停止', 'Stopped') : localize('未配置', 'Not configured')
   })
 
   const statusType = computed<'success' | 'info' | 'danger'>(() => {
@@ -53,7 +54,7 @@ export const useKernelStore = defineStore('kernel', () => {
       error.value = null
     } catch (err) {
       status.value = { running: false, active_kernel: '' }
-      error.value = err instanceof Error ? err.message : '获取内核状态失败'
+      error.value = err instanceof Error ? err.message : localize('获取内核状态失败', 'Failed to fetch kernel status')
     } finally {
       loading.value = false
     }
@@ -66,7 +67,7 @@ export const useKernelStore = defineStore('kernel', () => {
       status.value = await startKernel(kernel)
       return status.value
     } catch (err) {
-      error.value = err instanceof Error ? err.message : '启动内核失败'
+      error.value = err instanceof Error ? err.message : localize('启动内核失败', 'Failed to start kernel')
       throw err
     } finally {
       busy.value = false
@@ -80,7 +81,7 @@ export const useKernelStore = defineStore('kernel', () => {
       status.value = await stopKernel()
       return status.value
     } catch (err) {
-      error.value = err instanceof Error ? err.message : '停止内核失败'
+      error.value = err instanceof Error ? err.message : localize('停止内核失败', 'Failed to stop kernel')
       throw err
     } finally {
       busy.value = false
@@ -96,7 +97,7 @@ export const useKernelStore = defineStore('kernel', () => {
       logs.value = items
       logSummary.value = summary
     } catch (err) {
-      error.value = err instanceof Error ? err.message : '获取日志失败'
+      error.value = err instanceof Error ? err.message : localize('获取日志失败', 'Failed to fetch logs')
     }
   }
 
@@ -113,7 +114,7 @@ export const useKernelStore = defineStore('kernel', () => {
     try {
       connections.value = await getConnections()
     } catch (err) {
-      error.value = err instanceof Error ? err.message : '获取连接列表失败'
+      error.value = err instanceof Error ? err.message : localize('获取连接列表失败', 'Failed to fetch connections')
     }
   }
 

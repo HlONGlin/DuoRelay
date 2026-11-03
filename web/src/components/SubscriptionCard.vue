@@ -8,7 +8,7 @@
         </el-tag>
       </div>
       <span class="sub-interval">
-        {{ subscription.interval ? `每 ${subscription.interval} 小时` : '手动更新' }}
+        {{ subscription.interval ? (appearance.language === 'en' ? `Every ${subscription.interval} hours` : `每 ${subscription.interval} 小时`) : t('手动更新', 'Manual updates') }}
       </span>
     </div>
 
@@ -16,8 +16,8 @@
 
     <div class="sub-usage">
       <div class="usage-row">
-        <span>流量使用</span>
-        <span class="mono">{{ subscription.total ? formatBytes(subscription.used) + ' / ' + formatBytes(subscription.total) : '未提供流量配额' }}</span>
+        <span>{{ t('流量使用', 'Traffic usage') }}</span>
+        <span class="mono">{{ subscription.total ? formatBytes(subscription.used) + ' / ' + formatBytes(subscription.total) : t('未提供流量配额', 'No traffic quota provided') }}</span>
       </div>
       <el-progress
         :percentage="usagePercent(subscription.used, subscription.total)"
@@ -28,18 +28,18 @@
     </div>
 
     <div class="sub-meta">
-      <span>节点 <span class="mono">{{ nodeCount ?? '—' }}</span></span>
-      <span>更新: <span class="mono">{{ formatDate(subscription.last_update) }}</span></span>
-      <span :class="{ expired }">{{ expired ? '已到期: ' : '到期: ' }}<span class="mono">{{ formatDate(subscription.expire) }}</span></span>
+      <span>{{ t('节点', 'Nodes') }} <span class="mono">{{ nodeCount ?? '—' }}</span></span>
+      <span>{{ t('更新:', 'Updated:') }} <span class="mono">{{ formatDate(subscription.last_update) }}</span></span>
+      <span :class="{ expired }">{{ expired ? t('已到期: ', 'Expired: ') : t('到期: ', 'Expires: ') }}<span class="mono">{{ formatDate(subscription.expire) }}</span></span>
     </div>
 
     <div class="sub-actions">
       <el-button size="small" text :loading="updating" @click="$emit('refresh', subscription)">
-        更新
+        {{ t('更新', 'Update') }}
       </el-button>
-      <el-button size="small" text @click="$emit('edit', subscription)">编辑</el-button>
+      <el-button size="small" text @click="$emit('edit', subscription)">{{ t('编辑', 'Edit') }}</el-button>
       <el-button size="small" text @click="$emit('remove', subscription)">
-        删除
+        {{ t('删除', 'Delete') }}
       </el-button>
     </div>
   </div>
@@ -54,6 +54,9 @@ import {
   usagePercent
 } from '@/utils/format'
 import type { Subscription } from '@/types'
+import { useAppearanceStore } from '@/stores/appearance'
+const appearance = useAppearanceStore()
+const t = (zh: string, en: string) => appearance.language === 'en' ? en : zh
 
 const props = defineProps<{
   subscription: Subscription
@@ -70,13 +73,13 @@ defineEmits<{
 const statusLabel = computed(() => {
   switch (props.subscription.last_status) {
     case 'success':
-      return '正常'
+      return t('正常', 'OK')
     case 'error':
-      return '失败'
+      return t('失败', 'Failed')
     case 'updating':
-      return '更新中'
+      return t('更新中', 'Updating')
     default:
-      return '未更新'
+      return t('未更新', 'Not updated')
   }
 })
 

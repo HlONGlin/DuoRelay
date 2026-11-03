@@ -1,39 +1,39 @@
 <template>
   <div class="app-shell" :class="{ 'is-collapsed': collapsed, 'drawer-open': drawerOpen, 'auth-page': isAuthPage }">
-    <button type="button" v-if="!isAuthPage && drawerOpen" class="drawer-backdrop" aria-label="关闭导航" @click="drawerOpen = false" />
-    <aside v-if="!isAuthPage" class="sidebar" aria-label="主导航">
+    <button type="button" v-if="!isAuthPage && drawerOpen" class="drawer-backdrop" :aria-label="appearance.language === 'en' ? 'Close navigation' : '关闭导航'" @click="drawerOpen = false" />
+    <aside v-if="!isAuthPage" class="sidebar" :aria-label="appearance.language === 'en' ? 'Main navigation' : '主导航'">
       <el-menu :default-active="route.path" :collapse="collapsed && !drawerOpen" :collapse-transition="false" router class="nav-menu" @select="drawerOpen = false">
         <el-menu-item v-for="item in menuItems" :key="item.path" :index="item.path">
           <UiIcon :name="item.icon" /><template #title><span>{{ item.label }}</span></template>
         </el-menu-item>
       </el-menu>
       <div class="sidebar-footer">
-        <button type="button" class="rail-toggle" :aria-label="collapsed ? '展开导航' : '收起导航'" @click="collapsed = !collapsed"><UiIcon name="menu" :size="16" /><span v-if="!collapsed">收起导航</span></button>
+        <button type="button" class="rail-toggle" :aria-label="appearance.language === 'en' ? (collapsed ? 'Expand navigation' : 'Collapse navigation') : (collapsed ? '展开导航' : '收起导航')" @click="collapsed = !collapsed"><UiIcon name="menu" :size="16" /><span v-if="!collapsed">{{ appearance.language === 'en' ? 'Collapse navigation' : '收起导航' }}</span></button>
       </div>
     </aside>
     <div class="main-wrap">
       <header v-if="!isAuthPage" class="topbar">
         <div class="topbar-left">
-          <button type="button" class="mobile-menu icon-button" aria-label="打开导航" :aria-expanded="drawerOpen" @click="drawerOpen = !drawerOpen"><UiIcon name="menu" /></button>
+          <button type="button" class="mobile-menu icon-button" :aria-label="appearance.language === 'en' ? 'Open navigation' : '打开导航'" :aria-expanded="drawerOpen" @click="drawerOpen = !drawerOpen"><UiIcon name="menu" /></button>
           <span class="page-title">{{ pageTitle }}</span>
         </div>
         <div class="topbar-right">
-          <router-link to="/kernel" class="kernel-indicator"><span class="status-dot" :class="{ running: kernel.status.running }" />{{ kernel.status.running ? '内核运行中' : '内核未运行' }}</router-link>
+          <router-link to="/kernel" class="kernel-indicator"><span class="status-dot" :class="{ running: kernel.status.running }" />{{ appearance.language === 'en' ? (kernel.status.running ? 'Kernel running' : 'Kernel stopped') : (kernel.status.running ? '内核运行中' : '内核未运行') }}</router-link>
           <span v-if="kernel.status.version" class="kernel-version mono">{{ kernel.status.active_kernel }} {{ kernel.status.version }}</span>
-          <button type="button" class="logout-button" @click="handleLogout">退出</button>
-          <button type="button" class="theme-toggle icon-button" :aria-label="appearance.theme === 'dark' ? '切换浅色主题' : '切换深色主题'" @click="appearance.toggleTheme()"><UiIcon :name="appearance.theme === 'dark' ? 'sun' : 'moon'" /></button>
+          <button type="button" class="logout-button" @click="handleLogout">{{ appearance.language === 'en' ? 'Log out' : '退出' }}</button>
+          <button type="button" class="theme-toggle icon-button" :aria-label="appearance.language === 'en' ? (appearance.theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme') : (appearance.theme === 'dark' ? '切换浅色主题' : '切换深色主题')" @click="appearance.toggleTheme()"><UiIcon :name="appearance.theme === 'dark' ? 'sun' : 'moon'" /></button>
         </div>
       </header>
       <main class="page-body"><router-view /></main>
     </div>
-    <nav v-if="!isAuthPage" class="bottom-nav" aria-label="移动导航">
+    <nav v-if="!isAuthPage" class="bottom-nav" :aria-label="appearance.language === 'en' ? 'Mobile navigation' : '移动导航'">
       <router-link v-for="item in menuItems" :key="item.path" :to="item.path" :class="{ active: route.path === item.path }"><UiIcon :name="item.icon" /><span>{{ item.short }}</span></router-link>
     </nav>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch, watchEffect } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useKernelStore } from '@/stores/kernel'
@@ -48,14 +48,21 @@ const auth = useAuthStore()
 const collapsed = ref(false)
 const drawerOpen = ref(false)
 const isAuthPage = computed(() => route.meta.public === true)
-const menuItems = [
+const menuItems = computed(() => appearance.language === 'en' ? [
+  { path: '/', label: 'Dashboard', short: 'Home', icon: 'grid' },
+  { path: '/nodes', label: 'Nodes', short: 'Nodes', icon: 'nodes' },
+  { path: '/subscriptions', label: 'Subscriptions', short: 'Subscriptions', icon: 'link' },
+  { path: '/kernel', label: 'Kernel status', short: 'Kernel', icon: 'terminal' },
+  { path: '/settings', label: 'Settings', short: 'Settings', icon: 'settings' }
+] : [
   { path: '/', label: '仪表盘', short: '概览', icon: 'grid' },
   { path: '/nodes', label: '节点管理', short: '节点', icon: 'nodes' },
   { path: '/subscriptions', label: '订阅管理', short: '订阅', icon: 'link' },
   { path: '/kernel', label: '内核状态', short: '内核', icon: 'terminal' },
   { path: '/settings', label: '设置', short: '设置', icon: 'settings' }
-]
-const pageTitle = computed(() => String(route.meta.title ?? menuItems.find(i => i.path === route.path)?.label ?? 'DuoRelay'))
+])
+const pageTitle = computed(() => String(menuItems.value.find(i => i.path === route.path)?.label ?? (appearance.language === 'en' ? route.meta.titleEn : route.meta.title) ?? 'DuoRelay'))
+watchEffect(() => { document.title = `${pageTitle.value} - DuoRelay` })
 let mediaQuery: MediaQueryList | undefined
 let statusTimer: number | undefined
 function handleViewport(event: MediaQueryListEvent | MediaQueryList) { collapsed.value = event.matches; drawerOpen.value = false }

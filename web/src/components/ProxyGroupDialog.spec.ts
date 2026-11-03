@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import ElementPlus from 'element-plus'
 import ProxyGroupDialog from './ProxyGroupDialog.vue'
 import { applyConfig, previewChain } from '@/api/config'
@@ -16,6 +17,8 @@ const nodes: ProxyNode[] = [
 
 describe('multi-node start dialog', () => {
   beforeEach(() => {
+    localStorage.removeItem('duorelay-language')
+    setActivePinia(createPinia())
     variant.value = 'full'
     vi.clearAllMocks()
     vi.mocked(previewChain).mockImplementation(async ids => ({ supported: true, kernel: 'sing-box', cross_kernel: false, udp: false, warnings: [], hops: ids.map(id => ({ id, name: id, protocol: 'http', kernel: 'sing-box', network: 'tcp', udp: false })) }))

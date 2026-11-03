@@ -1,5 +1,7 @@
 # 路由验收记录
 
+简体中文 | [English](routing-acceptance.en.md)
+
 Date: 2026-11-03
 
 路由规则保留既定顺序：内部路由优先，绕过规则其次，用户规则最后。独立 SOCKS5 端口默认仍为 `10808`，通过现有入口选择单节点、负载均衡组或代理链。`/api/config/apply` 仍拒绝原始内核 JSON/YAML。

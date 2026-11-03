@@ -1,10 +1,12 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 import { mount } from '@vue/test-utils'
 import ElementPlus from 'element-plus'
 import NodeCard from './NodeCard.vue'
 import { variant } from '@/stores/variant'
 
 afterEach(() => { variant.value = 'full' })
+beforeEach(() => { localStorage.removeItem('duorelay-language'); setActivePinia(createPinia()) })
 describe('lite protocol availability', () => {
   it.each(['shadowtls', 'naive', 'tor', 'openconnect'] as const)('disables %s before activation with a visible explanation', protocol => {
     variant.value = 'lite'

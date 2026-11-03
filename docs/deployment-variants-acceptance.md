@@ -1,5 +1,7 @@
 # full / lite 部署入口验证
 
+简体中文 | [English](deployment-variants-acceptance.en.md)
+
 日期：2026-11-03。lite 功能与图文提交快进合并到 master，在此基础上补齐 Docker 与 Linux 一键部署的变体选择。未创建新发行标签，既有 beta 版本表述与已发布镜像标签保持原样。
 
 ## 变更

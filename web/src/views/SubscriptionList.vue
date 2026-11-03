@@ -1,6 +1,6 @@
 <template>
   <div class="subscription-list page-stack">
-    <div class="page-heading"><h1>订阅管理</h1></div>
+    <div class="page-heading"><h1>{{ t('订阅管理', 'Subscriptions') }}</h1></div>
     <el-alert
       v-if="subscriptions.error"
       :title="subscriptions.error"
@@ -13,27 +13,27 @@
     <div class="subscription-toolbar">
       <div class="toolbar">
         <div class="toolbar-info">
-          <span class="total">共 {{ subscriptions.items.length }} 个订阅</span>
+          <span class="total">{{ appearance.language === 'en' ? `${subscriptions.items.length} subscriptions` : `共 ${subscriptions.items.length} 个订阅` }}</span>
           <span class="usage">
-            已用 {{ formatBytes(subscriptions.totalUsed) }} /
-            {{ subscriptions.totalQuota ? formatBytes(subscriptions.totalQuota) : '配额未提供' }}
+            {{ t('已用', 'Used') }} {{ formatBytes(subscriptions.totalUsed) }} /
+            {{ subscriptions.totalQuota ? formatBytes(subscriptions.totalQuota) : t('配额未提供', 'No quota provided') }}
           </span>
         </div>
         <div class="toolbar-actions">
-          <el-button :loading="subscriptions.loading" @click="refreshList">刷新</el-button>
+          <el-button :loading="subscriptions.loading" @click="refreshList">{{ t('刷新', 'Refresh') }}</el-button>
           <el-button plain @click="router.push({ path: '/nodes', query: { import: '1' } })">
-            导入节点链接
+            {{ t('导入节点链接', 'Import node links') }}
           </el-button>
           <el-button type="primary" @click="openCreate">
             <el-icon><Plus /></el-icon>
-            添加订阅
+            {{ t('添加订阅', 'Add subscription') }}
           </el-button>
         </div>
       </div>
     </div>
 
     <div v-if="subscriptions.items.length === 0 && !subscriptions.loading" class="empty-wrap">
-      <EmptyState title="暂无订阅" description="使用上方「添加订阅」导入订阅地址。" />
+      <EmptyState :title="t('暂无订阅', 'No subscriptions yet')" :description="t('使用上方「添加订阅」导入订阅地址。', 'Add a subscription to import its URL.')" />
     </div>
 
     <div v-else v-loading="subscriptions.loading" class="sub-grid">
@@ -51,35 +51,35 @@
 
     <el-dialog
       v-model="dialogVisible"
-      :title="editingId ? '编辑订阅' : '添加订阅'"
+      :title="editingId ? t('编辑订阅', 'Edit subscription') : t('添加订阅', 'Add subscription')"
       width="520px"
       destroy-on-close
     >
       <el-form @submit.prevent ref="formRef" :model="form" :rules="rules" label-position="top">
-        <el-form-item label="名称" prop="name">
-          <el-input v-model="form.name" placeholder="例如：机场 A" />
+        <el-form-item :label="t('名称', 'Name')" prop="name">
+          <el-input v-model="form.name" :placeholder="t('例如：机场 A', 'e.g. Provider A')" />
         </el-form-item>
-        <el-form-item label="订阅链接" prop="url">
+        <el-form-item :label="t('订阅链接', 'Subscription URL')" prop="url">
           <el-input
             v-model="form.url"
             type="textarea"
             :rows="3"
             placeholder="https://example.com/api/v1/client/subscribe?token=..."
           />
-          <p class="interval-hint">支持 v2rayN 链接订阅、Clash、sing-box、SIP008 及常见客户端节点配置，自动识别内容格式。</p>
+          <p class="interval-hint">{{ t('支持 v2rayN 链接订阅、Clash、sing-box、SIP008 及常见客户端节点配置，自动识别内容格式。', 'Supports v2rayN subscriptions, Clash, sing-box, SIP008 and common client configurations. Formats are detected automatically.') }}</p>
         </el-form-item>
         <el-form-item label="User-Agent">
-          <el-input v-model="form.user_agent" placeholder="可选，默认使用内置 UA" />
+          <el-input v-model="form.user_agent" :placeholder="t('可选，默认使用内置 UA', 'Optional; defaults to the built-in user agent')" />
         </el-form-item>
-        <el-form-item label="更新间隔">
+        <el-form-item :label="t('更新间隔', 'Update interval')">
           <el-input-number v-model="form.interval" :min="0" :max="168" />
-          <span class="interval-hint">小时，0 表示手动更新</span>
+          <span class="interval-hint">{{ t('小时，0 表示手动更新', 'hours; 0 means manual updates') }}</span>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
+        <el-button @click="dialogVisible = false">{{ t('取消', 'Cancel') }}</el-button>
         <el-button type="primary" :loading="submitting" @click="submitForm">
-          {{ editingId ? '保存' : '添加' }}
+          {{ editingId ? t('保存', 'Save') : t('添加', 'Add') }}
         </el-button>
       </template>
     </el-dialog>
@@ -96,10 +96,13 @@ import EmptyState from '@/components/EmptyState.vue'
 import SubscriptionCard from '@/components/SubscriptionCard.vue'
 import { useSubscriptionsStore } from '@/stores/subscriptions'
 import { useNodesStore } from '@/stores/nodes'
+import { useAppearanceStore } from '@/stores/appearance'
 import { formatBytes } from '@/utils/format'
 import type { Subscription, SubscriptionInput } from '@/types'
 
 const subscriptions = useSubscriptionsStore()
+const appearance = useAppearanceStore()
+const t = (zh: string, en: string) => appearance.language === 'en' ? en : zh
 const nodes = useNodesStore()
 const nodeCounts = computed(() => {
   const counts = new Map<string, number>()
@@ -123,17 +126,17 @@ const form = reactive<SubscriptionInput>({
   interval: 24
 })
 
-const rules: FormRules = {
-  name: [{ required: true, message: '请输入订阅名称', trigger: 'blur' }],
+const rules = computed<FormRules>(() => ({
+  name: [{ required: true, message: t('请输入订阅名称', 'Enter a subscription name'), trigger: 'blur' }],
   url: [
-    { required: true, message: '请输入订阅链接', trigger: 'blur' },
+    { required: true, message: t('请输入订阅链接', 'Enter a subscription URL'), trigger: 'blur' },
     {
       pattern: /^https?:\/\//i,
-      message: '订阅链接必须以 http:// 或 https:// 开头',
+      message: t('订阅链接必须以 http:// 或 https:// 开头', 'The subscription URL must start with http:// or https://'),
       trigger: 'blur'
     }
   ]
-}
+}))
 
 function resetForm() {
   editingId.value = ''
@@ -173,14 +176,14 @@ async function submitForm() {
     }
     if (editingId.value) {
       await subscriptions.edit(editingId.value, payload)
-      ElMessage.success('订阅已更新')
+      ElMessage.success(t('订阅已更新', 'Subscription updated'))
     } else {
       await subscriptions.add(payload)
-      ElMessage.success('订阅已添加')
+      ElMessage.success(t('订阅已添加', 'Subscription added'))
     }
     dialogVisible.value = false
   } catch (err) {
-    ElMessage.error(err instanceof Error ? err.message : '保存订阅失败')
+    ElMessage.error(err instanceof Error ? err.message : t('保存订阅失败', 'Failed to save subscription'))
   } finally {
     submitting.value = false
   }
@@ -192,25 +195,25 @@ async function handleRefresh(subscription: Subscription) {
     await nodes.fetchAllNodes()
     const added = result?.nodes_added
     ElMessage.success(
-      added === undefined ? '订阅已更新' : `订阅已更新，新增 ${added} 个节点`
+      added === undefined ? t('订阅已更新', 'Subscription updated') : (appearance.language === 'en' ? `Subscription updated; ${added} nodes added` : `订阅已更新，新增 ${added} 个节点`)
     )
   } catch (err) {
-    ElMessage.error(err instanceof Error ? err.message : '更新订阅失败')
+    ElMessage.error(err instanceof Error ? err.message : t('更新订阅失败', 'Failed to update subscription'))
   }
 }
 
 async function handleRemove(subscription: Subscription) {
   try {
     await ElMessageBox.confirm(
-      `确定删除订阅「${subscription.name}」及其节点吗？`,
-      '删除订阅',
-      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
+      appearance.language === 'en' ? `Delete subscription "${subscription.name}" and its nodes?` : `确定删除订阅「${subscription.name}」及其节点吗？`,
+      t('删除订阅', 'Delete subscription'),
+      { type: 'warning', confirmButtonText: t('删除', 'Delete'), cancelButtonText: t('取消', 'Cancel') }
     )
     await subscriptions.remove(subscription.id)
-    ElMessage.success('订阅已删除')
+    ElMessage.success(t('订阅已删除', 'Subscription deleted'))
   } catch (err) {
     if (err !== 'cancel' && err !== 'close') {
-      ElMessage.error(err instanceof Error ? err.message : '删除订阅失败')
+      ElMessage.error(err instanceof Error ? err.message : t('删除订阅失败', 'Failed to delete subscription'))
     }
   }
 }

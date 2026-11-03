@@ -27,6 +27,7 @@ describe('settings workflows', () => {
     vi.mocked(configApi.getConfig).mockResolvedValue(config)
     vi.mocked(configApi.updateConfig).mockImplementation(async next => next)
     localStorage.removeItem('duorelay-theme')
+    localStorage.removeItem('duorelay-language')
   })
   it('shows lite build details and disables sing-box preference', async () => {
     variant.value = 'lite'
@@ -84,6 +85,24 @@ describe('settings workflows', () => {
     expect(wrapper.find('.save-bar').exists()).toBe(false)
     expect(configApi.updateConfig).not.toHaveBeenCalled()
     wrapper.unmount()
+  })
+
+  it('switches language immediately and restores it on a new mount', async () => {
+    const wrapper = await render()
+    await wrapper.findAll('.category-nav button').find(button => button.text() === '外观')!.trigger('click')
+    await wrapper.findAll('.el-radio-button').find(button => button.text() === 'English')!.find('input').setValue(true)
+    expect(wrapper.text()).toContain('Appearance')
+    expect(document.documentElement.lang).toBe('en')
+    expect(localStorage.getItem('duorelay-language')).toBe('en')
+    expect(configApi.updateConfig).not.toHaveBeenCalled()
+    await wrapper.findAll('.category-nav button').find(button => button.text() === 'Routing')!.trigger('click')
+    expect(wrapper.text()).toContain('Default outbound')
+    expect(wrapper.text()).toContain('Custom rules')
+    expect(wrapper.text()).toContain('Bypass mainland')
+    wrapper.unmount()
+    const restored = await render()
+    expect(restored.text()).toContain('Appearance')
+    restored.unmount()
   })
 
   it('saves the dedicated SOCKS-only ingress without changing mixed ports', async () => {

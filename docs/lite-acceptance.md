@@ -1,5 +1,7 @@
 # lite 实现与验收报告
 
+简体中文 | [English](lite-acceptance.en.md)
+
 日期：2026-11-03。分支：`feat/lite-variant`。基线 master：`0570cd74237030249f0b2bf15ecbbe3a89e2a789`。本次是同版本 `0.3.0` 的本地验收构建，不另行发版，不修改既有 beta.1 版本表述。包在提交前构建，build-info 中的 commit 是基线 HEAD；完整实现以此分支的单个 lite 提交为准。
 
 ## 实现

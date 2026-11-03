@@ -1,8 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 import { mount } from '@vue/test-utils'
 import DelayBadge from './DelayBadge.vue'
 
 describe('DelayBadge', () => {
+  beforeEach(() => { localStorage.removeItem('duorelay-language'); setActivePinia(createPinia()) })
   it('renders the delay value', () => {
     const wrapper = mount(DelayBadge, { props: { delay: 120 } })
     expect(wrapper.text()).toContain('120 ms')

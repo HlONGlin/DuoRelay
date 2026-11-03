@@ -1,5 +1,7 @@
 # full 与 lite
 
+简体中文 | [English](lite.en.md)
+
 同一仓库、同一版本号，默认不带 tag 的构建仍为 full。共用 IR、解析器、订阅、存储、完整 Vue 面板、路由与透明代理规则管理；没有引入新数据格式或加密方式，没有复制 v2rayA 代码。
 
 | 能力 | duorelay / full | duorelay-lite / lite |

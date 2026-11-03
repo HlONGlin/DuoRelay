@@ -1,5 +1,7 @@
 # Docker 部署与更新
 
+简体中文 | [English](docker-deployment.en.md)
+
 本方案从本仓库源码构建单容器镜像，共用面板与嵌入式前端，默认仍为 full。构建需要 Docker、Compose 插件及访问基础镜像、npm、Go 依赖和内核下载地址的网络。
 
 | 版本 | 镜像内核与依赖 | 架构 | Compose 入口 |

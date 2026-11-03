@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
+import { localize } from './appearance'
 import { getConfig, updateConfig } from '@/api/config'
 import type { AppConfig } from '@/types'
 
@@ -52,7 +53,7 @@ export const useConfigStore = defineStore('config', () => {
       const value = await getConfig()
       config.value = { ...defaultConfig(), ...value, load_balance: { ...defaultLoadBalance(), ...value.load_balance } }
     } catch (err) {
-      error.value = err instanceof Error ? err.message : '加载配置失败'
+      error.value = err instanceof Error ? err.message : localize('加载配置失败', 'Failed to load configuration')
     } finally {
       loading.value = false
     }
@@ -66,7 +67,7 @@ export const useConfigStore = defineStore('config', () => {
       savedAt.value = new Date().toISOString()
       return config.value
     } catch (err) {
-      error.value = err instanceof Error ? err.message : '保存配置失败'
+      error.value = err instanceof Error ? err.message : localize('保存配置失败', 'Failed to save configuration')
       throw err
     } finally {
       saving.value = false

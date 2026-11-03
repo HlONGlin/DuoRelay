@@ -1,5 +1,7 @@
 # DuoRelay：一套面板，full / lite 按需选择
 
+简体中文 | [English](showcase.en.md)
+
 **lite 压缩包 31.83 MB 起，保留完整面板。**
 
 DuoRelay 使用 Go 后端与 Vue 3 + TypeScript 前端，把节点、订阅、负载均衡、链式代理、路由规则和内核运行状态放在同一个 Web 面板中。同一仓库提供双核 full 与 mihomo 单核 lite，共用版本号、面板代码和数据格式。

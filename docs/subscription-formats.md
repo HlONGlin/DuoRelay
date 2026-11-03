@@ -1,5 +1,7 @@
 # 订阅导入格式
 
+简体中文 | [English](subscription-formats.en.md)
+
 订阅管理中填写 HTTP(S) 地址；节点管理的「导入节点」可粘贴响应内容或链接合集。
 两者使用同一个解析入口，不依赖服务商的 Content-Type。
 

@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
+import { localize } from './appearance'
 import {
   createSubscription,
   deleteSubscription,
@@ -31,7 +32,7 @@ export const useSubscriptionsStore = defineStore('subscriptions', () => {
     try {
       items.value = await listSubscriptions()
     } catch (err) {
-      error.value = err instanceof Error ? err.message : '加载订阅失败'
+      error.value = err instanceof Error ? err.message : localize('加载订阅失败', 'Failed to load subscriptions')
     } finally {
       loading.value = false
     }
@@ -76,7 +77,7 @@ export const useSubscriptionsStore = defineStore('subscriptions', () => {
       items.value = items.value.map((item) =>
         item.id === id ? { ...item, last_status: 'error' } : item
       )
-      error.value = err instanceof Error ? err.message : '更新订阅失败'
+      error.value = err instanceof Error ? err.message : localize('更新订阅失败', 'Failed to update subscription')
       throw err
     } finally {
       updatingId.value = ''

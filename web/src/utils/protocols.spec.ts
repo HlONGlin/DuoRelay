@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import {
   orderedProtocols,
   protocolCatalog,
@@ -7,6 +7,8 @@ import {
 } from './protocols'
 
 describe('protocol catalog', () => {
+  afterEach(() => localStorage.removeItem('duorelay-language'))
+
   it('contains all 28 supported protocol entries', () => {
     expect(protocolCatalog).toHaveLength(28)
     expect(new Set(protocolCatalog.map((item) => item.id)).size).toBe(28)
@@ -25,5 +27,11 @@ describe('protocol catalog', () => {
       'custom'
     ])
     expect(protocolGroupLabel('mihomo')).toBe('mihomo 专用')
+  })
+
+  it('localizes protocol groups in English', () => {
+    localStorage.setItem('duorelay-language', 'en')
+    expect(protocolGroupLabel('shared')).toBe('Shared protocols (both kernels)')
+    expect(protocolGroupLabel('mihomo')).toBe('mihomo only')
   })
 })

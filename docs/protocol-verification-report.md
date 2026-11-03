@@ -1,5 +1,7 @@
 # P0-03 协议矩阵核实报告
 
+简体中文 | [English](protocol-verification-report.en.md)
+
 ## 结论
 
 核实基于项目锁定版本：sing-box v1.14.4 与 mihomo v1.19.33，并结合本地 Windows amd64 二进制版本输出、官方版本源码和配置文档。

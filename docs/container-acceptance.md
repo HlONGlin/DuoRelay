@@ -1,5 +1,7 @@
 # 容器验收记录
 
+简体中文 | [English](container-acceptance.en.md)
+
 Date: 2026-11-03
 
 本次 Linux 运行使用仓库的 `docker-ssh` Orca recipe。recipe 基于 `duorelay-orca-ssh:base` 启动 Debian 12 容器，使用普通 bridge networking，将仓库挂载到 `/workspace`，显式添加 `--cap-add=NET_ADMIN` 并映射 `/dev/net/tun`，未使用 host networking。容器内 `/dev/net/tun` 可写，有效 capability 包含 `CAP_NET_ADMIN` 和 `CAP_NET_RAW`。

@@ -1,5 +1,7 @@
 # 透明代理验收记录
 
+简体中文 | [English](transparent-proxy-acceptance.en.md)
+
 Date: 2026-11-03
 
 面板提供 `off`、`redirect`、`tproxy` 和 `tun`。旧的 `enable_tun` 字段仍兼容，启用时会规范化为 `tun`。模式卡片显示前置条件、当前支持范围、DNS 行为和失败原因；不支持的组合由能力数据禁用。

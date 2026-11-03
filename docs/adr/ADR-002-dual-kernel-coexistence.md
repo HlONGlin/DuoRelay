@@ -1,5 +1,7 @@
 # ADR-002: 双核共存架构决策
 
+简体中文 | [English](ADR-002-dual-kernel-coexistence.en.md)
+
 ## 状态
 
 ✅ 已决策

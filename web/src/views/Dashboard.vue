@@ -1,38 +1,38 @@
 <template>
   <div class="page-stack dashboard">
-    <div class="page-heading"><h1>连接概览</h1><el-button @click="router.push('/nodes')">管理节点</el-button></div>
+    <div class="page-heading"><h1>{{ t('连接概览', 'Connection overview') }}</h1><el-button @click="router.push('/nodes')">{{ t('管理节点', 'Manage nodes') }}</el-button></div>
     <el-alert v-if="errorMessage" :title="errorMessage" type="warning" show-icon :closable="false" />
     <div class="metrics-grid">
-      <div class="metric"><span class="metric-label">节点总数</span><strong class="metric-number">{{ nodes.items.length }}</strong><span class="metric-detail">{{ nodes.protocols.length }} 种协议 · {{ subscriptions.items.length }} 个订阅</span></div>
-      <div class="metric"><span class="metric-label">内核状态</span><strong class="kernel-value"><span class="status-dot" :class="{ running: kernel.status.running }" />{{ kernel.displayStatus }}</strong><span class="metric-detail mono">{{ kernel.status.active_kernel || '尚未选择' }}<template v-if="kernel.status.version"> · {{ kernel.status.version }}</template></span></div>
-      <div class="metric"><span class="metric-label">本次内核运行上行</span><strong class="metric-number">{{ totalsAvailable ? formatBytes(kernel.connections.upload_total) : '—' }}</strong><span class="metric-detail">内核累计，重启后重新计数</span></div>
-      <div class="metric"><span class="metric-label">本次内核运行下行</span><strong class="metric-number">{{ totalsAvailable ? formatBytes(kernel.connections.download_total) : '—' }}</strong><span class="metric-detail">内核累计，重启后重新计数</span></div>
+      <div class="metric"><span class="metric-label">{{ t('节点总数', 'Total nodes') }}</span><strong class="metric-number">{{ nodes.items.length }}</strong><span class="metric-detail">{{ appearance.language === 'en' ? `${nodes.protocols.length} protocols · ${subscriptions.items.length} subscriptions` : `${nodes.protocols.length} 种协议 · ${subscriptions.items.length} 个订阅` }}</span></div>
+      <div class="metric"><span class="metric-label">{{ t('内核状态', 'Kernel status') }}</span><strong class="kernel-value"><span class="status-dot" :class="{ running: kernel.status.running }" />{{ appearance.language === 'en' ? (kernel.status.running ? 'Running' : kernel.status.active_kernel ? 'Stopped' : 'Not configured') : kernel.displayStatus }}</strong><span class="metric-detail mono">{{ kernel.status.active_kernel || t('尚未选择', 'Not selected') }}<template v-if="kernel.status.version"> · {{ kernel.status.version }}</template></span></div>
+      <div class="metric"><span class="metric-label">{{ t('本次内核运行上行', 'Upload this session') }}</span><strong class="metric-number">{{ totalsAvailable ? formatBytes(kernel.connections.upload_total) : '—' }}</strong><span class="metric-detail">{{ t('内核累计，重启后重新计数', 'Kernel total, reset on restart') }}</span></div>
+      <div class="metric"><span class="metric-label">{{ t('本次内核运行下行', 'Download this session') }}</span><strong class="metric-number">{{ totalsAvailable ? formatBytes(kernel.connections.download_total) : '—' }}</strong><span class="metric-detail">{{ t('内核累计，重启后重新计数', 'Kernel total, reset on restart') }}</span></div>
     </div>
     <div class="overview-grid">
       <section class="panel current-panel">
-        <div class="panel-heading"><h2>当前代理节点</h2></div>
+        <div class="panel-heading"><h2>{{ t('当前代理节点', 'Current proxy node') }}</h2></div>
         <template v-if="nodes.activeNode">
           <div class="current-name"><div><h3>{{ nodes.activeNode.name }}</h3><span class="muted type-p-caption">{{ protocolLabel(nodes.activeNode.protocol) }} · {{ ownerLabel(nodes.activeNode.owner) }}</span></div></div>
-          <div class="current-meta"><div><span>连接延迟</span><DelayBadge :delay="nodes.activeNode.last_delay_ms" /></div><div><span>运行时长</span><strong class="mono">{{ formatUptime(kernel.status.uptime_seconds) }}</strong></div></div>
-          <router-link to="/nodes" class="current-link">切换或停止节点</router-link>
+          <div class="current-meta"><div><span>{{ t('连接延迟', 'Latency') }}</span><DelayBadge :delay="nodes.activeNode.last_delay_ms" /></div><div><span>{{ t('运行时长', 'Uptime') }}</span><strong class="mono">{{ formatUptime(kernel.status.uptime_seconds) }}</strong></div></div>
+          <router-link to="/nodes" class="current-link">{{ t('切换或停止节点', 'Switch or stop node') }}</router-link>
         </template>
-        <EmptyState v-else title="未选择节点"><el-button @click="router.push('/nodes')">选择节点</el-button></EmptyState>
+        <EmptyState v-else :title="t('未选择节点', 'No node selected')"><el-button @click="router.push('/nodes')">{{ t('选择节点', 'Select node') }}</el-button></EmptyState>
       </section>
       <section class="panel chart-panel">
-        <div class="panel-heading"><div><h2>实时流量</h2><p class="chart-subtitle">最近 {{ traffic.history.length }} 次采样 · 每 2 秒更新</p></div><div class="chart-legend"><span class="legend-up">上行</span><span class="legend-down">下行</span></div></div>
-        <div class="rates"><div><span>上行</span><strong>{{ traffic.error || !traffic.snapshot.sampled_at ? '—' : formatBytes(traffic.snapshot.up) + '/s' }}</strong></div><div><span>下行</span><strong>{{ traffic.error || !traffic.snapshot.sampled_at ? '—' : formatBytes(traffic.snapshot.down) + '/s' }}</strong></div></div>
+        <div class="panel-heading"><div><h2>{{ t('实时流量', 'Live traffic') }}</h2><p class="chart-subtitle">{{ appearance.language === 'en' ? `Last ${traffic.history.length} samples · updates every 2 seconds` : `最近 ${traffic.history.length} 次采样 · 每 2 秒更新` }}</p></div><div class="chart-legend"><span class="legend-up">{{ t('上行', 'Upload') }}</span><span class="legend-down">{{ t('下行', 'Download') }}</span></div></div>
+        <div class="rates"><div><span>{{ t('上行', 'Upload') }}</span><strong>{{ traffic.error || !traffic.snapshot.sampled_at ? '—' : formatBytes(traffic.snapshot.up) + '/s' }}</strong></div><div><span>{{ t('下行', 'Download') }}</span><strong>{{ traffic.error || !traffic.snapshot.sampled_at ? '—' : formatBytes(traffic.snapshot.down) + '/s' }}</strong></div></div>
         <TrafficChart :samples="traffic.history" :unavailable="Boolean(traffic.error)" />
       </section>
     </div>
     <section class="panel">
-      <div class="panel-heading"><h2>最近更新的节点</h2><el-button text @click="router.push('/nodes')">查看全部</el-button></div>
+      <div class="panel-heading"><h2>{{ t('最近更新的节点', 'Recently updated nodes') }}</h2><el-button text @click="router.push('/nodes')">{{ t('查看全部', 'View all') }}</el-button></div>
       <div v-if="recentNodes.length" class="table-scroll"><el-table :data="recentNodes" v-loading="nodes.loading" style="min-width: 660px">
-        <el-table-column prop="name" label="节点名称" min-width="190" show-overflow-tooltip />
-        <el-table-column label="协议" width="130"><template #default="{ row }"><span class="neutral-badge">{{ protocolLabel(row.protocol) }}</span></template></el-table-column>
-        <el-table-column label="服务器" min-width="180" show-overflow-tooltip><template #default="{ row }"><span class="mono endpoint">{{ nodeEndpointLabel(row) }}</span></template></el-table-column>
-        <el-table-column label="延迟" width="150" align="right"><template #default="{ row }"><DelayBadge :delay="row.last_delay_ms" /></template></el-table-column>
+        <el-table-column prop="name" :label="t('节点名称', 'Node name')" min-width="190" show-overflow-tooltip />
+        <el-table-column :label="t('协议', 'Protocol')" width="130"><template #default="{ row }"><span class="neutral-badge">{{ protocolLabel(row.protocol) }}</span></template></el-table-column>
+        <el-table-column :label="t('服务器', 'Server')" min-width="180" show-overflow-tooltip><template #default="{ row }"><span class="mono endpoint">{{ nodeEndpointLabel(row) }}</span></template></el-table-column>
+        <el-table-column :label="t('延迟', 'Latency')" width="150" align="right"><template #default="{ row }"><DelayBadge :delay="row.last_delay_ms" /></template></el-table-column>
       </el-table></div>
-      <EmptyState v-else title="暂无节点" description="可导入节点链接或添加订阅。"><el-button @click="router.push('/subscriptions')">添加订阅</el-button></EmptyState>
+      <EmptyState v-else :title="t('暂无节点', 'No nodes yet')" :description="t('可导入节点链接或添加订阅。', 'Import node links or add a subscription.')"><el-button @click="router.push('/subscriptions')">{{ t('添加订阅', 'Add subscription') }}</el-button></EmptyState>
     </section>
   </div>
 </template>
@@ -43,12 +43,15 @@ import { useNodesStore } from '@/stores/nodes'
 import { useSubscriptionsStore } from '@/stores/subscriptions'
 import { useKernelStore } from '@/stores/kernel'
 import { useTrafficStore } from '@/stores/traffic'
+import { useAppearanceStore } from '@/stores/appearance'
 import { getConnections } from '@/api/kernel'
 import TrafficChart from '@/components/TrafficChart.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import DelayBadge from '@/components/DelayBadge.vue'
 import { formatBytes, formatUptime, nodeEndpointLabel, ownerLabel, protocolLabel } from '@/utils/format'
 const router = useRouter(), nodes = useNodesStore(), subscriptions = useSubscriptionsStore(), kernel = useKernelStore(), traffic = useTrafficStore()
+const appearance = useAppearanceStore()
+const t = (zh: string, en: string) => appearance.language === 'en' ? en : zh
 const totalsAvailable = ref(false)
 const recentNodes = computed(() => [...nodes.items].sort((a,b) => (b.updated_at ?? '').localeCompare(a.updated_at ?? '')).slice(0,8))
 const errorMessage = computed(() => nodes.error ?? subscriptions.error ?? kernel.error ?? '')

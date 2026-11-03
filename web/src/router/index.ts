@@ -1,55 +1,56 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { readLanguage } from '@/stores/appearance'
 
 const routes: RouteRecordRaw[] = [
 	{
 		path: '/login',
 		name: 'login',
 		component: () => import('@/views/Login.vue'),
-		meta: { title: '登录', public: true }
+		meta: { title: '登录', titleEn: 'Log in', public: true }
 	},
 	{
 		path: '/register',
 		name: 'register',
 		component: () => import('@/views/Register.vue'),
-		meta: { title: '首次设置', public: true }
+		meta: { title: '首次设置', titleEn: 'Initial setup', public: true }
 	},
   ...(import.meta.env.DEV ? [{
     path: '/design-system',
     name: 'design-system',
     component: () => import('@/views/DesignSystem.vue'),
-    meta: { title: '设计系统验证' }
+    meta: { title: '设计系统验证', titleEn: 'Design system' }
   }] : []),
   {
     path: '/',
     name: 'dashboard',
     component: () => import('@/views/Dashboard.vue'),
-    meta: { title: '仪表盘' }
+    meta: { title: '仪表盘', titleEn: 'Dashboard' }
   },
   {
     path: '/nodes',
     name: 'nodes',
     component: () => import('@/views/NodeList.vue'),
-    meta: { title: '节点管理' }
+    meta: { title: '节点管理', titleEn: 'Nodes' }
   },
   {
     path: '/subscriptions',
     name: 'subscriptions',
     component: () => import('@/views/SubscriptionList.vue'),
-    meta: { title: '订阅管理' }
+    meta: { title: '订阅管理', titleEn: 'Subscriptions' }
   },
   {
     path: '/kernel',
     name: 'kernel',
     component: () => import('@/views/KernelStatus.vue'),
-    meta: { title: '内核状态' }
+    meta: { title: '内核状态', titleEn: 'Kernel status' }
   },
   {
     path: '/settings',
     name: 'settings',
     component: () => import('@/views/Settings.vue'),
-    meta: { title: '设置' }
+    meta: { title: '设置', titleEn: 'Settings' }
   },
   {
     path: '/:pathMatch(.*)*',
@@ -65,7 +66,7 @@ const router = createRouter({
 let authReady = false
 
 router.beforeEach(async (to) => {
-  document.title = `${to.meta.title ?? 'DuoRelay'} - DuoRelay`
+	document.title = `${readLanguage() === 'en' ? to.meta.titleEn ?? 'DuoRelay' : to.meta.title ?? 'DuoRelay'} - DuoRelay`
 	const auth = useAuthStore()
 	if (!authReady) {
 		try {

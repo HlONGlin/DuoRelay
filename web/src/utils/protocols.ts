@@ -1,4 +1,5 @@
 import type { KernelType, Protocol } from '@/types'
+import { readLanguage } from '@/stores/appearance'
 
 export type ProtocolGroup = 'shared' | 'sing-box' | 'mihomo'
 
@@ -56,6 +57,13 @@ export function orderedProtocols(protocols: string[]): string[] {
 }
 
 export function protocolGroupLabel(group: ProtocolGroup): string {
+  if (readLanguage() === 'en') {
+    switch (group) {
+      case 'shared': return 'Shared protocols (both kernels)'
+      case 'sing-box': return 'sing-box only'
+      case 'mihomo': return 'mihomo only'
+    }
+  }
   switch (group) {
     case 'shared':
       return '通用协议（双内核）'

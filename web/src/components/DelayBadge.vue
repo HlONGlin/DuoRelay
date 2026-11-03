@@ -7,9 +7,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { delayType, formatDelay } from '@/utils/format'
+import { useAppearanceStore } from '@/stores/appearance'
+const appearance = useAppearanceStore()
 const props = defineProps<{ delay?: number }>()
 const type = computed(() => delayType(props.delay))
-const formatted = computed(() => props.delay !== undefined && props.delay < 0 ? '超时' : formatDelay(props.delay))
+const formatted = computed(() => props.delay !== undefined && props.delay < 0 ? (appearance.language === 'en' ? 'Timeout' : '超时') : formatDelay(props.delay))
 const fill = computed(() => props.delay && props.delay > 0 ? Math.min(props.delay / 300, 1) * 100 : 0)
 </script>
 <style scoped>

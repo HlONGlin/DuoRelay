@@ -1,5 +1,7 @@
 # DuoRelay
 
+简体中文 | [English](README.en.md)
+
 ## 目录
 
 - [界面与体积实测](#界面与体积实测)

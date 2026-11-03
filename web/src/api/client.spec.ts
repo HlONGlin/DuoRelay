@@ -40,4 +40,15 @@ describe('API client', () => {
     expect(error.code).toBe('UNKNOWN_ERROR')
     expect(error.message).toContain('请求失败')
   })
+
+  it('localizes known error titles without discarding server diagnostics', () => {
+    localStorage.setItem('duorelay-language', 'en')
+    try {
+      const error = ApiError.fromPayload({ code: 'INVALID_REQUEST', what: '请求参数不正确', why: 'port out of range' })
+      expect(error.message).toBe('Invalid request parameters')
+      expect(error.why).toBe('port out of range')
+    } finally {
+      localStorage.removeItem('duorelay-language')
+    }
+  })
 })

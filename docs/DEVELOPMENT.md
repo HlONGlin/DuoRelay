@@ -1,5 +1,7 @@
 # 开发指南
 
+简体中文 | [English](DEVELOPMENT.en.md)
+
 本文介绍源码开发入口。部署步骤见 [Linux 部署](linux-deployment.md) 和 [Windows 部署](windows-deployment.md)，真实网络验证结果见 [文档索引](README.md)。
 
 ## 环境准备

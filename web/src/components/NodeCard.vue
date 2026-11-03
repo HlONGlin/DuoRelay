@@ -3,7 +3,7 @@
     <div class="node-head">
       <div class="node-title">
         <span class="node-name">{{ node.name }}</span>
-        <el-tag v-if="node.status === 'active'" size="small" type="success">使用中</el-tag>
+        <el-tag v-if="node.status === 'active'" size="small" type="success">{{ t('使用中', 'Active') }}</el-tag>
       </div>
       <el-tooltip :content="protocolDescription(node.protocol)" placement="top">
         <div class="protocol-chip">
@@ -27,14 +27,14 @@
           type="primary"
           plain
           :disabled="node.status === 'active' || Boolean(nodeUnavailableReason(node))"
-          :title="nodeUnavailableReason(node)"
+          :title="unavailableLabel(node)"
           @click="$emit('activate', node)"
         >
-          {{ nodeUnavailableReason(node) || '使用' }}
+          {{ unavailableLabel(node) || t('使用', 'Use') }}
         </el-button>
-        <el-button size="small" @click="$emit('test', node)">测速</el-button>
+        <el-button size="small" @click="$emit('test', node)">{{ t('测速', 'Test latency') }}</el-button>
         <el-button size="small" plain @click="$emit('remove', node)">
-          删除
+          {{ t('删除', 'Delete') }}
         </el-button>
       </div>
     </div>
@@ -43,7 +43,7 @@
 
 <script setup lang="ts">
 import DelayBadge from './DelayBadge.vue'
-import { nodeUnavailableReason } from '@/stores/variant'
+import { nodeUnavailableReason, variant } from '@/stores/variant'
 import {
   nodeEndpointLabel,
   ownerLabel,
@@ -52,6 +52,15 @@ import {
   protocolLabel
 } from '@/utils/format'
 import type { ProxyNode } from '@/types'
+import { useAppearanceStore } from '@/stores/appearance'
+const appearance = useAppearanceStore()
+const t = (zh: string, en: string) => appearance.language === 'en' ? en : zh
+function unavailableLabel(node: ProxyNode) {
+  const reason = nodeUnavailableReason(node)
+  return reason && appearance.language === 'en'
+    ? (variant.value === 'unknown' ? 'Unable to read build capabilities; refresh and try again' : 'Not supported in lite')
+    : reason
+}
 
 withDefaults(
   defineProps<{

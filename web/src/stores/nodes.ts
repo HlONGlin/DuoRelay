@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
+import { localize } from './appearance'
 import {
   activateNode,
   deleteNode,
@@ -66,7 +67,7 @@ export const useNodesStore = defineStore('nodes', () => {
       const active = items.value.find((node) => node.status === 'active')
       activeNodeId.value = active?.id ?? ''
     } catch (err) {
-      error.value = err instanceof Error ? err.message : '加载节点失败'
+      error.value = err instanceof Error ? err.message : localize('加载节点失败', 'Failed to load nodes')
     } finally {
       loading.value = false
     }
@@ -86,7 +87,7 @@ export const useNodesStore = defineStore('nodes', () => {
       items.value = result
       activeNodeId.value = result.find(node => node.status === 'active')?.id ?? ''
     } catch (err) {
-      error.value = err instanceof Error ? err.message : '加载节点失败'
+      error.value = err instanceof Error ? err.message : localize('加载节点失败', 'Failed to load nodes')
     } finally {
       loading.value = false
     }
@@ -103,7 +104,7 @@ export const useNodesStore = defineStore('nodes', () => {
           node.id === id ? 'active' : node.status === 'active' ? 'idle' : node.status
       }))
     } catch (err) {
-      error.value = err instanceof Error ? err.message : '激活节点失败'
+      error.value = err instanceof Error ? err.message : localize('激活节点失败', 'Failed to activate node')
       throw err
     }
   }
@@ -115,7 +116,7 @@ export const useNodesStore = defineStore('nodes', () => {
       await fetchAllNodes()
       return result
     } catch (err) {
-      error.value = err instanceof Error ? err.message : '导入节点失败'
+      error.value = err instanceof Error ? err.message : localize('导入节点失败', 'Failed to import nodes')
       throw err
     }
   }
@@ -140,7 +141,7 @@ export const useNodesStore = defineStore('nodes', () => {
       items.value = items.value.map((node) =>
         node.id === id ? { ...node, last_delay_ms: -1, status: node.status === 'active' ? 'active' : 'error' } : node
       )
-      error.value = err instanceof Error ? err.message : '测速失败'
+      error.value = err instanceof Error ? err.message : localize('测速失败', 'Latency test failed')
       throw err
     }
   }
@@ -152,7 +153,7 @@ export const useNodesStore = defineStore('nodes', () => {
       items.value = items.value.filter((node) => node.id !== id)
       if (activeNodeId.value === id) activeNodeId.value = ''
     } catch (err) {
-      error.value = err instanceof Error ? err.message : '删除节点失败'
+      error.value = err instanceof Error ? err.message : localize('删除节点失败', 'Failed to delete node')
       throw err
     }
   }

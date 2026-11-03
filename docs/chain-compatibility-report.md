@@ -1,5 +1,7 @@
 # 链式代理兼容适配验收
 
+简体中文 | [English](chain-compatibility-report.en.md)
+
 日期：2026-11-01。
 
 ## 已实现

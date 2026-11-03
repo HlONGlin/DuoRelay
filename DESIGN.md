@@ -1,4 +1,5 @@
 ---
+# 简体中文 | [English](DESIGN.en.md)
 version: beta
 name: Iceflow-linear-route-light-default
 description: "项目自有设计系统（默认浅色）。以 Linear 的系统纪律为方法（表面梯度分层、发丝线边框、单一 accent、截图主导、克制动效），但视觉语言按本项目重做：浅蓝 accent 全状态梯、蓝灰中性色、营销/产品双轨字阶、中文排版规则、舒适/紧凑双密度、数据语义色板，以及代理面板原生组件（节点行、延迟条、订阅卡、内核切换）。不是 Linear 的换色版。"

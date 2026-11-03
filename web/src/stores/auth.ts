@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { localize } from './appearance'
 import { ref } from 'vue'
 import { getAuthStatus, login as loginRequest, logout as logoutRequest, register as registerRequest, type AuthStatus } from '@/api/auth'
 
@@ -14,7 +15,7 @@ export const useAuthStore = defineStore('auth', () => {
       status.value = await getAuthStatus()
       return status.value
     } catch (err) {
-      error.value = err instanceof Error ? err.message : '无法读取登录状态'
+      error.value = err instanceof Error ? err.message : localize('无法读取登录状态', 'Unable to read login status')
       throw err
     } finally {
       loading.value = false

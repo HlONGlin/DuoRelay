@@ -1,6 +1,6 @@
 <template>
   <div class="kernel-status page-stack">
-    <div class="page-heading"><h1>内核状态</h1></div>
+    <div class="page-heading"><h1>{{ t('内核状态', 'Kernel status') }}</h1></div>
     <el-alert
       v-if="store.error"
       :title="store.error"
@@ -16,15 +16,15 @@
           <div class="status-indicator" :class="{ running: store.status.running }" />
           <div>
             <div class="status-title">
-              {{ store.displayStatus }}
+              {{ appearance.language === 'en' ? (store.status.running ? 'Running' : store.status.active_kernel ? 'Stopped' : 'Not configured') : store.displayStatus }}
               <el-tag v-if="store.status.active_kernel" size="small" effect="plain">
                 {{ store.status.active_kernel }}
               </el-tag>
             </div>
             <div class="status-sub">
-              <span>版本 {{ store.status.version || '—' }}</span>
+              <span>{{ t('版本', 'Version') }} {{ store.status.version || '—' }}</span>
               <span>PID {{ store.status.pid || '—' }}</span>
-              <span>运行 {{ formatUptime(store.status.uptime_seconds) }}</span>
+              <span>{{ t('运行', 'Uptime') }} {{ formatUptime(store.status.uptime_seconds) }}</span>
             </div>
           </div>
         </div>
@@ -35,7 +35,7 @@
             :loading="store.busy"
             @click="handleStart"
           >
-            启动内核
+            {{ t('启动内核', 'Start kernel') }}
           </el-button>
           <el-button
             v-else
@@ -43,23 +43,23 @@
             :loading="store.busy"
             @click="handleStop"
           >
-            停止内核
+            {{ t('停止内核', 'Stop kernel') }}
           </el-button>
-          <el-button :loading="store.loading" @click="store.fetchStatus()">刷新</el-button>
+          <el-button :loading="store.loading" @click="store.fetchStatus()">{{ t('刷新', 'Refresh') }}</el-button>
         </div>
       </div>
 
       <div class="traffic-row">
         <div class="traffic-item">
-          <span class="traffic-label">本次运行上行</span>
+          <span class="traffic-label">{{ t('本次运行上行', 'Upload this session') }}</span>
           <span class="traffic-value">{{ formatBytes(store.connections.upload_total) }}</span>
         </div>
         <div class="traffic-item">
-          <span class="traffic-label">本次运行下行</span>
+          <span class="traffic-label">{{ t('本次运行下行', 'Download this session') }}</span>
           <span class="traffic-value">{{ formatBytes(store.connections.download_total) }}</span>
         </div>
         <div class="traffic-item">
-          <span class="traffic-label">活动连接</span>
+          <span class="traffic-label">{{ t('活动连接', 'Active connections') }}</span>
           <span class="traffic-value">{{ store.connections.connections.length }}</span>
         </div>
       </div>
@@ -67,43 +67,43 @@
 
     <el-card shadow="never">
       <el-tabs v-model="activeTab">
-        <el-tab-pane label="内核日志" name="logs">
+        <el-tab-pane :label="t('内核日志', 'Kernel logs')" name="logs">
           <div class="tab-toolbar">
-            <el-switch v-model="autoRefresh" active-text="自动刷新" />
+            <el-switch v-model="autoRefresh" :active-text="t('自动刷新', 'Auto refresh')" />
             <div class="log-filters">
               <el-select v-model="logLevel" size="small" class="log-filter-select" @change="refreshLogs">
-                <el-option label="全部级别" value="all" />
-                <el-option label="信息" value="info" />
-                <el-option label="警告" value="warn" />
-                <el-option label="错误" value="error" />
-                <el-option label="调试" value="debug" />
+                <el-option :label="t('全部级别', 'All levels')" value="all" />
+                <el-option :label="t('信息', 'Info')" value="info" />
+                <el-option :label="t('警告', 'Warning')" value="warn" />
+                <el-option :label="t('错误', 'Error')" value="error" />
+                <el-option :label="t('调试', 'Debug')" value="debug" />
               </el-select>
               <el-select v-model="logSource" size="small" class="log-source-select" @change="refreshLogs">
-                <el-option label="全部来源" value="all" />
-                <el-option label="标准输出" value="stdout" />
-                <el-option label="错误输出" value="stderr" />
+                <el-option :label="t('全部来源', 'All sources')" value="all" />
+                <el-option :label="t('标准输出', 'Standard output')" value="stdout" />
+                <el-option :label="t('错误输出', 'Standard error')" value="stderr" />
               </el-select>
               <el-input
                 v-model="logSearch"
                 size="small"
                 clearable
                 class="log-search"
-                placeholder="搜索日志"
+                :placeholder="t('搜索日志', 'Search logs')"
                 @keyup.enter="refreshLogs"
                 @clear="refreshLogs"
               />
-              <el-button size="small" :loading="logsLoading" @click="refreshLogs">刷新日志</el-button>
+              <el-button size="small" :loading="logsLoading" @click="refreshLogs">{{ t('刷新日志', 'Refresh logs') }}</el-button>
             </div>
           </div>
           <div class="log-summary">
-            <span>总计 {{ store.logSummary.total }}</span>
-            <span class="summary-info">信息 {{ store.logSummary.levels.info }}</span>
-            <span class="summary-warn">警告 {{ store.logSummary.levels.warn }}</span>
-            <span class="summary-error">错误 {{ store.logSummary.levels.error }}</span>
-            <span class="summary-debug">调试 {{ store.logSummary.levels.debug }}</span>
+            <span>{{ t('总计', 'Total') }} {{ store.logSummary.total }}</span>
+            <span class="summary-info">{{ t('信息', 'Info') }} {{ store.logSummary.levels.info }}</span>
+            <span class="summary-warn">{{ t('警告', 'Warning') }} {{ store.logSummary.levels.warn }}</span>
+            <span class="summary-error">{{ t('错误', 'Error') }} {{ store.logSummary.levels.error }}</span>
+            <span class="summary-debug">{{ t('调试', 'Debug') }} {{ store.logSummary.levels.debug }}</span>
           </div>
           <div v-if="store.logSummary.clusters.length" class="log-clusters">
-            <span class="cluster-title">重复错误</span>
+            <span class="cluster-title">{{ t('重复错误', 'Repeated errors') }}</span>
             <el-tag
               v-for="cluster in store.logSummary.clusters.slice(0, 3)"
               :key="cluster.message + '-' + cluster.level"
@@ -112,11 +112,11 @@
               :type="cluster.level === 'error' ? 'danger' : 'warning'"
               :title="cluster.message"
             >
-              {{ cluster.count }} 次 {{ cluster.message }}
+              {{ cluster.count }} {{ t('次', 'times') }} {{ cluster.message }}
             </el-tag>
           </div>
           <el-scrollbar height="420px" class="log-panel">
-            <div v-if="store.logs.length === 0" class="log-empty">暂无日志</div>
+            <div v-if="store.logs.length === 0" class="log-empty">{{ t('暂无日志', 'No logs') }}</div>
             <div v-for="(log, index) in store.logs" :key="`${log.time}-${index}`" class="log-line">
               <span class="log-time">{{ formatDate(log.time) }}</span>
               <span class="log-level" :class="`level-${log.level}`">{{ log.level }}</span>
@@ -125,33 +125,33 @@
           </el-scrollbar>
         </el-tab-pane>
 
-        <el-tab-pane label="连接列表" name="connections">
+        <el-tab-pane :label="t('连接列表', 'Connections')" name="connections">
           <div class="tab-toolbar">
-            <span class="connection-hint">共 {{ store.connections.connections.length }} 条连接</span>
+            <span class="connection-hint">{{ appearance.language === 'en' ? `${store.connections.connections.length} connections` : `共 ${store.connections.connections.length} 条连接` }}</span>
             <el-button size="small" :loading="connectionsLoading" @click="refreshConnections">
-              刷新连接
+              {{ t('刷新连接', 'Refresh connections') }}
             </el-button>
           </div>
-          <div class="table-scroll"><el-table style="min-width: 950px" :data="store.connections.connections" empty-text="暂无活动连接" height="420">
-            <el-table-column label="主机" min-width="200" show-overflow-tooltip>
+          <div class="table-scroll"><el-table style="min-width: 950px" :data="store.connections.connections" :empty-text="t('暂无活动连接', 'No active connections')" height="420">
+            <el-table-column :label="t('主机', 'Host')" min-width="200" show-overflow-tooltip>
               <template #default="{ row }">
                 {{ row.metadata.host || row.metadata.destinationIP || '—' }}
               </template>
             </el-table-column>
-            <el-table-column label="网络" width="90">
+            <el-table-column :label="t('网络', 'Network')" width="90">
               <template #default="{ row }">{{ row.metadata.network || '—' }}</template>
             </el-table-column>
-            <el-table-column label="链路" min-width="160" show-overflow-tooltip>
+            <el-table-column :label="t('链路', 'Chain')" min-width="160" show-overflow-tooltip>
               <template #default="{ row }">{{ (row.chains || []).join(' → ') || '—' }}</template>
             </el-table-column>
-            <el-table-column label="上行" width="110" align="right" class-name="mono">
+            <el-table-column :label="t('上行', 'Upload')" width="110" align="right" class-name="mono">
               <template #default="{ row }">{{ formatBytes(row.upload) }}</template>
             </el-table-column>
-            <el-table-column label="下行" width="110" align="right" class-name="mono">
+            <el-table-column :label="t('下行', 'Download')" width="110" align="right" class-name="mono">
               <template #default="{ row }">{{ formatBytes(row.download) }}</template>
             </el-table-column>
-            <el-table-column label="匹配规则" min-width="150" show-overflow-tooltip><template #default="{ row }">{{ row.rule || '—' }} {{ row.rulePayload || '' }}</template></el-table-column>
-            <el-table-column label="开始时间" width="180">
+            <el-table-column :label="t('匹配规则', 'Matched rule')" min-width="150" show-overflow-tooltip><template #default="{ row }">{{ row.rule || '—' }} {{ row.rulePayload || '' }}</template></el-table-column>
+            <el-table-column :label="t('开始时间', 'Start time')" width="180">
               <template #default="{ row }">{{ formatDate(row.start) }}</template>
             </el-table-column>
           </el-table></div>
@@ -167,9 +167,12 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { openKernelLogStream } from '@/api/kernel'
 import { useKernelStore } from '@/stores/kernel'
 import { useNodesStore } from '@/stores/nodes'
+import { useAppearanceStore } from '@/stores/appearance'
 import { formatBytes, formatDate, formatUptime } from '@/utils/format'
 
 const store = useKernelStore()
+const appearance = useAppearanceStore()
+const t = (zh: string, en: string) => appearance.language === 'en' ? en : zh
 const nodes = useNodesStore()
 
 const activeTab = ref('logs')
@@ -245,26 +248,26 @@ async function handleStart() {
   try {
     await store.start()
     await nodes.fetchAllNodes()
-    ElMessage.success('内核已启动')
+    ElMessage.success(t('内核已启动', 'Kernel started'))
     await refreshAll()
   } catch (err) {
-    ElMessage.error(err instanceof Error ? err.message : '启动内核失败')
+    ElMessage.error(err instanceof Error ? err.message : t('启动内核失败', 'Failed to start kernel'))
   }
 }
 
 async function handleStop() {
   try {
-    await ElMessageBox.confirm('确定停止当前内核吗？停止后代理将不可用。', '停止内核', {
+    await ElMessageBox.confirm(t('确定停止当前内核吗？停止后代理将不可用。', 'Stop the current kernel? The proxy will become unavailable.'), t('停止内核', 'Stop kernel'), {
       type: 'warning',
-      confirmButtonText: '停止',
-      cancelButtonText: '取消'
+      confirmButtonText: t('停止', 'Stop'),
+      cancelButtonText: t('取消', 'Cancel')
     })
     await store.stop()
     await nodes.fetchAllNodes()
-    ElMessage.success('内核已停止，当前节点选择已清除')
+    ElMessage.success(t('内核已停止，当前节点选择已清除', 'Kernel stopped and current node selection cleared'))
   } catch (err) {
     if (err !== 'cancel' && err !== 'close') {
-      ElMessage.error(err instanceof Error ? err.message : '停止内核失败')
+      ElMessage.error(err instanceof Error ? err.message : t('停止内核失败', 'Failed to stop kernel'))
     }
   }
 }

@@ -1,5 +1,7 @@
 # Linux 部署
 
+简体中文 | [English](linux-deployment.en.md)
+
 DuoRelay 的主要运行目标是 Linux。本文介绍构建和 systemd 安装；透明代理尚未完成各发行版真实流量及 DNS 泄漏验收，详见 [透明代理验收](transparent-proxy-acceptance.md)。GNOME 桌面可以使用系统代理开关。
 
 ## 一键部署

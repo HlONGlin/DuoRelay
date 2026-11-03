@@ -1,17 +1,20 @@
 <template>
   <div class="traffic-chart">
-    <div v-if="samples.length < 2" class="chart-empty">{{ unavailable ? '内核未运行或流量采样暂不可用' : '正在等待流量采样…' }}</div>
-    <svg v-else viewBox="0 0 800 200" role="img" :aria-label="'最近 ' + samples.length + ' 次流量采样，上行实线，下行虚线'" preserveAspectRatio="none">
+    <div v-if="samples.length < 2" class="chart-empty">{{ unavailable ? t('内核未运行或流量采样暂不可用', 'Kernel stopped or traffic samples unavailable') : t('正在等待流量采样…', 'Waiting for traffic samples…') }}</div>
+    <svg v-else viewBox="0 0 800 200" role="img" :aria-label="appearance.language === 'en' ? `Last ${samples.length} traffic samples, upload solid, download dashed` : '最近 ' + samples.length + ' 次流量采样，上行实线，下行虚线'" preserveAspectRatio="none">
       <g v-for="level in [0, 1, 2, 3]" :key="level"><line x1="0" x2="800" :y1="12 + level * 56" :y2="12 + level * 56" class="chart-grid" /></g>
       <path :d="area" class="upload-area" /><path :d="up" class="upload-line" /><path :d="down" class="download-line" />
     </svg>
-    <div v-if="samples.length >= 2" class="chart-axis"><span>{{ firstTime }}</span><span>{{ formatBytes(maximum) }}/s 峰值刻度</span><span>{{ lastTime }}</span></div>
+    <div v-if="samples.length >= 2" class="chart-axis"><span>{{ firstTime }}</span><span>{{ formatBytes(maximum) }}/s {{ t('峰值刻度', 'peak scale') }}</span><span>{{ lastTime }}</span></div>
   </div>
 </template>
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { TrafficSnapshot } from '@/types'
 import { formatBytes } from '@/utils/format'
+import { useAppearanceStore } from '@/stores/appearance'
+const appearance = useAppearanceStore()
+const t = (zh: string, en: string) => appearance.language === 'en' ? en : zh
 const props = defineProps<{ samples: TrafficSnapshot[]; unavailable?: boolean }>()
 const maximum = computed(() => Math.max(1024, ...props.samples.flatMap(s => [s.up, s.down])))
 function points(key: 'up' | 'down') {
@@ -20,7 +23,7 @@ function points(key: 'up' | 'down') {
 function path(key: 'up' | 'down') { return points(key).map(([x, y], i) => (i ? 'L' : 'M') + x.toFixed(2) + ',' + y.toFixed(2)).join(' ') }
 const up = computed(() => path('up')), down = computed(() => path('down'))
 const area = computed(() => up.value + ' L800,180 L0,180 Z')
-function time(value?: string) { return value ? new Date(value).toLocaleTimeString('zh-CN', { hour12: false }) : '—' }
+function time(value?: string) { return value ? new Date(value).toLocaleTimeString(appearance.language, { hour12: false }) : '—' }
 const firstTime = computed(() => time(props.samples[0]?.sampled_at))
 const lastTime = computed(() => time(props.samples.at(-1)?.sampled_at))
 </script>

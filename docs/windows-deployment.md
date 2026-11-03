@@ -1,5 +1,7 @@
 # Windows 部署与迁移
 
+简体中文 | [English](windows-deployment.en.md)
+
 本文提供打包与迁移步骤；Windows 系统代理恢复及 TUN 的完整真实系统验收仍待完成，见 [透明代理验收矩阵](transparent-proxy-acceptance.md)。
 
 ## 生成发布包
