@@ -73,23 +73,33 @@ bash scripts/package-linux.sh 0.3.0 amd64 --lite
 
 ### Docker 部署
 
-在支持 Docker Compose 的 Linux amd64 主机上，从项目根目录执行：
+克隆仓库后，在项目根目录选择一种版本启动。默认 full 支持 Linux amd64；lite 支持 Linux amd64/arm64，构建时自动选择目标架构：
 
 ```bash
+# full：sing-box + mihomo
 docker compose up -d --build
+
+# lite：仅 mihomo，保留完整面板
+docker compose -f compose.yaml -f compose.lite.yaml up -d --build
 ```
 
-面板默认只在宿主机 `127.0.0.1:8080` 开放。安装、代理端口、备份及升级步骤见 [Docker 部署](docs/docker-deployment.md)。
+两条命令二选一，面板默认只在宿主机 `127.0.0.1:8080` 开放。两种版本使用同一服务和数据卷；切换前停止原服务并备份数据。lite 首次启动需要下载 Geo 缓存。安装、代理端口、切换和更新步骤见 [Docker 部署](docs/docker-deployment.md)。
 
 ### Linux 一键部署
 
 在使用 systemd 的 Linux amd64/arm64 系统上，执行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/HlONGlin/DuoRelay/master/scripts/bootstrap-linux.sh | sudo bash
+# full：默认双核
+curl -fsSL https://raw.githubusercontent.com/HlONGlin/DuoRelay/master/scripts/bootstrap-linux.sh | sudo bash -s -- --full
+
+# lite：仅 mihomo，保留完整面板
+curl -fsSL https://raw.githubusercontent.com/HlONGlin/DuoRelay/master/scripts/bootstrap-linux.sh | sudo bash -s -- --lite
 ```
 
-脚本从源码构建前端与后端、下载内核并安装 systemd 服务。需要 root、网络连接、Git、Go、Node.js/npm 等构建工具；缺少依赖时，Debian/Ubuntu 系统会尝试通过 `apt-get` 安装，其他系统需先手动安装。Go 版本需满足 `go.mod` 要求，Node.js 需满足前端构建要求。脚本仅处理首次安装，检测到已有系统安装会退出；数据目录为 `/var/lib/duorelay`。私有仓库需要配置访问凭据。详见 [Linux 部署](docs/linux-deployment.md)。
+脚本从源码构建前端与后端、下载对应内核并安装 systemd 服务。Debian/Ubuntu 及采用 apt-get 的常规衍生系统可尝试自动补装依赖；Fedora、Rocky/AlmaLinux、Arch、openSUSE 等需先手动安装依赖。需要满足 `go.mod` 的 Go（当前 1.27.0）、Node.js 18 或 20+（推荐 22）、npm、Git 等工具。Alpine、OpenWrt、无运行中 systemd 的容器以及 32 位系统不适用此一键入口。各发行版真实主机安装仍为 UNVERIFIED，完整条件见 [Linux 部署](docs/linux-deployment.md#一键脚本的系统范围)。
+
+脚本仅处理首次安装，检测到已有系统安装会退出；数据目录为 `/var/lib/duorelay`。私有仓库需要配置访问凭据。已有安装升级或切换 full/lite 请按部署文档操作。
 
 ### 从源码运行
 

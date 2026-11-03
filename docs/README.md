@@ -3,6 +3,7 @@
 - [DuoRelay 图文介绍、界面截图与体积实测](showcase.md)
 - [full / lite 构建、协议对照与数据互通](lite.md)
 - [lite 构建、体积与隔离容器验收](lite-acceptance.md)
+- [full / lite Docker 与 Linux 一键部署入口验证](deployment-variants-acceptance.md)
 
 这里汇总常用文档。历史计划、阶段报告和设计稿记录的是对应时间的情况；当前运行能力与验证范围请结合代码及下列验收记录判断。
 

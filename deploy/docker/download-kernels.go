@@ -1,6 +1,4 @@
-//go:build ignore
-
-// The image uses only architectures with pinned binary and Cronet checksums.
+// The downloader uses only targets with pinned binary and dependency checksums.
 package main
 
 import (
@@ -40,16 +38,20 @@ type lockFile struct {
 func main() {
 	arch := flag.String("arch", "", "target architecture")
 	out := flag.String("out", "", "output directory")
+	variant := flag.String("variant", "full", "full or lite")
 	flag.Parse()
-	if err := download(*arch, *out); err != nil {
+	if err := download(*arch, *out, *variant); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func download(arch, out string) error {
-	if arch != "amd64" || out == "" {
-		return fmt.Errorf("unsupported architecture %q: only linux/amd64 has complete pinned checksums", arch)
+func download(arch, out, variant string) error {
+	if variant != "full" && variant != "lite" {
+		return fmt.Errorf("unknown variant %q: use full or lite", variant)
+	}
+	if out == "" || (arch != "amd64" && !(variant == "lite" && arch == "arm64")) {
+		return fmt.Errorf("unsupported target %s/linux/%s: full supports amd64; lite supports amd64 and arm64; output directory is required", variant, arch)
 	}
 	data, err := os.ReadFile("kernels.lock")
 	if err != nil {
@@ -61,7 +63,7 @@ func download(arch, out string) error {
 	}
 	key := "linux-" + arch
 	cronet := lock.Cronet.LinuxAMD64
-	if lock.Singbox.Version == "" || lock.Mihomo.Version == "" || cronet.URL == "" {
+	if lock.Mihomo.Version == "" || len(lock.Mihomo.SHA256[key]) != 64 || (variant == "full" && (lock.Singbox.Version == "" || len(lock.Singbox.SHA256[key]) != 64 || cronet.URL == "" || len(cronet.SHA256) != 64)) {
 		return fmt.Errorf("incomplete kernel lock for %s", key)
 	}
 	if err := os.MkdirAll(out, 0755); err != nil {
@@ -101,39 +103,41 @@ func download(arch, out string) error {
 		}
 		return nil
 	}
-	singURL := fmt.Sprintf("https://github.com/SagerNet/sing-box/releases/download/v%s/sing-box-%s-linux-%s.tar.gz", lock.Singbox.Version, lock.Singbox.Version, arch)
-	body, err := get(singURL)
-	if err != nil {
-		return err
-	}
-	defer body.Close()
-	gz, err := gzip.NewReader(body)
-	if err != nil {
-		return err
-	}
-	defer gz.Close()
-	tarReader := tar.NewReader(gz)
-	found := false
-	for {
-		header, err := tarReader.Next()
-		if err == io.EOF {
-			break
-		}
+	if variant == "full" {
+		singURL := fmt.Sprintf("https://github.com/SagerNet/sing-box/releases/download/v%s/sing-box-%s-linux-%s.tar.gz", lock.Singbox.Version, lock.Singbox.Version, arch)
+		body, err := get(singURL)
 		if err != nil {
 			return err
 		}
-		if header.Typeflag == tar.TypeReg && filepath.Base(header.Name) == "sing-box" {
-			if found {
-				return fmt.Errorf("duplicate sing-box binary")
+		defer body.Close()
+		gz, err := gzip.NewReader(body)
+		if err != nil {
+			return err
+		}
+		defer gz.Close()
+		tarReader := tar.NewReader(gz)
+		found := false
+		for {
+			header, err := tarReader.Next()
+			if err == io.EOF {
+				break
 			}
-			if err := write("sing-box", lock.Singbox.SHA256[key], tarReader); err != nil {
+			if err != nil {
 				return err
 			}
-			found = true
+			if header.Typeflag == tar.TypeReg && filepath.Base(header.Name) == "sing-box" {
+				if found {
+					return fmt.Errorf("duplicate sing-box binary")
+				}
+				if err := write("sing-box", lock.Singbox.SHA256[key], tarReader); err != nil {
+					return err
+				}
+				found = true
+			}
 		}
-	}
-	if !found {
-		return fmt.Errorf("sing-box binary missing from archive")
+		if !found {
+			return fmt.Errorf("sing-box binary missing from archive")
+		}
 	}
 	mihomoURL := fmt.Sprintf("https://github.com/MetaCubeX/mihomo/releases/download/v%s/mihomo-linux-%s-v%s.gz", lock.Mihomo.Version, arch, lock.Mihomo.Version)
 	body2, err := get(mihomoURL)
@@ -148,6 +152,9 @@ func download(arch, out string) error {
 	defer gz2.Close()
 	if err := write("mihomo", lock.Mihomo.SHA256[key], gz2); err != nil {
 		return err
+	}
+	if variant == "lite" {
+		return nil
 	}
 	body3, err := get(cronet.URL)
 	if err != nil {

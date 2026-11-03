@@ -15,8 +15,14 @@ COPY . .
 COPY --from=frontend /src/web/dist ./web/dist
 ARG TARGETOS
 ARG TARGETARCH
-RUN go run ./deploy/docker/download-kernels.go -arch "$TARGETARCH" -out /out/kernels
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -o /out/duorelay ./cmd/duorelay
+ARG DUORELAY_VARIANT=full
+RUN go run ./deploy/docker/download-kernels.go -arch "$TARGETARCH" -variant "$DUORELAY_VARIANT" -out /out/kernels
+RUN case "$DUORELAY_VARIANT" in \
+      full) tags="" ;; \
+      lite) tags="lite" ;; \
+      *) echo "Unknown variant: $DUORELAY_VARIANT" >&2; exit 1 ;; \
+    esac \
+    && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -tags "$tags" -o /out/duorelay ./cmd/duorelay
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \

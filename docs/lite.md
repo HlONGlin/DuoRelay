@@ -56,6 +56,8 @@ lite 保留已导入的不支持节点与订阅内容，列表可检索、删除
 
 ## 构建与打包
 
+直接部署可选择 [Docker full / lite](docker-deployment.md) 或 [Linux 一键 full / lite](linux-deployment.md#一键部署)。默认部署目标仍为 full，lite 需显式指定。
+
 工具版本沿用 `go.mod` 和现有前端流程。先 `cd web && npm ci`，再返回仓库根目录：
 
 ```bash

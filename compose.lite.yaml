@@ -1,0 +1,11 @@
+# Use together with compose.yaml; the service and data volume stay the same.
+services:
+  duorelay:
+    image: duorelay-lite:local
+    build:
+      context: .
+      args:
+        DUORELAY_VARIANT: lite
+    healthcheck:
+      # First startup may download two Geo files (up to three minutes each).
+      start_period: 7m

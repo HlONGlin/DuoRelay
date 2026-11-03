@@ -7,6 +7,14 @@ on:
         description: Existing release tag to build and publish
         required: true
         type: string
+      variant:
+        description: Build variant (lite requires a release containing lite support)
+        required: true
+        default: full
+        type: choice
+        options:
+          - full
+          - lite
 
 permissions:
   contents: read
@@ -36,18 +44,37 @@ jobs:
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
           REPOSITORY: ${{ github.repository }}
+          VARIANT: ${{ inputs.variant || 'full' }}
         run: |
           image="ghcr.io/${REPOSITORY,,}"
+          suffix=""
+          case "$VARIANT" in
+            full) ;;
+            lite)
+              test -f internal/variant/lite.go && grep -q '^ARG DUORELAY_VARIANT' Dockerfile || { echo "This release has no lite Docker target" >&2; exit 1; }
+              suffix="-lite"
+              ;;
+            *) echo "Invalid variant" >&2; exit 1 ;;
+          esac
           docker buildx build --platform linux/amd64 --pull --push \
+            --build-arg "DUORELAY_VARIANT=$VARIANT" \
             --label "org.opencontainers.image.source=https://github.com/$REPOSITORY" \
             --label "org.opencontainers.image.revision=$(git rev-parse HEAD)" \
             --label "org.opencontainers.image.version=$RELEASE_TAG" \
-            -t "$image:$RELEASE_TAG" .
+            -t "$image:$RELEASE_TAG$suffix" .
       - name: Verify published image
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
           REPOSITORY: ${{ github.repository }}
+          VARIANT: ${{ inputs.variant || 'full' }}
         run: |
-          image="ghcr.io/${REPOSITORY,,}:$RELEASE_TAG"
+          suffix=""
+          [ "$VARIANT" = lite ] && suffix="-lite"
+          image="ghcr.io/${REPOSITORY,,}:$RELEASE_TAG$suffix"
           docker pull --platform linux/amd64 "$image"
-          docker run --rm --entrypoint /opt/duorelay/kernels/sing-box "$image" version
+          docker run --rm --entrypoint /opt/duorelay/kernels/mihomo "$image" -v
+          if [ "$VARIANT" = full ]; then
+            docker run --rm --entrypoint /opt/duorelay/kernels/sing-box "$image" version
+          else
+            docker run --rm --entrypoint /bin/sh "$image" -ec 'test ! -e /opt/duorelay/kernels/sing-box; test ! -e /opt/duorelay/kernels/libcronet.so'
+          fi
