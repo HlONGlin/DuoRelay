@@ -4,7 +4,7 @@
 
 DuoRelay 使用 Go 后端与 Vue 3 + TypeScript 前端，把节点、订阅、负载均衡、链式代理、路由规则和内核运行状态放在同一个 Web 面板中。同一仓库提供双核 full 与 mihomo 单核 lite，共用版本号、面板代码和数据格式。
 
-![DuoRelay 深色仪表盘：节点概览、mihomo 运行状态与流量采样](images/showcase/dashboard-dark.png)
+![DuoRelay 浅色仪表盘：节点概览、mihomo 运行状态与流量采样](images/showcase/dashboard-light.png)
 
 *实际运行界面：orca-linux 容器中的 lite 面板，mihomo 已启动。截图使用临时演示数据，流量采样按实际状态显示。*
 
@@ -99,7 +99,7 @@ powershell -File scripts/package-windows.ps1 -Version 0.3.0 -Lite
 
 ## 展示与验证范围
 
-本页四张图片来自通过本机 `orca-linux` 启动的 Linux amd64 lite 面板，使用临时数据库、临时账号和演示节点。因 Orca 内嵌浏览器扩大视口后截图异常，最终使用独立 Chromium 对同一实例直接截图；没有替换界面内容、拦截 API 或填充虚构测速数据。图片随文档存放在仓库内，可直接用于 Markdown 展示。
+本页四张图片来自通过本机 `orca-linux` 启动的 Linux amd64 lite 面板，使用临时数据库、临时账号和演示节点。图片使用独立 Chromium 对实际运行页面直接截图，仪表盘已更新为浅色主题；没有替换界面内容、拦截 API 或填充虚构测速数据。图片随文档存放在仓库内，可直接用于 Markdown 展示。
 
 full / lite 默认 Go 测试、vet、前端类型检查、53 项前端测试及生产构建通过，六个目标包已构建。隔离容器中完成了真实代理请求、路由分流、负载均衡、原生链式、数据互通和透明代理规则 / TUN 生命周期检查。
 
