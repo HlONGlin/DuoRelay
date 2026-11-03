@@ -1,194 +1,61 @@
-# DuoRelay Development Guide
+# 开发指南
 
-## Project Structure
+本文介绍源码开发入口。部署步骤见 [Linux 部署](linux-deployment.md) 和 [Windows 部署](windows-deployment.md)，真实网络验证结果见 [文档索引](README.md)。
 
-```
-duorelay/
-├── cmd/duorelay/          # Main application entry
-├── internal/              # Internal packages
-│   ├── api/              # REST & WebSocket API
-│   ├── clashapi/         # Clash API adapter
-│   ├── diagnose/         # System diagnostics
-│   ├── generator/        # Config generators
-│   │   ├── singbox/     # sing-box generator
-│   │   └── mihomo/      # mihomo generator
-│   ├── ir/              # Intermediate representation
-│   ├── kernel/          # Kernel process management
-│   ├── parser/          # Protocol parsers (28 protocols)
-│   ├── store/           # Database layer
-│   ├── subscription/    # Subscription management
-│   └── task/            # Background task queue
-├── web/                  # Vue 3 frontend
-├── testdata/            # Test samples
-├── testrange/           # Testing infrastructure (docker compose)
-├── deploy/              # Deployment configs
-├── docs/                # Documentation
-│   └── adr/            # Architecture Decision Records
-└── scripts/             # Build & utility scripts
-```
+## 环境准备
 
-## Development Workflow
-
-### Initial Setup
+- Git、`make`、符合根目录 `go.mod` 要求的 Go、Node.js/npm。
+- 需要启动内核时，先准备 `kernels/` 中对应平台的可执行文件。
 
 ```bash
-# Clone the repository
-git clone https://github.com/holi/duorelay.git
-cd duorelay
-
-# Install Go dependencies
+git clone https://github.com/HlONGlin/DuoRelay.git
+cd DuoRelay
 go mod download
-
-# Install frontend dependencies
-cd web && npm install && cd ..
-
-# Install development tools
-make install-tools
-
-# Download kernels
+cd web && npm ci && cd ..
 ./scripts/download-kernels.sh
 ```
 
-### Running in Development Mode
+`make dev` 依赖 `air`；可按 `Makefile` 中的 `install-tools` 目标安装开发工具。前端独立开发服务使用 `make web-dev`。两个服务的启动配置以 `.air.toml` 和 `web/vite.config.ts` 为准。
+
+## 构建和测试
 
 ```bash
-# Terminal 1: Backend with hot reload
-make dev
-
-# Terminal 2: Frontend dev server
-make web-dev
-```
-
-### Testing
-
-```bash
-# Run all tests
-make test
-
-# Run tests with coverage
-make test-coverage
-
-# Run linters
-make lint
-```
-
-### Building
-
-```bash
-# Build for current platform
+# 构建前端并将静态资源嵌入 Go 程序
 make build
+./build/duorelay -kernels ./kernels
 
-# Build for multiple platforms
-make build-all
+# 后端测试及静态检查
+go test ./...
+go vet ./...
+
+# 前端检查
+cd web
+npm run type-check
+npm test
+npm run build
 ```
 
-## Code Style
+`make test` 还会启用 race 检测并生成覆盖率文件；`make lint` 需要额外安装 `golangci-lint`。真实内核配置校验、实际代理请求以及系统网络状态恢复需另外验收，不能由单元测试代替。
 
-### Go
-- Follow standard Go conventions
-- Use `gofmt` and `goimports`
-- Keep functions focused and small
-- Write table-driven tests
-- Document exported types and functions
+## 目录结构
 
-### TypeScript/Vue
-- Use TypeScript strict mode
-- Follow Vue 3 Composition API style
-- Component names in PascalCase
-- Use `<script setup>` syntax
+| 路径 | 用途 |
+|------|------|
+| `cmd/duorelay/` | 程序入口 |
+| `internal/api/` | HTTP 与 WebSocket 接口 |
+| `internal/ir/`、`internal/parser/` | 中间模型与解析 |
+| `internal/generator/`、`internal/kernel/` | 双内核配置生成和进程管理 |
+| `internal/routing/`、`internal/transparent/` | 路由文本与透明代理 |
+| `internal/store/`、`internal/subscription/` | 数据持久化与订阅管理 |
+| `web/` | Vue 3 和 TypeScript 前端 |
+| `scripts/`、`deploy/` | 构建、安装、验收脚本与服务单元 |
+| `docs/`、`testdata/` | 文档、架构决策与测试样本 |
 
-## Architecture Decisions
+## 修改与验证
 
-All significant technical decisions are documented in `docs/adr/`. When making a major choice:
+- Go 代码使用 `gofmt`，前端遵循现有 Vue Composition API 和 TypeScript 风格。
+- 路由或配置生成变更需覆盖已有规则顺序、旧数据兼容与内核校验回滚，不能开放原始内核配置绕过入口。
+- 涉及透明代理时，在隔离环境记录启停前后的防火墙、策略路由和 TUN 状态；真实目标系统结果与容器结果分别记录。
+- 涉及架构决策时参考 [`adr/`](adr/) 中现有文档；历史阶段计划和完成报告仅反映当时状态。
 
-1. Copy `docs/adr/TEMPLATE.md`
-2. Fill in the sections
-3. Number it sequentially (ADR-XXX)
-4. Commit with the implementation
-
-## Git Workflow
-
-### Branches
-- `main`: stable, always deployable
-- `feature/xxx`: feature branches
-- `fix/xxx`: bug fix branches
-
-### Commits
-Use Conventional Commits:
-```
-feat: add Shadowsocks parser
-fix: correct VMess link parsing
-docs: update API documentation
-test: add parser test cases
-```
-
-### Before Committing
-```bash
-make lint
-make test
-```
-
-## Phase Tracking
-
-Current phase: **P0 - Technical Validation**
-
-See `企划书_v2.0.md` for the full 20-week plan.
-
-### P0 Checklist (Week 1-2)
-- [x] P0-01: Project skeleton
-- [ ] P0-02: Kernel download script
-- [ ] P0-03: Protocol matrix verification
-- [ ] P0-04: Clash API integration
-- [ ] P0-05: IR model definition
-- [ ] P0-06: Generator skeleton
-- [ ] P0-07: Kernel process manager
-- [ ] P0-08: UDP coexistence experiment
-- [ ] P0-09: Sample library initialization
-- [ ] P0-10: Technical review & ADR
-
-## Testing Strategy
-
-### Unit Tests
-- All parsers must have table-driven tests
-- Generators must have golden tests
-- Core IR logic must be covered
-
-### Integration Tests
-- Config generation → kernel validation → connectivity
-- Use docker-compose for multi-protocol testing
-
-### E2E Tests
-- Playwright for browser testing
-- Cover core user journeys
-
-## Performance Budget
-
-Frontend:
-- Bundle size: < 1.5MB compressed
-- First paint: < 800ms
-- 10K nodes list: ≥ 55fps scrolling
-
-Backend:
-- API response: < 50ms (dashboard)
-- Search 10K nodes: < 100ms
-- Memory: < 512MB (excluding kernels)
-
-## Security Checklist
-
-Before any release:
-- [ ] No default passwords
-- [ ] Sensitive data encrypted at rest
-- [ ] CSRF protection enabled
-- [ ] Input validation on all endpoints
-- [ ] No command injection vectors
-- [ ] Dependencies scanned for vulnerabilities
-
-## Getting Help
-
-- Read the enterprise plan: `企划书_v2.0.md`
-- Check existing ADRs in `docs/adr/`
-- Review test samples in `testdata/`
-
----
-
-*Last updated: 2024-10-31 (P0 phase)*
+现有验收记录见 [透明代理](transparent-proxy-acceptance.md)、[路由](routing-acceptance.md) 和 [容器](container-acceptance.md)。

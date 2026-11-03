@@ -1,5 +1,7 @@
 # Windows 部署与迁移
 
+本文提供打包与迁移步骤；Windows 系统代理恢复及 TUN 的完整真实系统验收仍待完成，见 [透明代理验收矩阵](transparent-proxy-acceptance.md)。
+
 ## 生成发布包
 
 在仓库根目录运行：
@@ -8,7 +10,7 @@
 .\scripts\package-windows.ps1 -Version 0.3.0
 ```
 
-脚本会构建前端和 Go 后端，并生成：
+需要满足 `go.mod` 要求的 Go、Node.js/npm，以及 `kernels/` 下的 Windows 内核文件。先在 `web/` 执行 `npm ci`；脚本会构建前端和 Go 后端，并生成：
 
 ```text
 dist/duorelay-windows-amd64-0.3.0.zip
@@ -17,14 +19,13 @@ dist/duorelay-windows-amd64-0.3.0.zip
 发布包包含：
 
 - `duorelay.exe`
-- `web/`
 - `kernels/sing-box.exe`
 - `kernels/mihomo.exe`
 - `kernels/libcronet.dll`
 - `kernels.lock`
 - `build-info.json`
 
-运行时首次启动会创建 `data/` 目录。建议从发布包根目录启动程序，以便相对路径能够找到 `web`、`kernels` 和 `data`。
+前端资源嵌入可执行文件。运行时首次启动会创建 `data/` 目录；建议从发布包根目录启动程序，以便相对路径能够找到 `kernels` 和 `data`。
 
 ## 配置迁移
 
@@ -44,7 +45,7 @@ Copy-Item .\data .\backup\data-$(Get-Date -Format yyyyMMdd-HHmmss) -Recurse
 
 ## Windows 系统代理
 
-在设置中启用“Windows 系统代理”后，DuoRelay 会保存当前用户的 Internet Settings，并在内核成功启动后切换到本地混合代理端口。停止内核、启动失败或回滚时会恢复原来的代理设置。
+在设置中启用“Windows 系统代理”后，设计上 DuoRelay 会保存当前用户的 Internet Settings，并在内核成功启动后切换到本地混合代理端口；停止内核、启动失败或回滚时恢复原设置。这些操作仍需要真实 Windows 环境验收。
 
 该功能只修改当前用户，不要求修改全局策略。Windows TUN 仍由 sing-box 或 mihomo 创建，首次使用可能需要管理员权限、驱动权限和防火墙确认。
 

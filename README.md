@@ -1,109 +1,123 @@
 # DuoRelay
 
-**双内核全协议代理面板**
+> 基于 sing-box 与 mihomo 的双内核代理管理面板，使用 Web 界面管理节点、订阅、路由和内核运行状态。
 
-DuoRelay 是一个基于 sing-box 和 mihomo 双内核的 Web 管理面板。当前发布版本 `v0.3.0-beta.1`：双内核配置编排、节点/订阅管理、链式代理、负载均衡、基础路由和 Linux/Windows 部署能力已接入；28 项协议或网络能力具备统一 IR、解析器或配置生成覆盖，具体运行能力取决于内核和协议限制。
-
-## 特性
-
-- 🚀 **能力覆盖**: 支持 28 项代理协议、端点、组网能力和路由适配器（sing-box 20 项 + mihomo 24 项的并集）
-- 🔄 **双核协同**: 智能切换内核，无感混用独有协议
-- 🌐 **Web 管理**: Go 后端与 Vue 前端，浏览器完成节点、订阅、内核和配置管理
-- 📊 **功能完善**: 测速、连接管理、流量统计、规则系统、故障诊断
-- 🎯 **订阅兼容**: 支持 Base64、Clash/Mihomo、sing-box、v2rayN、Xray、SIP008、Surge、Loon、Mieru 等常见格式
-- 🔒 **安全可靠**: 配置校验、自动回滚、崩溃自动拉起
-
-## 支持的协议
-
-### 两核共同支持 (16种)
-Shadowsocks, VMess, VLESS, Trojan, Hysteria, Hysteria2, TUIC, AnyTLS, Snell, SOCKS5, HTTP, SSH, WireGuard, OpenVPN, MASQUE, Tailscale
-
-### sing-box 独有 (4种)
-ShadowTLS, Naive, Tor, OpenConnect
-
-### mihomo 独有 (8种)
-ShadowsocksR, Mieru, Sudoku, ShadowQUIC, TrustTunnel, Rematch, EasyTier, ZeroTier
-
-## 快速开始
-
-### 构建
-
-```bash
-# 克隆仓库
-git clone https://github.com/HlONGlin/DuoRelay.git
-cd duorelay
-
-# 安装依赖
-make web
-
-# 构建
-make build
-
-# 运行（Linux/macOS）
-./build/duorelay -kernels ./kernels
-
-# Windows PowerShell
-.\build\duorelay.exe -kernels .\kernels
-```
-
-### 开发
-
-```bash
-# 安装开发工具
-make install-tools
-
-# 前端开发模式
-make web-dev
-
-# 后端开发模式（另一个终端）
-make dev
-```
-
-## 当前状态与边界
-
-- 当前主流程已可运行；路由规则、流量历史、日志历史和面板重启恢复已接入，仍需要按目标 Linux 发行版做 TUN、DNS 和权限验收。
-- 启动配置会由 `kernel.Manager` 调用实际的 `sing-box check` 或 `mihomo -t` 校验；生成器自身的 `Validate` 负责 JSON/YAML 结构校验。
-- TUN、Windows 系统代理、DNS 接管和权限恢复仍需要按目标系统进一步联调，不能等同于完整系统代理接管。
-- Mieru、Rematch、ShadowTLS、VPN/组网协议存在内核或远端配置限制；Parser/Generator 通过不代表所有公网节点都能连通。
-- `/traffic` 是 Clash API 速率采样，并将滚动历史保存到 SQLite；它不是按用户或节点计费的累计流量账单。内核日志同时保留内存环和 JSONL 历史。
-
-详细格式说明见 [订阅格式](docs/subscription-formats.md)，多节点链式代理见 [多节点代理说明](docs/multi-node-proxy.md)。
-
-## 架构
-
-```
-┌─────────────────────────────────────┐
-│  Web 前端（Vue 3 + TS）              │
-└───────────┬──────────────┬──────────┘
-            │ REST/HTTP 轮询
-┌───────────▼──────────────▼──────────┐
-│  面板后端（Go）                      │
-│  ├─ 节点/订阅管理（SQLite）          │
-│  ├─ 分享链接解析器 × 28              │
-│  ├─ 统一节点模型（IR）               │
-│  ├─ 配置生成器（双核）               │
-│  └─ 内核进程管理                     │
-└──────┬───────────────────┬──────────┘
-       ▼                   ▼
- [sing-box 进程]      [mihomo 进程]
-```
-
-## 许可证
-
-待定（P4-06 决策）
-
-内核：
-- sing-box: GPLv3
-- mihomo: GPLv3
-
-## 声明
-
-本项目仅供学习研究使用，使用者需遵守所在地法律法规。
+![Go](https://img.shields.io/badge/Go-1.27+-00ADD8?logo=go&logoColor=white)
+![Vue](https://img.shields.io/badge/Vue-3-4FC08D?logo=vue.js&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
+![License](https://img.shields.io/badge/license-pending-lightgrey)
 
 ---
 
-🤖 项目由 [Claude Code](https://claude.com/claude-code) 辅助开发
+## 目录
 
-## Linux 部署补充
+- [功能概览](#功能概览)
+- [协议与能力边界](#协议与能力边界)
+- [快速开始](#快速开始)
+- [部署与管理](#部署与管理)
+- [路由与透明代理](#路由与透明代理)
+- [验证与开发](#验证与开发)
+- [文档索引](#文档索引)
+- [许可证](#许可证)
 
-Linux 是 DuoRelay 的主要运行目标。服务器、容器和无桌面系统优先使用 TUN；GNOME 桌面可在当前用户 D-Bus 会话中启用系统代理。发布包、systemd 单元、安装卸载和验收命令见 [Linux 部署](docs/linux-deployment.md)。
+---
+
+## 功能概览
+
+| 功能 | 说明 |
+|------|------|
+| 双内核 | 生成 sing-box、mihomo 配置并管理内核进程；实际能力受内核和协议限制 |
+| Web 管理 | 首次访问创建管理员；管理节点、订阅、内核、连接和日志 |
+| 节点与订阅 | 导入常见分享链接和订阅格式，支持测速、负载均衡及链式代理 |
+| 路由规则 | 通过列表或文本编辑结构化规则，支持导入、导出和逐行校验 |
+| 配置安全 | 应用前调用对应内核校验；失败时保留或恢复先前运行状态 |
+| 运行观测 | 展示内核日志、连接信息和流量采样历史 |
+| 系统接入 | 提供 Linux 透明代理和 Windows 系统代理相关选项；实际验收范围见下文 |
+
+## 协议与能力边界
+
+项目覆盖 28 项代理协议、端点或组网能力的统一模型、解析或配置生成。**覆盖不等于全部协议均已通过真实节点连通测试**；可用性取决于内核版本、配置与远端服务。
+
+| 范围 | 协议或能力 |
+|------|------------|
+| 两核共有 | Shadowsocks、VMess、VLESS、Trojan、Hysteria、Hysteria2、TUIC、AnyTLS、Snell、SOCKS5、HTTP、SSH、WireGuard、OpenVPN、MASQUE、Tailscale |
+| sing-box | ShadowTLS、Naive、Tor、OpenConnect |
+| mihomo | ShadowsocksR、Mieru、Sudoku、ShadowQUIC、TrustTunnel、Rematch、EasyTier、ZeroTier |
+
+订阅格式及限制见 [订阅格式](docs/subscription-formats.md)，链式代理限制见 [多节点代理](docs/multi-node-proxy.md)。流量历史是 Clash API 速率采样，并非按用户或节点计费的累计账单。
+
+## 快速开始
+
+以下示例在 Linux 构建运行，需要满足 `go.mod` 声明的 Go 版本、Node.js/npm、`make` 和 Git；运行代理功能还需要对应内核。内核下载脚本使用的版本和校验信息见 [`kernels.lock`](kernels.lock)。
+
+```bash
+git clone https://github.com/HlONGlin/DuoRelay.git
+cd DuoRelay
+
+# 准备内核，构建嵌入前端的面板
+./scripts/download-kernels.sh
+make build
+
+# 默认监听本机 127.0.0.1:8080
+./build/duorelay -kernels ./kernels
+```
+
+浏览器访问 `http://127.0.0.1:8080/`，首次访问时按页面提示创建管理员。内核配置应用失败时，请在面板查看具体错误和内核日志。
+
+## 部署与管理
+
+| 场景 | 入口 |
+|------|------|
+| Linux systemd 安装、用户服务、卸载 | [Linux 部署](docs/linux-deployment.md) |
+| Windows 打包、运行和数据迁移 | [Windows 部署](docs/windows-deployment.md) |
+| 源码开发、测试与目录结构 | [开发指南](docs/DEVELOPMENT.md) |
+
+程序常用参数如下，完整参数可通过 `./build/duorelay -h` 查看。
+
+| 参数 | 默认值 | 用途 |
+|------|--------|------|
+| `-listen` | `127.0.0.1:8080` | 面板监听地址 |
+| `-db` | `data/duorelay.db` | SQLite 数据库路径 |
+| `-kernels` | `kernels` | 内核可执行文件目录 |
+| `-config-dir` | `data/configs` | 生成配置的目录 |
+| `-cookie-secure` | `false` | HTTPS 反向代理下设置 Secure 会话 Cookie |
+
+迁移时请备份整个数据目录，尤其是数据库和对应的 `.key` 文件；丢失密钥会导致已加密的订阅地址无法恢复。
+
+## 路由与透明代理
+
+内部路由、绕过规则、用户规则依次匹配；独立 SOCKS5 端口默认是 `10808`。规则通过结构化入口应用，不能用原始 JSON/YAML 绕过配置校验。路由验证记录及文本格式见 [路由验收](docs/routing-acceptance.md)。
+
+| 目标系统 | 当前边界 |
+|----------|----------|
+| Linux | 提供 `redirect`、`tproxy`、`tun` 选项；权限、DNS 和真实流量的验证状态因模式而异 |
+| Windows | 系统代理仅操作当前用户；系统代理恢复和 TUN 仍需真实 Windows 环境验收 |
+| macOS | TUN 尚未完成真实系统验证，不作为已验证支持声明 |
+
+透明代理不能等同于完整接管或 DNS 防泄漏保证。Linux redirect 不接管 UDP DNS；各模式的前提和结果见 [透明代理验收](docs/transparent-proxy-acceptance.md)。容器结果与真实主机结果分开记录在 [容器验收](docs/container-acceptance.md)。
+
+## 验证与开发
+
+```bash
+go test ./...
+go vet ./...
+cd web
+npm ci
+npm run type-check
+npm test
+npm run build
+```
+
+上述测试及配置检查不等于真实网络接管验收。透明代理验证还需要隔离网络环境、临时节点、可观察的代理出口，以及启停前后的规则和路由快照；详细限制见验收文档。
+
+## 文档索引
+
+使用、开发、架构和验收文档入口见 [docs/README.md](docs/README.md)。阶段报告和历史设计保留原貌，当前能力以代码与最近的验收记录为准。
+
+## 许可证
+
+DuoRelay 的许可证尚未确定。sing-box 和 mihomo 各自使用 GPLv3；使用和分发内核时请查阅其各自的许可条款。
+
+---
+
+项目仅供学习研究，使用者需遵守所在地法律法规。项目由 [Claude Code](https://claude.com/claude-code) 辅助开发。

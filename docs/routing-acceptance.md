@@ -1,8 +1,8 @@
-# Routing Acceptance
+# 路由验收记录
 
 Date: 2026-11-03
 
-Routing rules retain the required ordering: internal routes first, bypass routes next, and user rules after them. The independent SOCKS5 port remains 10808 by default and still selects a single node, load-balance group, or proxy chain through the existing entry points. Raw kernel JSON/YAML remains rejected by `/api/config/apply`.
+路由规则保留既定顺序：内部路由优先，绕过规则其次，用户规则最后。独立 SOCKS5 端口默认仍为 `10808`，通过现有入口选择单节点、负载均衡组或代理链。`/api/config/apply` 仍拒绝原始内核 JSON/YAML。
 
 The list editor stores source, matcher, values, outbound, enabled state, and order. The text format is one tab-separated rule per line:
 
@@ -12,9 +12,9 @@ enabled<TAB>source<TAB>matcher<TAB>value1,value2<TAB>outbound
 
 The parser reports every malformed line with its line number. Port values are checked as 1..65535 before save and before generation; sing-box receives numeric port fields, while mihomo receives `DST-PORT` rules. Invalid imports are parse-only and do not replace stored rules.
 
-## Container acceptance
+## 容器验收
 
-| Check | Result | Evidence |
+| 检查项 | 结果 | 证据 |
 |---|---|---|
 | Domain split | PASS | `example.com` request was observed by the temporary HTTP proxy and returned the marker. |
 | IP-CIDR split | PASS | `127.0.0.1/32 -> DIRECT` returned the marker without a temporary proxy CONNECT entry. |
@@ -27,4 +27,4 @@ The parser reports every malformed line with its line number. Port values are ch
 | Kernel check rollback | PASS | A temporary unsupported SSH node failed generation/check and did not stop or replace the healthy existing sing-box instance. |
 | Legacy rule compatibility | PASS in automated migration tests | Existing default/base rules migrated with source and stable IDs; a copied legacy database run is still required for the real upgrade matrix. |
 
-The container results above are separate from real-system target results. Windows system proxy and macOS TUN are not container checks.
+以上容器结果与真实目标系统结果分开统计。Windows 系统代理和 macOS TUN 不属于容器验收范围。
