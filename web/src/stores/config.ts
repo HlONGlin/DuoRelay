@@ -16,6 +16,7 @@ export function defaultConfig(): AppConfig {
     mixed_port: 7890,
     socks_only: false,
     socks_port: 10808,
+    socks_listeners: [],
     load_balance: defaultLoadBalance(),
     allow_lan: false,
     log_level: 'info',
@@ -51,7 +52,7 @@ export const useConfigStore = defineStore('config', () => {
     error.value = null
     try {
       const value = await getConfig()
-      config.value = { ...defaultConfig(), ...value, load_balance: { ...defaultLoadBalance(), ...value.load_balance } }
+      config.value = { ...defaultConfig(), ...value, socks_listeners: value.socks_listeners ?? [], load_balance: { ...defaultLoadBalance(), ...value.load_balance } }
     } catch (err) {
       error.value = err instanceof Error ? err.message : localize('加载配置失败', 'Failed to load configuration')
     } finally {
@@ -63,7 +64,8 @@ export const useConfigStore = defineStore('config', () => {
     saving.value = true
     error.value = null
     try {
-      config.value = await updateConfig(next)
+      const saved = await updateConfig(next)
+      config.value = { ...defaultConfig(), ...saved, socks_listeners: saved.socks_listeners ?? next.socks_listeners ?? [], load_balance: { ...defaultLoadBalance(), ...saved.load_balance } }
       savedAt.value = new Date().toISOString()
       return config.value
     } catch (err) {

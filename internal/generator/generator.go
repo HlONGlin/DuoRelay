@@ -35,6 +35,8 @@ type GenerateOptions struct {
 	SystemProxy     bool
 	SOCKSOnly       bool
 	SOCKSPort       int
+	SOCKSListeners  []SOCKSListener
+	ExtraNodes      []*ir.Node
 	Composition     *Composition
 
 	// DNS config
@@ -51,6 +53,78 @@ type GenerateOptions struct {
 
 	// Advanced
 	Extra map[string]any
+}
+
+// SOCKSListener binds a local SOCKS5 listener directly to one generated outbound.
+type SOCKSListener struct {
+	Port     int
+	Outbound string
+}
+
+const MaxSOCKSListeners = 32
+
+func SOCKSListenerTag(port int) string { return fmt.Sprintf("duorelay-socks-%d", port) }
+
+// ValidateSOCKSListeners checks listener limits, port collisions and outbound names.
+// ReservedSOCKSPorts returns every configured local port that an extra SOCKS
+// listener must not reuse.
+func ReservedSOCKSPorts(opts *GenerateOptions) []int {
+	if opts == nil {
+		return nil
+	}
+	ports := []int{opts.InboundPort, opts.MixedPort}
+	if opts.SOCKSOnly {
+		ports = append(ports, opts.SOCKSPort)
+	}
+	mode := opts.TransparentMode
+	if opts.EnableTUN {
+		mode = "tun"
+	}
+	switch mode {
+	case "redirect":
+		ports = append(ports, opts.RedirectPort)
+	case "tproxy":
+		ports = append(ports, opts.TProxyPort)
+	}
+	return ports
+}
+
+func ValidateSOCKSListeners(listeners []SOCKSListener, reservedPorts ...int) error {
+	if len(listeners) > MaxSOCKSListeners {
+		return fmt.Errorf("最多可配置 %d 个额外 SOCKS5 端口", MaxSOCKSListeners)
+	}
+	reserved := make(map[int]struct{}, len(reservedPorts))
+	for _, port := range reservedPorts {
+		if port > 0 {
+			reserved[port] = struct{}{}
+		}
+	}
+	seen := make(map[int]struct{}, len(listeners))
+	for _, listener := range listeners {
+		if listener.Port < 1 || listener.Port > 65535 {
+			return fmt.Errorf("SOCKS5 端口必须在 1..65535 之间")
+		}
+		if _, ok := seen[listener.Port]; ok {
+			return fmt.Errorf("SOCKS5 端口 %d 重复", listener.Port)
+		}
+		if _, ok := reserved[listener.Port]; ok {
+			return fmt.Errorf("SOCKS5 端口 %d 与现有监听端口冲突", listener.Port)
+		}
+		if strings.TrimSpace(listener.Outbound) == "" {
+			return fmt.Errorf("SOCKS5 端口 %d 缺少目标节点", listener.Port)
+		}
+		seen[listener.Port] = struct{}{}
+	}
+	return nil
+}
+
+func ValidateSOCKSListenerOutbounds(listeners []SOCKSListener, available map[string]struct{}) error {
+	for _, listener := range listeners {
+		if _, ok := available[listener.Outbound]; !ok {
+			return fmt.Errorf("SOCKS5 端口 %d 的目标节点 %q 未生成", listener.Port, listener.Outbound)
+		}
+	}
+	return nil
 }
 
 // RoutingRule is a portable rule that can be rendered by both supported kernels.

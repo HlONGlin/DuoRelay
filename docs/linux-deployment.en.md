@@ -95,7 +95,7 @@ System service installation requires root and systemd. The service unit limits n
 sudo ./scripts/install-linux.sh --package ./dist/duorelay-linux-amd64-0.3.0
 ```
 
-The packaging script creates both the directory above and a matching `.tar.gz`. The installer's `--package` accepts the extracted directory, not the archive. Defaults are `/opt/duorelay` for the program and `/var/lib/duorelay` for data.
+The packaging script creates both the directory above and a matching `.tar.gz`. The installer's `--package` accepts the extracted directory, not the archive. Defaults are `/opt/duorelay` for the program and `/var/lib/duorelay` for data. The About page can check GitHub releases; the default system service protects its program directory, so in-place one-click installation is disabled. Stop the service, back up data and install the target version using this guide. See [application updates](app-update.en.md) for other writable installation layouts.
 
 ```bash
 sudo systemctl status duorelay

@@ -11,6 +11,8 @@ Select nodes and click **Load balancing** or **Proxy chain** at the top of the p
 
 After a successful start, the top of the page shows the mode and members, including chain order. Stopping stops the entire group and deselects all members. Configuration is validated before startup; invalid parameters do not stop an existing instance. Startup failure attempts to restore the previous instance.
 
+Select rows in the node table, or use the header checkbox to select the current filtered results, then choose **Delete selected**. The batch is deleted in one transaction. If any node is missing, running, or assigned to a saved or active SOCKS5 listener, the entire batch is retained and an error is shown. Stop the proxy or remove the affected listener assignment before trying again.
+
 The kernels use `dialer-proxy` and `detour` respectively for chaining; multi-node selection uses mihomo native proxy groups and health checks. Fallback priority follows dialog list order. Strategy changes affect subsequent new connections; existing connections remain on their original node. Duplicate display names are renamed only in generated configuration, not in the database.
 
 ## Chain Compatibility

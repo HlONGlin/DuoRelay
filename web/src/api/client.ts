@@ -14,7 +14,13 @@ const englishErrors: Record<string, string> = {
   INTERNAL_ERROR: 'Internal server error',
   KERNEL_CHECK_FAILED: 'Configuration validation failed',
   PROXY_GROUP_UNAVAILABLE: 'The current kernel does not provide proxy group status',
-  LOG_STREAM_UNAVAILABLE: 'Live log streaming is unavailable'
+  LOG_STREAM_UNAVAILABLE: 'Live log streaming is unavailable',
+  UPDATE_UNAVAILABLE: 'Update service is unavailable',
+  UPDATE_CHECK_FAILED: 'Could not check for updates',
+  UPDATE_FAILED: 'Could not install the update',
+  UPDATE_IN_PROGRESS: 'An update is already in progress',
+  NODE_ACTIVE: 'Stop the active proxy before deleting these nodes',
+  SOCKS_NODE_ASSIGNED: 'Remove the SOCKS5 port binding before deleting this node'
 }
 const localMessage = (zh: string, en: string) => readLanguage() === 'en' ? en : zh
 

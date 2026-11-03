@@ -27,6 +27,10 @@ func (g *Generator) Generate(nodes []*ir.Node, opts *generator.GenerateOptions) 
 	if err := generator.ValidateRoutingRules(opts.RoutingRules); err != nil {
 		return nil, err
 	}
+	reservedPorts := generator.ReservedSOCKSPorts(opts)
+	if err := generator.ValidateSOCKSListeners(opts.SOCKSListeners, reservedPorts...); err != nil {
+		return nil, err
+	}
 	var err error
 	nodes, err = generator.PrepareComposition(nodes, opts.Composition, ir.KernelMihomo)
 	if err != nil {
@@ -40,7 +44,14 @@ func (g *Generator) Generate(nodes []*ir.Node, opts *generator.GenerateOptions) 
 			validNodes = append(validNodes, node)
 		}
 	}
-	proxies, err := g.generateProxies(validNodes)
+	runtimeNodes := append([]*ir.Node(nil), validNodes...)
+	for _, node := range opts.ExtraNodes {
+		if node == nil || !node.CanRunOn(ir.KernelMihomo) {
+			return nil, fmt.Errorf("SOCKS5 端口目标节点不支持 mihomo")
+		}
+		runtimeNodes = append(runtimeNodes, node)
+	}
+	proxies, err := g.generateProxies(runtimeNodes)
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +73,7 @@ func (g *Generator) Generate(nodes []*ir.Node, opts *generator.GenerateOptions) 
 			proxyGroups = []map[string]any{group}
 		} else {
 			plan, _ := generator.PlanChain(validNodes, ir.KernelMihomo, true)
-			for i, p := range proxies {
+			for i, p := range proxies[:len(validNodes)] {
 				if validNodes[i].Protocol != ir.ProtocolHTTP && validNodes[i].Protocol != ir.ProtocolSSH {
 					p["udp"] = plan.Hops[i].UDP
 				}
@@ -83,6 +94,9 @@ func (g *Generator) Generate(nodes []*ir.Node, opts *generator.GenerateOptions) 
 		available["PROXY"] = struct{}{}
 	}
 	if err := generator.ValidateOutboundReferences(opts.DefaultOutbound, opts.RoutingRules, available); err != nil {
+		return nil, err
+	}
+	if err := generator.ValidateSOCKSListenerOutbounds(opts.SOCKSListeners, available); err != nil {
 		return nil, err
 	}
 
@@ -121,12 +135,19 @@ func (g *Generator) Generate(nodes []*ir.Node, opts *generator.GenerateOptions) 
 	} else if mode == "tproxy" {
 		config["tproxy-port"] = opts.TProxyPort
 	}
-	if opts.SOCKSOnly {
+	if opts.SOCKSOnly || len(opts.SOCKSListeners) > 0 {
 		config["bind-address"] = opts.InboundHost
-		if opts.SOCKSPort < 1 || opts.SOCKSPort > 65535 || opts.SOCKSPort == opts.MixedPort {
+		if opts.SOCKSOnly && (opts.SOCKSPort < 1 || opts.SOCKSPort > 65535 || opts.SOCKSPort == opts.MixedPort) {
 			return nil, fmt.Errorf("SOCKS5 端口无效或与混合端口冲突")
 		}
-		config["listeners"] = []map[string]any{{"name": "socks-in", "type": "socks", "port": opts.SOCKSPort, "listen": opts.InboundHost, "udp": true}}
+		listeners := make([]map[string]any, 0, len(opts.SOCKSListeners)+1)
+		if opts.SOCKSOnly {
+			listeners = append(listeners, map[string]any{"name": "socks-in", "type": "socks", "port": opts.SOCKSPort, "listen": opts.InboundHost, "udp": true})
+		}
+		for _, listener := range opts.SOCKSListeners {
+			listeners = append(listeners, map[string]any{"name": generator.SOCKSListenerTag(listener.Port), "type": "socks", "port": listener.Port, "listen": opts.InboundHost, "udp": true})
+		}
+		config["listeners"] = listeners
 	}
 	if opts.Composition != nil && opts.Composition.Mode == "chain" {
 		plan, _ := generator.PlanChain(validNodes, ir.KernelMihomo, true)
@@ -207,6 +228,9 @@ func (g *Generator) generateProxyGroups(nodes []*ir.Node) []map[string]any {
 
 func (g *Generator) generateRules(opts *generator.GenerateOptions) []string {
 	rules := make([]string, 0, len(opts.RoutingRules)+1)
+	for _, listener := range opts.SOCKSListeners {
+		rules = append(rules, "IN-NAME,"+generator.SOCKSListenerTag(listener.Port)+","+listener.Outbound)
+	}
 	if opts.SOCKSOnly {
 		// Enforce ingress scope before any user rule can select a proxy.
 		rules = append(rules, "NOT,((IN-NAME,socks-in)),DIRECT")

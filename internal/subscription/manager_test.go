@@ -295,3 +295,92 @@ func TestValidationAndUsage(t *testing.T) {
 		t.Fatalf("bad usage: %d %d %v", used, total, expire)
 	}
 }
+
+func TestSubscriptionUpdateRetainsAssignedNodeAfterUpstreamRemoval(t *testing.T) {
+	m := newTestManager(t)
+	ctx := context.Background()
+	content := clashOne
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, content)
+	}))
+	defer server.Close()
+
+	sub := &Subscription{Name: "pinned", URL: server.URL}
+	if err := m.Add(ctx, sub); err != nil {
+		t.Fatal(err)
+	}
+	nodes, err := m.Update(ctx, sub.ID)
+	if err != nil || len(nodes) != 1 {
+		t.Fatalf("initial update: nodes=%d err=%v", len(nodes), err)
+	}
+	assignedID := nodes[0].ID
+	settings := map[string]any{
+		"socks_listeners": []map[string]any{{"port": 18081, "node_id": assignedID}},
+	}
+	if err := m.Store.SaveState(ctx, "settings", settings); err != nil {
+		t.Fatal(err)
+	}
+
+	content = "proxies:\n  - {name: beta, type: http, server: beta.example, port: 8080}\n"
+	nodes, err = m.Update(ctx, sub.ID)
+	if err != nil || len(nodes) != 1 {
+		t.Fatalf("replacement update: nodes=%d err=%v", len(nodes), err)
+	}
+	pinned, err := m.Store.Node(ctx, assignedID)
+	if err != nil {
+		t.Fatalf("assigned node was deleted: %v", err)
+	}
+	if pinned.Source.Type != "import" || pinned.Source.SubscriptionID != "" || pinned.GroupID != "" {
+		t.Fatalf("assigned node was not detached cleanly: %#v", pinned)
+	}
+	subscriptionNodes, err := m.Store.Nodes(ctx, sub.ID)
+	if err != nil || len(subscriptionNodes) != 1 || subscriptionNodes[0].ID == assignedID {
+		t.Fatalf("removed node still belongs to subscription: %#v, %v", subscriptionNodes, err)
+	}
+
+	if err := m.Delete(ctx, sub.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Store.Node(ctx, assignedID); err != nil {
+		t.Fatalf("deleting the subscription removed its assigned node: %v", err)
+	}
+}
+
+func TestDeleteSubscriptionDetachesAssignedNodes(t *testing.T) {
+	m := newTestManager(t)
+	ctx := context.Background()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, clashOne)
+	}))
+	defer server.Close()
+
+	sub := &Subscription{Name: "pinned", URL: server.URL}
+	if err := m.Add(ctx, sub); err != nil {
+		t.Fatal(err)
+	}
+	nodes, err := m.Update(ctx, sub.ID)
+	if err != nil || len(nodes) != 1 {
+		t.Fatalf("initial update: nodes=%d err=%v", len(nodes), err)
+	}
+	assignedID := nodes[0].ID
+	if err := m.Store.SaveState(ctx, "settings", map[string]any{"socks_listeners": []any{}}); err != nil {
+		t.Fatal(err)
+	}
+	current := map[string]any{
+		"socks_listeners": []map[string]any{{"port": 18081, "node_id": assignedID}},
+	}
+	if err := m.Store.SaveState(ctx, "current_config", current); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.Delete(ctx, sub.ID); err != nil {
+		t.Fatal(err)
+	}
+	pinned, err := m.Store.Node(ctx, assignedID)
+	if err != nil || pinned.Source.Type != "import" || pinned.Source.SubscriptionID != "" {
+		t.Fatalf("subscription deletion did not preserve and detach the assigned node: %#v, %v", pinned, err)
+	}
+	if _, err := m.Get(ctx, sub.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("subscription still exists after deletion: %v", err)
+	}
+}

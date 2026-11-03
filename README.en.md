@@ -35,7 +35,8 @@ The screenshot comes from a temporary demonstration instance. Further measuremen
 |---|---|
 | Kernels | Generate sing-box and mihomo configurations and manage kernel processes, subject to kernel and protocol capabilities. |
 | Web management | Create an administrator on first access; manage nodes, subscriptions, kernels, connections and logs. |
-| Nodes and subscriptions | Import common share links and subscription formats; test latency and use load balancing or proxy chains. |
+| Nodes and subscriptions | Import common share links and subscription formats; test latency, delete selected nodes in batches, and use load balancing or proxy chains. |
+| Software updates | Check GitHub releases matching the full/lite build and platform under **Settings → About**. One-click updates require a writable install directory; use the deployment guide for protected Linux systemd installs. |
 | Routing | Edit structured rules as a list or text, import and export them, and validate individual lines. |
 | Configuration safety | Validate with the relevant kernel before applying; retain or restore the previous state on failure. |
 | Monitoring | Inspect kernel logs, connections and sampled traffic history. |
@@ -51,7 +52,7 @@ The project covers a unified model, parsing or configuration generation for 28 p
 | sing-box | ShadowTLS, Naive, Tor, OpenConnect |
 | mihomo | ShadowsocksR, Mieru, Sudoku, ShadowQUIC, TrustTunnel, Rematch, EasyTier, ZeroTier |
 
-See [subscription formats](docs/subscription-formats.en.md) and [multi-node proxy](docs/multi-node-proxy.en.md) for limitations. Traffic history consists of Clash API rate samples, not cumulative per-user or per-node accounting.
+See [subscription formats](docs/subscription-formats.en.md), [multi-node proxy](docs/multi-node-proxy.en.md) and [application updates](docs/app-update.en.md) for limitations. Traffic history consists of Clash API rate samples, not cumulative per-user or per-node accounting.
 
 ## Quick start
 
@@ -115,7 +116,7 @@ Back up the entire data directory when migrating, especially the database and it
 
 ## Routing and transparent proxy
 
-Internal routing, bypass rules and user rules are matched in that order. The default dedicated SOCKS5 port is `10808`. Settings → General can add up to 32 extra SOCKS5 listeners, each pinned to a node and independent of the active proxy and routing rules. Listeners inherit the inbound listen address; full supports sing-box or mihomo, while lite uses mihomo, subject to the active kernel's protocol support. Save settings and reapply the configuration to activate changes. Enabling LAN access also exposes these ports to the LAN. See [multi-node proxy](docs/multi-node-proxy.en.md) for setup and limits, and [routing acceptance](docs/routing-acceptance.en.md) for rule validation and text format details.
+Internal routing, bypass rules and user rules are matched in that order. The default dedicated SOCKS5 port is `10808`. Settings → General can add up to 32 extra SOCKS5 listeners, each pinned to a node and independent of the active proxy and routing rules. Listeners inherit the inbound listen address; full supports sing-box or mihomo, while lite uses mihomo, subject to the active kernel's protocol support. Save settings and reapply the configuration to activate changes. Enabling LAN access also exposes these ports to the LAN. The node page also supports selecting and batch-deleting nodes. See [node management and multi-node proxy](docs/multi-node-proxy.en.md) for deletion rules and proxy setup, [application updates](docs/app-update.en.md) for update limitations, and [routing acceptance](docs/routing-acceptance.en.md) for rule validation and text format details.
 
 | System | Current limits |
 |---|---|

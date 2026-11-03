@@ -41,6 +41,31 @@ export interface ApiErrorPayload {
   }
 }
 
+export interface UpdateInfo {
+  current_version: string
+  latest_version: string
+  release_name?: string
+  release_url?: string
+  published_at?: string
+  release_notes?: string
+  asset_name?: string
+  update_available: boolean
+  can_update: boolean
+  reason?: string
+}
+
+export interface UpdateResult {
+  latest_version: string
+  asset_name: string
+  restarting: boolean
+  message: string
+}
+
+export interface UpdateProgress {
+  state: 'idle' | 'downloading' | 'restarting' | 'failed' | string
+  message?: string
+}
+
 export interface ApiResponse<T> {
   success: boolean
   data?: T
@@ -229,6 +254,7 @@ export interface AppConfig {
   mixed_port: number
   socks_only: boolean
   socks_port: number
+  socks_listeners: SOCKSListener[]
   load_balance: LoadBalanceOptions
   allow_lan: boolean
   log_level: LogLevel
@@ -244,6 +270,11 @@ export interface AppConfig {
   routing_mode: RoutingMode
   default_outbound: string
   routing_rules: RoutingRule[]
+}
+
+export interface SOCKSListener {
+  port: number
+  node_id: string
 }
 
 export interface TransparentModeInfo {
@@ -272,6 +303,7 @@ export interface ConfigurationState {
   id: string
   kernel: KernelType
   node_ids: string[]
+  socks_listeners?: SOCKSListener[]
   mode: ProxyGroupMode | 'single' | 'select'
   load_balance?: LoadBalanceOptions
   applied_at: string

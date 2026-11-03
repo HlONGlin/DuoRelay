@@ -20,6 +20,17 @@
             <el-form-item :label="t('仅 SOCKS5 端口使用代理', 'Proxy only through SOCKS5 port')"><el-switch v-model="form.socks_only" :aria-label="t('仅 SOCKS5 端口使用代理', 'Proxy only through SOCKS5 port')" @change="changeSocksOnly" /><div class="field-hint">{{ t('开启后，仅下方独立 SOCKS5 端口按路由规则使用代理；混合端口直连。此模式不能与 TUN 全流量接管同时启用。', 'Only the dedicated SOCKS5 port follows proxy routing rules; mixed ports connect directly. This mode cannot be combined with TUN.') }}</div></el-form-item>
             <el-form-item v-if="form.socks_only" :label="t('独立 SOCKS5 端口', 'Dedicated SOCKS5 port')"><el-input-number v-model="form.socks_port" :min="1" :max="65535" :aria-label="t('独立 SOCKS5 端口', 'Dedicated SOCKS5 port')" /><div class="field-hint">{{ t('请与上方两个混合端口保持不同。SOCKS5 端口会使用当前单节点、负载均衡或代理链。', 'Use a different port from the mixed ports above. SOCKS5 uses the current node, load balancer or proxy chain.') }}</div></el-form-item>
             <el-divider />
+            <div class="socks-listeners-heading"><div><h3>{{ t('端口绑定节点', 'Bind nodes to SOCKS5 ports') }}</h3><p class="field-hint">{{ t('每个端口固定走指定节点，不受主代理、负载均衡和路由规则影响，并沿用当前入站监听地址。保存后重新应用配置生效。', 'Each port uses its assigned node directly, independent of the main proxy, load balancing and routing rules, and inherits the current listen address. Reapply the configuration after saving.') }}</p></div><el-button size="small" :disabled="form.socks_listeners.length >= 32" @click="addSOCKSListener"><UiIcon name="plus" :size="16" />{{ t('添加端口', 'Add port') }}</el-button></div>
+            <div v-for="(listener, index) in form.socks_listeners" :key="index" class="socks-listener-row">
+              <el-input-number v-model="listener.port" :min="1" :max="65535" :aria-label="t('SOCKS5 端口', 'SOCKS5 port')" />
+              <el-select v-model="listener.node_id" filterable :placeholder="t('选择固定节点', 'Select a pinned node')" :aria-label="t('端口绑定节点', 'Node for SOCKS5 port')">
+                <el-option v-for="node in nodes.items" :key="node.id" :value="node.id" :disabled="Boolean(nodeUnavailableReason(node)) || !supportsSelectedKernel(node)" :label="`${node.name} · ${node.protocol}${supportsSelectedKernel(node) ? '' : t('（不支持当前内核）', ' (unsupported by selected kernel)')}`" />
+                <el-option v-if="listener.node_id && !nodes.items.some(node => node.id === listener.node_id)" :value="listener.node_id" :label="t('节点已删除：', 'Missing node: ') + listener.node_id" disabled />
+              </el-select>
+              <el-button text type="danger" :aria-label="t('删除 SOCKS5 端口', 'Remove SOCKS5 port')" @click="form.socks_listeners.splice(index, 1)">{{ t('删除', 'Remove') }}</el-button>
+            </div>
+            <p v-if="form.socks_listeners.length === 0" class="field-hint">{{ t('尚未添加端口绑定。', 'No additional port bindings.') }}</p>
+            <el-divider />
             <el-form-item :label="t('DNS 服务器', 'DNS servers')"><el-input v-model="dnsText" type="textarea" :rows="4" :placeholder="t('每行一个 DNS 服务器', 'One DNS server per line')" /><div class="field-hint">{{ t('例如 223.5.5.5，每行填写一个地址。', 'For example, 223.5.5.5; enter one address per line.') }}</div></el-form-item>
             <el-form-item label="Fake-IP"><el-switch v-model="form.dns_fake_ip" /><div class="field-hint">{{ t('使用虚拟 IP 映射域名，需配合对应内核的 DNS 配置。', 'Map domains to virtual IP addresses; requires appropriate kernel DNS configuration.') }}</div></el-form-item>
           </template>
@@ -80,7 +91,25 @@
               </button>
             </div>
           </template>
-          <template v-if="category === 'about'"><p>DuoRelay {{ buildInfo.version || 'dev' }} · {{ variant }}{{ isLite ? t('（精简版 · mihomo 单核）', ' (lite · mihomo only)') : t('（完整版 · 双核）', ' (full · dual kernel)') }}</p><p class="field-hint">{{ t('构建', 'Build') }} {{ buildInfo.commit || 'unknown' }}</p></template>
+          <template v-if="category === 'about'">
+            <p>DuoRelay {{ buildInfo.version || 'dev' }} · {{ variant }}{{ isLite ? t('（精简版 · mihomo 单核）', ' (lite · mihomo only)') : t('（完整版 · 双核）', ' (full · dual kernel)') }}</p>
+            <p class="field-hint">{{ t('构建', 'Build') }} {{ buildInfo.commit || 'unknown' }}</p>
+            <el-divider />
+            <div class="update-panel">
+              <div class="update-heading"><div><h3>{{ t('软件更新', 'Software updates') }}</h3><p class="field-hint">{{ updateInfo ? t('当前版本：', 'Current version: ') + updateInfo.current_version : t('检查 GitHub 上适用于当前平台和版本的正式发布。', 'Check GitHub for a stable release matching this platform and build variant.') }}</p></div><el-button :loading="updateLoading" :disabled="updateApplying" @click="checkForUpdates">{{ updateLoading ? t('检查中…', 'Checking…') : t('检查更新', 'Check for updates') }}</el-button></div>
+              <el-alert v-if="updateError" :title="updateError" type="error" :closable="false" show-icon />
+              <template v-if="updateInfo">
+                <div v-if="updateInfo.update_available" class="update-release">
+                  <strong>{{ updateInfo.release_name || ('DuoRelay ' + updateInfo.latest_version) }}</strong>
+                  <span class="muted">{{ t('最新版本：', 'Latest version: ') }}{{ updateInfo.latest_version }}<template v-if="updateInfo.published_at"> · {{ updateInfo.published_at.slice(0, 10) }}</template></span>
+                  <p v-if="updateInfo.reason" class="field-hint">{{ updateReason(updateInfo.reason) }}</p>
+                  <pre v-if="updateInfo.release_notes" class="release-notes">{{ updateInfo.release_notes }}</pre>
+                  <div class="update-actions"><el-button v-if="updateInfo.release_url" link type="primary" tag="a" :href="updateInfo.release_url" target="_blank" rel="noopener noreferrer">{{ t('查看发布说明', 'View release') }}</el-button><el-button type="primary" :disabled="!updateInfo.can_update || updateApplying" :loading="updateApplying" @click="applyUpdate">{{ updateApplying ? t('正在准备更新…', 'Preparing update…') : t('一键更新并重启', 'Update and restart') }}</el-button></div>
+                </div>
+                <el-alert v-else :title="t('当前已是最新版本', 'You are up to date')" type="success" :closable="false" show-icon />
+              </template>
+            </div>
+          </template>
           <template v-if="category === 'advanced'">
             <el-form-item :label="t('日志级别', 'Log level')"><el-select v-model="form.log_level"><el-option v-for="level in ['debug', 'info', 'warn', 'error']" :key="level" :value="level" :label="level" /></el-select><div class="field-hint">{{ t('日常使用推荐 info；排查问题时选择 debug。', 'Use info for normal operation and debug for troubleshooting.') }}</div></el-form-item>
             <el-divider /><div class="reset-settings"><div><h3>{{ t('恢复默认配置', 'Restore defaults') }}</h3><p class="field-hint">{{ t('先填入默认值，保存后才会覆盖服务器配置。', 'Defaults are filled in first; saving overwrites the server configuration.') }}</p></div><el-button @click="handleReset">{{ t('填入默认值', 'Fill defaults') }}</el-button></div>
@@ -102,17 +131,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { defaultConfig, useConfigStore } from '@/stores/config'
 import { useNodesStore } from '@/stores/nodes'
-import { isLite, variant } from '@/stores/variant'
-import { request } from '@/api/client'
+import { isLite, nodeUnavailableReason, variant } from '@/stores/variant'
+import { ApiError, request } from '@/api/client'
 import { useAppearanceStore } from '@/stores/appearance'
 import UiIcon from '@/components/UiIcon.vue'
 import LoadBalanceFields from '@/components/LoadBalanceFields.vue'
 import { formatDate } from '@/utils/format'
-import type { AppConfig, RoutingMatch, RoutingMode, RoutingRule } from '@/types'
+import type { AppConfig, ProxyNode, RoutingMatch, RoutingMode, RoutingRule, UpdateInfo, UpdateProgress } from '@/types'
 import { exportRouting, importRoutingText, validateRoutingText } from '@/api/config'
 
 const store = useConfigStore()
@@ -121,6 +150,67 @@ const appearance = useAppearanceStore()
 const t = (zh: string, en: string) => appearance.language === 'en' ? en : zh
 const buildInfo = ref<{ version?: string; commit?: string }>({})
 void request<{ version?: string; commit?: string }>({ url: '/build' }).then(info => { buildInfo.value = info ?? {} }).catch(() => {})
+const updateLoading = ref(false)
+const updateApplying = ref(false)
+const updateInfo = ref<UpdateInfo | null>(null)
+const updateError = ref('')
+let updatePollTimer: number | undefined
+let updateRestartingSeen = false
+function updateReason(reason: string) {
+  if (appearance.language !== 'en') return reason
+  const messages: Record<string, string> = {
+    '当前平台和 full 变体没有匹配的发布包': 'No release package matches this platform and full build.',
+    '当前平台和 lite 变体没有匹配的发布包': 'No release package matches this platform and lite build.',
+    '当前程序目录不可写，请使用有权限的更新方式': 'The install directory is not writable. Use an update method with the required permissions.',
+    '无法定位当前程序': 'Could not locate the current executable.',
+    '无法解析当前程序安装路径': 'Could not resolve the current executable path.',
+    '容器部署请通过更新镜像升级，不能在容器内替换程序': 'Update the container image; the executable cannot be updated inside the container.'
+  }
+  return messages[reason] ?? reason
+}
+async function checkForUpdates() {
+  updateLoading.value = true
+  updateError.value = ''
+  try { updateInfo.value = await request<UpdateInfo>({ url: '/update/check', timeout: 35000 }) }
+  catch (err) { updateError.value = err instanceof ApiError && err.why ? `${err.message}: ${err.why}` : err instanceof Error ? err.message : t('检查更新失败，请稍后重试', 'Could not check for updates; try again later') }
+  finally { updateLoading.value = false }
+}
+async function applyUpdate() {
+  if (!updateInfo.value?.can_update || !updateInfo.value.update_available) return
+  try {
+    await ElMessageBox.confirm(t('更新会停止并重启 DuoRelay 服务。', 'Updating will stop and restart the DuoRelay service.'), t('确认更新', 'Confirm update'), { type: 'warning', confirmButtonText: t('更新并重启', 'Update and restart'), cancelButtonText: t('取消', 'Cancel') })
+    updateApplying.value = true
+    const result = await request<UpdateProgress>({ url: '/update/apply', method: 'post' })
+    if (result.state === 'failed') throw new Error(result.message || t('更新失败', 'Update failed'))
+    ElMessage.success(result.message || t('更新已开始，服务正在重启', 'Update started; the service is restarting'))
+    if (result.state === 'downloading') {
+      updateRestartingSeen = false
+      updatePollTimer = window.setInterval(async () => {
+        try {
+          const progress = await request<UpdateProgress>({ url: '/update/status' })
+          if (progress.state === 'failed') {
+            if (updatePollTimer) window.clearInterval(updatePollTimer)
+            updatePollTimer = undefined
+            updateApplying.value = false
+            ElMessage.error(progress.message || t('更新失败', 'Update failed'))
+          } else if (progress.state === 'restarting') {
+            updateRestartingSeen = true
+          } else if (progress.state === 'idle' && updateRestartingSeen) {
+            if (updatePollTimer) window.clearInterval(updatePollTimer)
+            updatePollTimer = undefined
+            window.location.reload()
+          }
+        } catch {
+          // Keep polling while the service manager restarts the updated process.
+        }
+      }, 1000)
+    }
+  } catch (err) {
+    if (err !== 'cancel' && err !== 'close') ElMessage.error(err instanceof ApiError && err.why ? `${err.message}: ${err.why}` : err instanceof Error ? err.message : t('更新失败', 'Update failed'))
+    updateApplying.value = false
+  }
+}
+onBeforeUnmount(() => { if (updatePollTimer) window.clearInterval(updatePollTimer) })
 const category = ref('general')
 const categories = computed(() => appearance.language === 'en' ? [
   { id: 'general', title: 'General', icon: 'settings', description: 'Listen address, ports and DNS' },
@@ -144,7 +234,23 @@ const categories = computed(() => appearance.language === 'en' ? [
 const currentCategory = computed(() => categories.value.find(item => item.id === category.value)!)
 
 
-const form = reactive<AppConfig>({ ...store.config, load_balance: { ...store.config.load_balance } })
+const form = reactive<AppConfig>({ ...store.config, socks_listeners: (store.config.socks_listeners ?? []).map(listener => ({ ...listener })), load_balance: { ...store.config.load_balance } })
+if (!form.socks_listeners) form.socks_listeners = []
+function supportsSelectedKernel(node: ProxyNode) {
+  return form.kernel === 'mihomo' ? Boolean(node.owner & 2) : Boolean(node.owner & 1)
+}
+const availableSOCKSNodes = computed(() => nodes.items.filter(node => {
+  if (nodeUnavailableReason(node)) return false
+  return supportsSelectedKernel(node)
+}))
+function addSOCKSListener() {
+  if (form.socks_listeners.length >= 32) return
+  const occupied = new Set([form.inbound_port, form.mixed_port, ...(form.socks_only ? [form.socks_port] : []), ...form.socks_listeners.map(item => item.port)])
+  let port = 10809
+  while (port <= 65535 && occupied.has(port)) port++
+  if (port > 65535) { ElMessage.warning(t('没有可用端口', 'No available port')); return }
+  form.socks_listeners.push({ port, node_id: availableSOCKSNodes.value[0]?.id ?? '' })
+}
 const dnsText = ref(store.config.dns_servers.join('\n'))
 const routingModes = computed<Array<{ label: string; value: RoutingMode; description: string }>>(() => [
   { label: t('绕过大陆', 'Bypass mainland'), value: 'bypass_mainland', description: t('中国大陆及局域网直连，其余流量使用代理。', 'Connect directly to mainland China and LAN; proxy other traffic.') },
@@ -246,7 +352,7 @@ function chinaRules(): RoutingForm[] {
 }
 
 function syncFromStore(config: AppConfig) {
-  Object.assign(form, config, { ...(isLite.value ? { kernel: 'mihomo' } : {}), routing_mode: config.routing_mode || 'bypass_mainland', load_balance: { ...config.load_balance } })
+  Object.assign(form, config, { ...(isLite.value ? { kernel: 'mihomo' } : {}), socks_listeners: (config.socks_listeners ?? []).map(listener => ({ ...listener })), routing_mode: config.routing_mode || 'bypass_mainland', load_balance: { ...config.load_balance } })
   dnsText.value = config.dns_servers.join('\n')
   routingForms.value = (config.routing_rules ?? []).map((rule) => ({
     id: rule.id,
@@ -389,6 +495,14 @@ async function handleSave() {
     ElMessage.warning(t('独立 SOCKS5 端口不能与混合代理端口相同', 'The dedicated SOCKS5 port must differ from the mixed proxy ports'))
     return
   }
+  const listenerPorts = new Set<number>()
+  for (const listener of form.socks_listeners) {
+    if (!Number.isInteger(listener.port) || listener.port < 1 || listener.port > 65535 || !listener.node_id || listenerPorts.has(listener.port) || [form.inbound_port, form.mixed_port, ...(form.socks_only ? [form.socks_port] : []), ...(form.transparent_mode === 'tproxy' ? [form.inbound_port + 1] : [])].includes(listener.port)) {
+      ElMessage.warning(t('请检查 SOCKS5 端口：端口需有效、不重复、不冲突且已分配节点', 'Check SOCKS5 ports: each must be valid, unique, conflict-free and assigned to a node'))
+      return
+    }
+    listenerPorts.add(listener.port)
+  }
   const servers = dnsText.value.split('\n').map((line) => line.trim()).filter(Boolean)
   if (servers.length === 0) {
     ElMessage.warning(t('请至少配置一个 DNS 服务器', 'Configure at least one DNS server'))
@@ -404,7 +518,7 @@ async function handleSave() {
     if (routingTextErrors.value.length) { ElMessage.warning(t('请先修复文本规则错误', 'Fix routing text errors first')); return }
   }
   try {
-    await store.save({ ...form, dns_servers: servers, routing_rules: rules })
+    await store.save({ ...form, socks_listeners: form.socks_listeners.map(listener => ({ ...listener })), dns_servers: servers, routing_rules: rules })
     ElMessage.success(t('设置已保存；重新选择并启动节点后应用到内核', 'Settings saved; select and start a node again to apply them'))
   } catch (err) {
     ElMessage.error(err instanceof Error ? err.message : t('保存设置失败', 'Failed to save settings'))
@@ -434,6 +548,10 @@ onMounted(async () => {
 .settings-section-heading p { font-size: var(--typography-p-body-sm-font-size); color: var(--ink-subtle); margin-top: 4px; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 24px; }
 .field-hint { color: var(--ink-subtle); font-size: var(--typography-p-caption-font-size); line-height: 1.5; margin-top: 8px; width: 100%; }
+.socks-listeners-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin: 8px 0 16px; }
+.socks-listeners-heading h3 { font-size: var(--typography-p-card-title-font-size); font-weight: 500; }
+.socks-listener-row { display: flex; align-items: center; gap: 12px; margin: 12px 0; flex-wrap: wrap; }
+.socks-listener-row .el-select { flex: 1; min-width: 220px; }
 .settings-form :deep(.el-select) { max-width: 400px; }
 .rules-heading { display: flex; align-items: center; justify-content: space-between; margin-top: 32px; }
 .rule-hint { margin-bottom: 16px; }
@@ -470,6 +588,11 @@ onMounted(async () => {
 .reset-settings h3 { font-size: var(--typography-p-card-title-font-size); font-weight: 500; }
 .subscription-info p { font-size: var(--typography-p-body-sm-font-size); color: var(--ink-subtle); max-width: 450px; }
 .reset-settings { display: flex; gap: 24px; justify-content: space-between; align-items: center; }
+.update-panel { display: flex; flex-direction: column; gap: 16px; max-width: 720px; }
+.update-heading, .update-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.update-heading h3 { font-size: var(--typography-p-card-title-font-size); font-weight: 500; }
+.update-release { display: flex; flex-direction: column; gap: 8px; padding: 16px; border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--surface-2); }
+.release-notes { max-height: 220px; overflow: auto; white-space: pre-wrap; color: var(--ink-subtle); font: var(--typography-p-caption-font-size)/1.6 var(--font-mono); }
 @media (max-width: 900px) { .settings-layout { grid-template-columns: 140px minmax(0, 1fr); gap: 20px; } .settings-panel { padding: 24px; } .form-grid { grid-template-columns: 1fr; } }
 @media (max-width: 768px) { .settings-layout { display: block; } .category-nav { flex-direction: row; position: static; overflow-x: auto; margin-bottom: 16px; } .category-nav button { white-space: nowrap; flex-shrink: 0; } .settings-panel { padding: 20px 16px; min-height: 380px; } .save-bar { align-self: stretch; justify-content: space-between; gap: 12px; } .save-bar span { max-width: 190px; } .theme-options { gap: 12px; } .theme-preview { height: 120px; } }
 @media (max-width: 480px) { .save-bar { bottom: 76px; } }

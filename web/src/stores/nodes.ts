@@ -4,6 +4,7 @@ import { localize } from './appearance'
 import {
   activateNode,
   deleteNode,
+  deleteNodes,
   importNodes,
   listNodes,
   testNodeDelay,
@@ -158,6 +159,19 @@ export const useNodesStore = defineStore('nodes', () => {
     }
   }
 
+  async function removeMany(ids: string[]) {
+    error.value = null
+    try {
+      await deleteNodes(ids)
+      const removed = new Set(ids)
+      items.value = items.value.filter((node) => !removed.has(node.id))
+      if (removed.has(activeNodeId.value)) activeNodeId.value = ''
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : localize('批量删除节点失败', 'Failed to delete nodes')
+      throw err
+    }
+  }
+
   function resetFilters() {
     search.value = ''
     protocolFilter.value = ''
@@ -183,6 +197,7 @@ export const useNodesStore = defineStore('nodes', () => {
     importContent,
     testNode,
     remove,
+    removeMany,
     resetFilters
   }
 })

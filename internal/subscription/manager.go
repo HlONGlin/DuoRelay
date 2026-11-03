@@ -253,18 +253,86 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 	if _, err := m.Get(ctx, id); err != nil {
 		return err
 	}
+	nodes, err := m.Store.Nodes(ctx, id)
+	if err != nil {
+		return err
+	}
 	tx, err := m.Store.DB().BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err = tx.ExecContext(ctx, "DELETE FROM nodes WHERE id IN (SELECT node_id FROM subscription_nodes WHERE subscription_id=?)", id); err != nil {
+	assigned, err := assignedSOCKSNodes(ctx, tx)
+	if err != nil {
 		return err
+	}
+	for _, node := range nodes {
+		if _, keep := assigned[node.ID]; keep {
+			if err := detachSubscriptionNode(ctx, tx, node, id); err != nil {
+				return err
+			}
+			continue
+		}
+		if _, err = tx.ExecContext(ctx, "DELETE FROM nodes WHERE id=?", node.ID); err != nil {
+			return err
+		}
 	}
 	if _, err = tx.ExecContext(ctx, "DELETE FROM subscriptions WHERE id=?", id); err != nil {
 		return err
 	}
 	return tx.Commit()
+}
+
+// assignedSOCKSNodes reads persisted and currently running assignments in the
+// same transaction that removes subscription-owned nodes.
+func assignedSOCKSNodes(ctx context.Context, tx *sql.Tx) (map[string]struct{}, error) {
+	rows, err := tx.QueryContext(ctx, "SELECT value FROM backend_state WHERE key IN ('settings','current_config')")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	assigned := make(map[string]struct{})
+	for rows.Next() {
+		var data string
+		if err := rows.Scan(&data); err != nil {
+			return nil, err
+		}
+		var state struct {
+			SOCKSListeners []struct {
+				NodeID string `json:"node_id"`
+			} `json:"socks_listeners"`
+		}
+		if err := json.Unmarshal([]byte(data), &state); err != nil {
+			return nil, err
+		}
+		for _, listener := range state.SOCKSListeners {
+			if listener.NodeID != "" {
+				assigned[listener.NodeID] = struct{}{}
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return assigned, nil
+}
+
+// detachSubscriptionNode keeps an assigned node usable after it disappears from
+// its subscription or the subscription itself is deleted.
+func detachSubscriptionNode(ctx context.Context, tx *sql.Tx, node *ir.Node, subscriptionID string) error {
+	node.Source = ir.Source{Type: "import"}
+	node.GroupID = ""
+	node.Status = "idle"
+	data, err := json.Marshal(node)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE nodes SET ir_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=?", string(data), node.ID); err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, "DELETE FROM subscription_nodes WHERE subscription_id=? AND node_id=?", subscriptionID, node.ID)
+	return err
 }
 
 // Update only replaces subscription-owned nodes after a full successful parse.
@@ -355,8 +423,18 @@ func (m *Manager) Update(ctx context.Context, id string) ([]*ir.Node, error) {
 		return nil, err
 	}
 	defer tx.Rollback()
-	for oldID := range old {
+	assigned, err := assignedSOCKSNodes(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	for oldID, node := range old {
 		if !seen[oldID] {
+			if _, keep := assigned[oldID]; keep {
+				if err := detachSubscriptionNode(ctx, tx, node, id); err != nil {
+					return nil, err
+				}
+				continue
+			}
 			if _, err = tx.ExecContext(ctx, "DELETE FROM nodes WHERE id=?", oldID); err != nil {
 				return nil, err
 			}

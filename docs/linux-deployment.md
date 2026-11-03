@@ -95,7 +95,7 @@ cd web && npm ci && cd ..
 sudo ./scripts/install-linux.sh --package ./dist/duorelay-linux-amd64-0.3.0
 ```
 
-打包脚本同时生成上述目录及同名 `.tar.gz`；安装脚本的 `--package` 接受解压后的目录，不接受压缩包。默认程序放在 `/opt/duorelay`，数据放在 `/var/lib/duorelay`。
+打包脚本同时生成上述目录及同名 `.tar.gz`；安装脚本的 `--package` 接受解压后的目录，不接受压缩包。默认程序放在 `/opt/duorelay`，数据放在 `/var/lib/duorelay`。关于页可检查 GitHub 正式版；默认系统服务的程序目录受保护，因此不会提供原地一键更新，请按本节停止服务、备份数据并重新安装目标版本。其他可写安装目录的一键更新条件见[应用更新说明](app-update.md)。
 
 ```bash
 sudo systemctl status duorelay

@@ -1087,3 +1087,26 @@ func TestGenerateOpenConnectEndpointPassesKernelCheck(t *testing.T) {
 		t.Fatalf("sing-box check failed: %v\n%s", err, output)
 	}
 }
+
+func TestGenerateSOCKSListenerRejectsTransparentPortCollision(t *testing.T) {
+	node := &ir.Node{Name: "node", Protocol: ir.ProtocolHTTP, Owner: ir.KernelSetBoth, Server: ir.Server{Host: "127.0.0.1", Port: 8080}}
+	for _, test := range []struct {
+		name string
+		mode string
+		port int
+	}{
+		{name: "redirect", mode: "redirect", port: 18080},
+		{name: "tproxy", mode: "tproxy", port: 18081},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			opts := generator.DefaultGenerateOptions()
+			opts.TransparentMode = test.mode
+			opts.RedirectPort = test.port
+			opts.TProxyPort = test.port
+			opts.SOCKSListeners = []generator.SOCKSListener{{Port: test.port, Outbound: node.Name}}
+			if _, err := NewGenerator().Generate([]*ir.Node{node}, opts); err == nil {
+				t.Fatalf("listener colliding with %s port %d was accepted", test.mode, test.port)
+			}
+		})
+	}
+}

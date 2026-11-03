@@ -21,7 +21,8 @@ This index collects commonly used documentation. Historical plans, progress repo
 | [Docker deployment](docker-deployment.en.md) | Single-container installation, backups and updates |
 | [Windows deployment](windows-deployment.en.md) | Packaging, startup, migration and system proxy |
 | [Subscription formats](subscription-formats.en.md) | Supported input formats and limitations |
-| [Multi-node proxy](multi-node-proxy.en.md) | Load balancing, proxy chains and SOCKS5 port bindings |
+| [Node management and multi-node proxy](multi-node-proxy.en.md) | Batch deletion, load balancing, proxy chains and SOCKS5 port bindings |
+| [Application updates](app-update.en.md) | About-page checks, one-click update flow, supported platforms and install permissions |
 
 ## Verification Records
 

@@ -29,6 +29,10 @@ func (g *Generator) Generate(nodes []*ir.Node, opts *generator.GenerateOptions) 
 	if err := generator.ValidateRoutingRules(opts.RoutingRules); err != nil {
 		return nil, err
 	}
+	reservedPorts := generator.ReservedSOCKSPorts(opts)
+	if err := generator.ValidateSOCKSListeners(opts.SOCKSListeners, reservedPorts...); err != nil {
+		return nil, err
+	}
 	var err error
 	nodes, err = generator.PrepareComposition(nodes, opts.Composition, ir.KernelSingBox)
 	if err != nil {
@@ -44,6 +48,13 @@ func (g *Generator) Generate(nodes []*ir.Node, opts *generator.GenerateOptions) 
 		if node.CanRunOn(ir.KernelSingBox) {
 			validNodes = append(validNodes, node)
 		}
+	}
+	var extraNodes []*ir.Node
+	for _, node := range opts.ExtraNodes {
+		if node == nil || !node.CanRunOn(ir.KernelSingBox) {
+			return nil, fmt.Errorf("SOCKS5 端口目标节点不支持 sing-box")
+		}
+		extraNodes = append(extraNodes, node)
 	}
 
 	dns, resolver := g.generateDNS(opts)
@@ -87,6 +98,14 @@ func (g *Generator) Generate(nodes []*ir.Node, opts *generator.GenerateOptions) 
 			"default":   proxyOutbounds[0],
 		})
 	}
+	if len(extraNodes) > 0 {
+		extraOutbounds, extraEndpoints, err := g.generateOutboundsAndEndpoints(extraNodes)
+		if err != nil {
+			return nil, err
+		}
+		outbounds = append(outbounds, extraOutbounds...)
+		endpoints = append(endpoints, extraEndpoints...)
+	}
 	available := make(map[string]struct{}, len(outbounds))
 	for _, outbound := range outbounds {
 		if tag, ok := outbound["tag"].(string); ok && tag != "" {
@@ -97,6 +116,9 @@ func (g *Generator) Generate(nodes []*ir.Node, opts *generator.GenerateOptions) 
 		available[endpoint["tag"].(string)] = struct{}{}
 	}
 	if err := generator.ValidateOutboundReferences(opts.DefaultOutbound, opts.RoutingRules, available); err != nil {
+		return nil, err
+	}
+	if err := generator.ValidateSOCKSListenerOutbounds(opts.SOCKSListeners, available); err != nil {
 		return nil, err
 	}
 	config := map[string]any{
@@ -228,6 +250,9 @@ func (g *Generator) generateInbounds(opts *generator.GenerateOptions) []map[stri
 	if opts.SOCKSOnly {
 		inbounds = append(inbounds, map[string]any{"type": "socks", "tag": "socks-in", "listen": opts.InboundHost, "listen_port": opts.SOCKSPort})
 	}
+	for _, listener := range opts.SOCKSListeners {
+		inbounds = append(inbounds, map[string]any{"type": "socks", "tag": generator.SOCKSListenerTag(listener.Port), "listen": opts.InboundHost, "listen_port": listener.Port})
+	}
 
 	return inbounds
 }
@@ -301,8 +326,15 @@ func (g *Generator) generateRoute(opts *generator.GenerateOptions, resolver stri
 	if mode == "tun" {
 		rules = append(rules, map[string]any{"protocol": []string{"dns"}, "action": "hijack-dns"})
 	}
+	for _, listener := range opts.SOCKSListeners {
+		rules = append(rules, map[string]any{"inbound": []string{generator.SOCKSListenerTag(listener.Port)}, "outbound": listener.Outbound})
+	}
 	if opts.SOCKSOnly {
-		rules = append(rules, map[string]any{"inbound": []string{"socks-in"}, "invert": true, "outbound": "DIRECT"})
+		allowed := []string{"socks-in"}
+		for _, listener := range opts.SOCKSListeners {
+			allowed = append(allowed, generator.SOCKSListenerTag(listener.Port))
+		}
+		rules = append(rules, map[string]any{"inbound": allowed, "invert": true, "outbound": "DIRECT"})
 	}
 	ruleSets := make([]map[string]any, 0)
 	for _, rule := range opts.RoutingRules {
@@ -353,6 +385,9 @@ func (g *Generator) generateRoute(opts *generator.GenerateOptions, resolver stri
 	}
 	if opts.SOCKSOnly {
 		catchInbounds = append(catchInbounds, "socks-in")
+	}
+	for _, listener := range opts.SOCKSListeners {
+		catchInbounds = append(catchInbounds, generator.SOCKSListenerTag(listener.Port))
 	}
 	rules = append(rules, map[string]any{
 		"inbound":  catchInbounds,

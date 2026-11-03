@@ -24,6 +24,7 @@ import (
 	"github.com/holi/duorelay/internal/store"
 	"github.com/holi/duorelay/internal/subscription"
 	"github.com/holi/duorelay/internal/task"
+	"github.com/holi/duorelay/internal/update"
 )
 
 type testRuntime struct {
@@ -213,7 +214,10 @@ func TestNodeSpeedtestAndTaskAPI(t *testing.T) {
 	call(t, s, "GET", "/api/speedtest/tasks/missing", "", 404)
 	call(t, s, "POST", "/api/speedtest/batch", `{"node_ids":[]}`, 400)
 	call(t, s, "POST", "/api/nodes/missing/test", "", 404)
-	call(t, s, "DELETE", "/api/nodes/"+node.ID, "", 200)
+	deleted := call(t, s, "DELETE", "/api/nodes/"+node.ID, "", 200)
+	if !strings.Contains(string(deleted), `"deleted":true`) {
+		t.Fatalf("single-node delete response changed: %s", deleted)
+	}
 	call(t, s, "DELETE", "/api/nodes/"+node.ID, "", 404)
 }
 
@@ -450,6 +454,152 @@ func TestTrafficAPIUsesDeterministicClashMock(t *testing.T) {
 		t.Fatalf("unexpected traffic history: %#v", history)
 	}
 	call(t, s, "GET", "/api/kernel/traffic/history?limit=0", "", 400)
+}
+
+func TestDeleteNodeRequiresRemovingSOCKSListenerAssignment(t *testing.T) {
+	s := apiForTest(t)
+	ctx := context.Background()
+	node := &ir.Node{Name: "assigned", Protocol: ir.ProtocolHTTP, Owner: ir.KernelSetBoth, Server: ir.Server{Host: "127.0.0.1", Port: 8080}}
+	if err := s.Store.SaveNode(ctx, node); err != nil {
+		t.Fatal(err)
+	}
+	settings, err := s.Config.Settings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings.SOCKSListeners = []configuration.SOCKSListener{{Port: 18081, NodeID: node.ID}}
+	if err := s.Config.SaveSettings(ctx, settings); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodDelete, "/api/nodes/"+node.ID, nil)
+	response := httptest.NewRecorder()
+	s.ServeHTTP(response, request)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("delete assigned node status = %d, want %d: %s", response.Code, http.StatusConflict, response.Body.String())
+	}
+	var payload struct {
+		Error *Error `json:"error"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Error == nil || payload.Error.Code != "SOCKS_NODE_ASSIGNED" {
+		t.Fatalf("unexpected delete conflict: %#v", payload.Error)
+	}
+	if _, err := s.Store.Node(ctx, node.ID); err != nil {
+		t.Fatalf("node was deleted despite its active port assignment: %v", err)
+	}
+	settings.SOCKSListeners = []configuration.SOCKSListener{}
+	if err := s.Config.SaveSettings(ctx, settings); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Store.SaveState(ctx, "current_config", &configuration.State{
+		SOCKSListeners: []configuration.SOCKSListener{{Port: 18081, NodeID: node.ID}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	request = httptest.NewRequest(http.MethodDelete, "/api/nodes/"+node.ID, nil)
+	response = httptest.NewRecorder()
+	s.ServeHTTP(response, request)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("delete node with active SOCKS assignment status = %d, want %d: %s", response.Code, http.StatusConflict, response.Body.String())
+	}
+	if _, err := s.Store.Node(ctx, node.ID); err != nil {
+		t.Fatalf("active assignment node was deleted: %v", err)
+	}
+
+}
+
+func TestBatchDeleteNodesIsAtomicAndValidatesIDs(t *testing.T) {
+	s := apiForTest(t)
+	ctx := context.Background()
+	makeNode := func(name string) string {
+		t.Helper()
+		node := &ir.Node{Name: name, Protocol: ir.ProtocolHTTP, Owner: ir.KernelSetBoth, Server: ir.Server{Host: "127.0.0.1", Port: 8080}}
+		if err := s.Store.SaveNode(ctx, node); err != nil {
+			t.Fatal(err)
+		}
+		return node.ID
+	}
+	first, second := makeNode("batch-first"), makeNode("batch-second")
+
+	data := call(t, s, http.MethodPost, "/api/nodes/batch-delete", fmt.Sprintf(`{"node_ids":[%q,%q]}`, first, second), http.StatusOK)
+	if !strings.Contains(string(data), `"deleted":2`) {
+		t.Fatalf("unexpected batch delete response: %s", data)
+	}
+	if _, err := s.Store.Node(ctx, first); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("first node still exists after batch delete: %v", err)
+	}
+	if _, err := s.Store.Node(ctx, second); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("second node still exists after batch delete: %v", err)
+	}
+
+	third, fourth := makeNode("atomic-third"), makeNode("atomic-fourth")
+	call(t, s, http.MethodPost, "/api/nodes/batch-delete", fmt.Sprintf(`{"node_ids":[%q,"missing"]}`, third), http.StatusNotFound)
+	if _, err := s.Store.Node(ctx, third); err != nil {
+		t.Fatalf("existing node was deleted by an atomicity failure: %v", err)
+	}
+	call(t, s, http.MethodPost, "/api/nodes/batch-delete", fmt.Sprintf(`{"node_ids":[%q,%q]}`, fourth, fourth), http.StatusBadRequest)
+	if _, err := s.Store.Node(ctx, fourth); err != nil {
+		t.Fatalf("node was deleted after duplicate-ID validation failure: %v", err)
+	}
+	call(t, s, http.MethodPost, "/api/nodes/batch-delete", fmt.Sprintf(`{"node_ids":[%q,""]}`, third), http.StatusBadRequest)
+	if _, err := s.Store.Node(ctx, third); err != nil {
+		t.Fatalf("node was deleted after empty-ID validation failure: %v", err)
+	}
+}
+
+func TestBatchDeleteRejectsActiveAndSOCKSAssignedNodes(t *testing.T) {
+	s := apiForTest(t)
+	ctx := context.Background()
+	makeNode := func(name string) *ir.Node {
+		t.Helper()
+		node := &ir.Node{Name: name, Protocol: ir.ProtocolHTTP, Owner: ir.KernelSetBoth, Server: ir.Server{Host: "127.0.0.1", Port: 8080}}
+		if err := s.Store.SaveNode(ctx, node); err != nil {
+			t.Fatal(err)
+		}
+		return node
+	}
+	active, assigned := makeNode("active"), makeNode("socks-assigned")
+	settings, err := s.Config.Settings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings.SOCKSListeners = []configuration.SOCKSListener{{Port: 18081, NodeID: assigned.ID}}
+	if err := s.Config.SaveSettings(ctx, settings); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Store.SaveState(ctx, "current_config", &configuration.State{NodeIDs: []string{active.ID}}); err != nil {
+		t.Fatal(err)
+	}
+	call(t, s, http.MethodPost, "/api/nodes/batch-delete", fmt.Sprintf(`{"node_ids":[%q]}`, active.ID), http.StatusConflict)
+	call(t, s, http.MethodPost, "/api/nodes/batch-delete", fmt.Sprintf(`{"node_ids":[%q,%q]}`, active.ID, assigned.ID), http.StatusConflict)
+	for _, node := range []*ir.Node{active, assigned} {
+		if _, err := s.Store.Node(ctx, node.ID); err != nil {
+			t.Fatalf("protected node %q was deleted: %v", node.ID, err)
+		}
+	}
+}
+
+func TestUpdateEndpointsExposeCheckAndBackgroundStatus(t *testing.T) {
+	s := apiForTest(t)
+	releases := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, `{"tag_name":"v1.0.0","assets":[]}`)
+	}))
+	defer releases.Close()
+	service := update.New("1.0.0", "full")
+	service.APIBaseURL = releases.URL
+	service.Client = releases.Client()
+	s.Updates = service
+
+	checked := call(t, s, http.MethodGet, "/api/update/check", "", http.StatusOK)
+	if !strings.Contains(string(checked), `"latest_version":"1.0.0"`) || !strings.Contains(string(checked), `"update_available":false`) {
+		t.Fatalf("unexpected update check response: %s", checked)
+	}
+	status := call(t, s, http.MethodGet, "/api/update/status", "", http.StatusOK)
+	if !strings.Contains(string(status), `"state":"idle"`) {
+		t.Fatalf("unexpected initial update status: %s", status)
+	}
 }
 
 func TestTrafficAPIWithoutAppliedConfigReturnsUnavailable(t *testing.T) {

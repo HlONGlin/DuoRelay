@@ -8,7 +8,8 @@ vi.mock('@/api/nodes', () => ({
   listNodes: vi.fn(),
   activateNode: vi.fn(),
   testNodeDelay: vi.fn(),
-  deleteNode: vi.fn()
+  deleteNode: vi.fn(),
+  deleteNodes: vi.fn()
 }))
 
 function makeNode(overrides: Partial<ProxyNode> = {}): ProxyNode {
@@ -172,6 +173,22 @@ describe('nodes store', () => {
 
     expect(store.items).toHaveLength(1)
     expect(store.items[0].id).toBe('node-2')
+  })
+
+  it('removes multiple nodes from local state after one batch request', async () => {
+    vi.mocked(nodeApi.listNodes).mockResolvedValue([
+      makeNode({ id: 'node-1' }),
+      makeNode({ id: 'node-2' }),
+      makeNode({ id: 'node-3' })
+    ])
+    vi.mocked(nodeApi.deleteNodes).mockResolvedValue({ deleted: 2 })
+
+    const store = useNodesStore()
+    await store.fetchNodes()
+    await store.removeMany(['node-1', 'node-3'])
+
+    expect(nodeApi.deleteNodes).toHaveBeenCalledWith(['node-1', 'node-3'])
+    expect(store.items.map(node => node.id)).toEqual(['node-2'])
   })
 
   it('records an error when loading fails', async () => {

@@ -20,6 +20,7 @@ import (
 	"github.com/holi/duorelay/internal/subscription"
 	"github.com/holi/duorelay/internal/task"
 	"github.com/holi/duorelay/internal/transparent"
+	"github.com/holi/duorelay/internal/update"
 	"github.com/holi/duorelay/internal/variant"
 )
 
@@ -30,6 +31,13 @@ var (
 )
 
 func main() {
+	if len(os.Args) == 3 && os.Args[1] == "--apply-update" {
+		if err := update.RunHelper(os.Args[2]); err != nil {
+			fmt.Fprintf(os.Stderr, "Update failed: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 	fmt.Println("DuoRelay - Dual-Core Universal Proxy Panel")
 	fmt.Printf("Version: %s (commit %s, built %s)\n", Version, Commit, BuildTime)
 
@@ -40,6 +48,15 @@ func main() {
 }
 
 func run() (runErr error) {
+	var updates *update.Service
+	defer func() {
+		if updates != nil {
+			if err := updates.Finalize(); err != nil {
+				runErr = errors.Join(runErr, err)
+			}
+		}
+	}()
+
 	flags := flag.NewFlagSet("duorelay", flag.ContinueOnError)
 	listen := flags.String("listen", "127.0.0.1:8080", "HTTP listen address")
 	dbPath := flags.String("db", filepath.Join("data", "duorelay.db"), "SQLite database file")
@@ -75,6 +92,7 @@ func run() (runErr error) {
 	}
 	config := configuration.New(database, runtime, *configDir)
 	config.SetTransparent(transparent.New())
+	updates = update.New(Version, variant.Name)
 	defer func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cleanupCancel()
@@ -94,6 +112,8 @@ func run() (runErr error) {
 	handler.Context = ctx
 	handler.CookieSecure = *cookieSecure
 	handler.BuildInfo = map[string]string{"version": Version, "commit": Commit, "build_time": BuildTime, "variant": variant.Name}
+	handler.Updates = updates
+	handler.Updates.Restart = cancel
 	server := &http.Server{Addr: *listen, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 60 * time.Second}
 	scheduled := make(chan error, 1)
 	go func() { scheduled <- subs.Run(ctx, time.Minute) }()

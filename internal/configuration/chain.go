@@ -179,7 +179,7 @@ func (s *Service) startState(state *State) error {
 	return s.start(state.Kernel, state.Path)
 }
 
-func (s *Service) installChain(ctx context.Context, request ApplyRequest, plan *generator.ChainPlan, configs []generatedChainConfig, allowLAN bool, release func()) (*State, error) {
+func (s *Service) installChain(ctx context.Context, request ApplyRequest, plan *generator.ChainPlan, configs []generatedChainConfig, allowLAN bool, release func(), socksListeners []SOCKSListener) (*State, error) {
 	directory := s.Directory
 	if directory == "" {
 		directory = filepath.Join("data", "configs")
@@ -187,7 +187,7 @@ func (s *Service) installChain(ctx context.Context, request ApplyRequest, plan *
 	if err := os.MkdirAll(directory, 0700); err != nil {
 		return nil, err
 	}
-	state := &State{ID: uuid.NewString(), Kernel: plan.Kernel, Mode: "chain", Chain: plan, NodeIDs: append([]string{}, request.NodeIDs...), AppliedAt: time.Now().UTC()}
+	state := &State{ConfigVersion: CurrentConfigVersion, ID: uuid.NewString(), Kernel: plan.Kernel, Mode: "chain", Chain: plan, NodeIDs: append([]string{}, request.NodeIDs...), SOCKSListeners: append([]SOCKSListener{}, socksListeners...), AppliedAt: time.Now().UTC()}
 	var paths []string
 	retained := false
 	defer func() {

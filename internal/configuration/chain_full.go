@@ -70,7 +70,11 @@ func (s *Service) applyChain(ctx context.Context, request ApplyRequest, settings
 				return 0, err
 			}
 			port := listener.Addr().(*net.TCPAddr).Port
-			if port == settings.InboundPort || port == settings.MixedPort || port == settings.SOCKSPort {
+			reserved := port == settings.InboundPort || port == settings.MixedPort || port == settings.SOCKSPort
+			for _, listener := range settings.SOCKSListeners {
+				reserved = reserved || port == listener.Port
+			}
+			if reserved {
 				listener.Close()
 				continue
 			}
@@ -99,6 +103,10 @@ func (s *Service) applyChain(ctx context.Context, request ApplyRequest, settings
 		bridges[i] = chainBridge{from: plan.Hops[i-1].Kernel, to: plan.Hops[i].Kernel, tag: "DR-BRIDGE-" + uuid.NewString(), target: nodes[i-1].Name, port: port, user: uuid.NewString(), password: uuid.NewString(), udp: plan.Hops[i-1].UDP}
 	}
 	var configs []generatedChainConfig
+	chainExtraNodes, chainSOCKSListeners, err := s.resolveSOCKSListeners(ctx, plan.Kernel, settings.SOCKSListeners)
+	if err != nil {
+		return nil, err
+	}
 	for _, k := range []ir.KernelType{ir.KernelSingBox, ir.KernelMihomo} {
 		var members []*ir.Node
 		for i, n := range nodes {
@@ -127,6 +135,8 @@ func (s *Service) applyChain(ctx context.Context, request ApplyRequest, settings
 		} else {
 			// Generate the selector even when blacklist routing defaults to DIRECT.
 			opts.DefaultOutbound = "PROXY"
+			opts.ExtraNodes = chainExtraNodes
+			opts.SOCKSListeners = chainSOCKSListeners
 		}
 		gen := s.Generators[k]
 		if gen == nil {
@@ -234,7 +244,7 @@ func (s *Service) applyChain(ctx context.Context, request ApplyRequest, settings
 		}
 		configs = append(configs, generatedChainConfig{k, content})
 	}
-	return s.installChain(ctx, request, plan, configs, settings.AllowLAN, release)
+	return s.installChain(ctx, request, plan, configs, settings.AllowLAN, release, settings.SOCKSListeners)
 }
 
 func chainAddBridge(root map[string]any, k ir.KernelType, b chainBridge) {

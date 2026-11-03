@@ -19,7 +19,8 @@
 | [Docker 部署](docker-deployment.md) | 单容器安装、数据备份和更新 |
 | [Windows 部署](windows-deployment.md) | 打包、启动、数据迁移和系统代理 |
 | [订阅格式](subscription-formats.md) | 支持的输入格式及限制 |
-| [多节点代理](multi-node-proxy.md) | 负载均衡、链式代理与 SOCKS5 端口绑定说明 |
+| [多节点代理与节点管理](multi-node-proxy.md) | 节点批量删除、负载均衡、链式代理与 SOCKS5 端口绑定 |
+| [应用更新](app-update.md) | 关于页检查更新、一键更新流程、支持的平台及安装目录权限限制 |
 
 ## 验证记录
 

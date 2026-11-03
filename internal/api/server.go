@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,6 +28,7 @@ import (
 	"github.com/holi/duorelay/internal/store"
 	"github.com/holi/duorelay/internal/subscription"
 	"github.com/holi/duorelay/internal/task"
+	"github.com/holi/duorelay/internal/update"
 	"github.com/holi/duorelay/internal/variant"
 	embeddedweb "github.com/holi/duorelay/web"
 )
@@ -54,6 +56,7 @@ type Server struct {
 	Auth          *auth.Service
 	CookieSecure  bool
 	BuildInfo     map[string]string
+	Updates       *update.Service
 	loginLimiter  *loginLimiter
 	Context       context.Context
 	mux           *http.ServeMux
@@ -192,6 +195,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/build", func(w http.ResponseWriter, r *http.Request) {
 		WriteJSON(w, 200, s.BuildInfo)
 	})
+	s.mux.HandleFunc("GET /api/update/check", s.checkUpdate)
+	s.mux.HandleFunc("GET /api/update/status", s.updateStatus)
+	s.mux.HandleFunc("POST /api/update/apply", s.applyUpdate)
 	s.mux.HandleFunc("GET /api/auth/variant", func(w http.ResponseWriter, r *http.Request) {
 		WriteJSON(w, 200, map[string]any{"variant": variant.Name, "kernels": variant.Kernels()})
 	})
@@ -210,6 +216,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/nodes", s.createNode)
 	s.mux.HandleFunc("POST /api/nodes/import", s.importNodes)
 	s.mux.HandleFunc("DELETE /api/nodes/{id}", s.deleteNode)
+	s.mux.HandleFunc("POST /api/nodes/batch-delete", s.deleteNodes)
 	s.mux.HandleFunc("POST /api/nodes/{id}/test", s.testNode)
 	s.mux.HandleFunc("POST /api/nodes/{id}/activate", s.activateNode)
 	s.mux.HandleFunc("POST /api/speedtest/batch", s.batchTest)
@@ -379,16 +386,27 @@ func (s *Server) listNodes(w http.ResponseWriter, r *http.Request) {
 	// may have persisted "active" on several nodes, so derive it from the
 	// currently applied configuration before returning the list.
 	activeIDs := map[string]struct{}{}
+	socksIDs := map[string]struct{}{}
 	if s.Config != nil {
+		if settings, settingsErr := s.Config.Settings(r.Context()); settingsErr == nil {
+			for _, listener := range settings.SOCKSListeners {
+				socksIDs[listener.NodeID] = struct{}{}
+			}
+		}
 		if current, currentErr := s.Config.Current(r.Context()); currentErr == nil && current != nil {
 			for _, id := range current.NodeIDs {
 				activeIDs[id] = struct{}{}
+			}
+			for _, listener := range current.SOCKSListeners {
+				socksIDs[listener.NodeID] = struct{}{}
 			}
 		}
 	}
 	for _, node := range values {
 		if _, ok := activeIDs[node.ID]; ok {
 			node.Status = "active"
+		} else if _, ok := socksIDs[node.ID]; ok {
+			node.Status = "socks"
 		} else {
 			node.Status = "idle"
 		}
@@ -447,22 +465,141 @@ func (s *Server) importNodes(w http.ResponseWriter, r *http.Request) {
 	}
 	WriteJSON(w, 201, map[string]any{"nodes": nodes, "nodes_total": len(nodes)})
 }
+
+func (s *Server) deleteNodes(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		NodeIDs []string `json:"node_ids"`
+	}
+	if err := decode(w, r, &input, false); err != nil {
+		fail(w, err)
+		return
+	}
+	s.deleteNodeIDs(w, r, input.NodeIDs, false)
+}
+
+func (s *Server) deleteNodeIDs(w http.ResponseWriter, r *http.Request, ids []string, single bool) {
+	if len(ids) == 0 || len(ids) > 5000 {
+		fail(w, fmt.Errorf("%w: node_ids must contain 1..5000 IDs", store.ErrInvalid))
+		return
+	}
+	wanted := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			fail(w, fmt.Errorf("%w: node IDs must not be empty", store.ErrInvalid))
+			return
+		}
+		if _, exists := wanted[id]; exists {
+			fail(w, fmt.Errorf("%w: duplicate node ID", store.ErrInvalid))
+			return
+		}
+		wanted[id] = struct{}{}
+	}
+	if s.Config != nil {
+		settings, err := s.Config.Settings(r.Context())
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		for _, listener := range settings.SOCKSListeners {
+			if _, exists := wanted[listener.NodeID]; exists {
+				WriteError(w, http.StatusConflict, &Error{Code: "SOCKS_NODE_ASSIGNED", What: fmt.Sprintf("删除节点前请先移除 SOCKS5 端口 %d 的绑定", listener.Port)})
+				return
+			}
+		}
+		if current, err := s.Config.Current(r.Context()); err == nil && current != nil {
+			for _, id := range current.NodeIDs {
+				if _, exists := wanted[id]; exists {
+					WriteError(w, http.StatusConflict, &Error{Code: "NODE_ACTIVE", What: "删除运行中的节点前请先停止代理"})
+					return
+				}
+			}
+			for _, listener := range current.SOCKSListeners {
+				if _, exists := wanted[listener.NodeID]; exists {
+					WriteError(w, http.StatusConflict, &Error{Code: "SOCKS_NODE_ASSIGNED", What: fmt.Sprintf("删除节点前请先停止代理或重新配置 SOCKS5 端口 %d", listener.Port)})
+					return
+				}
+			}
+		} else if err != nil && !errors.Is(err, store.ErrNotFound) {
+			fail(w, err)
+			return
+		}
+	}
+
+	tx, err := s.Store.DB().BeginTx(r.Context(), nil)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	defer tx.Rollback()
+	for id := range wanted {
+		var exists int
+		if err := tx.QueryRowContext(r.Context(), "SELECT 1 FROM nodes WHERE id=?", id).Scan(&exists); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				fail(w, store.ErrNotFound)
+			} else {
+				fail(w, err)
+			}
+			return
+		}
+	}
+	for id := range wanted {
+		if _, err := tx.ExecContext(r.Context(), "DELETE FROM nodes WHERE id=?", id); err != nil {
+			fail(w, err)
+			return
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		fail(w, err)
+		return
+	}
+	if single {
+		WriteJSON(w, http.StatusOK, map[string]bool{"deleted": true})
+		return
+	}
+	WriteJSON(w, http.StatusOK, map[string]int{"deleted": len(wanted)})
+}
+
 func (s *Server) deleteNode(w http.ResponseWriter, r *http.Request) {
-	result, err := s.Store.DB().ExecContext(r.Context(), "DELETE FROM nodes WHERE id=?", r.PathValue("id"))
+	s.deleteNodeIDs(w, r, []string{r.PathValue("id")}, true)
+}
+
+func (s *Server) checkUpdate(w http.ResponseWriter, r *http.Request) {
+	if s.Updates == nil {
+		WriteError(w, http.StatusServiceUnavailable, &Error{Code: "UPDATE_UNAVAILABLE", What: "更新检查未配置"})
+		return
+	}
+	info, err := s.Updates.Check(r.Context())
 	if err != nil {
-		fail(w, err)
+		WriteError(w, http.StatusBadGateway, &Error{Code: "UPDATE_CHECK_FAILED", What: "检查更新失败", Why: err.Error()})
 		return
 	}
-	count, err := result.RowsAffected()
+	WriteJSON(w, http.StatusOK, info)
+}
+
+func (s *Server) applyUpdate(w http.ResponseWriter, r *http.Request) {
+	if s.Updates == nil {
+		WriteError(w, http.StatusServiceUnavailable, &Error{Code: "UPDATE_UNAVAILABLE", What: "更新安装未配置"})
+		return
+	}
+	result, err := s.Updates.StartApply()
 	if err != nil {
-		fail(w, err)
+		if errors.Is(err, update.ErrInProgress) {
+			WriteError(w, http.StatusConflict, &Error{Code: "UPDATE_IN_PROGRESS", What: "更新已在进行中"})
+			return
+		}
+		WriteError(w, http.StatusUnprocessableEntity, &Error{Code: "UPDATE_FAILED", What: "安装更新失败", Why: err.Error()})
 		return
 	}
-	if count == 0 {
-		fail(w, store.ErrNotFound)
+	WriteJSON(w, http.StatusAccepted, result)
+}
+
+func (s *Server) updateStatus(w http.ResponseWriter, r *http.Request) {
+	if s.Updates == nil {
+		WriteError(w, http.StatusServiceUnavailable, &Error{Code: "UPDATE_UNAVAILABLE", What: "更新安装未配置"})
 		return
 	}
-	WriteJSON(w, 200, map[string]bool{"deleted": true})
+	WriteJSON(w, http.StatusOK, s.Updates.Status())
 }
 func (s *Server) testNode(w http.ResponseWriter, r *http.Request) {
 	var input struct {

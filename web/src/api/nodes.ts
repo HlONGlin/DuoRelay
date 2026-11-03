@@ -46,3 +46,11 @@ export function testNodeDelay(id: string, timeout = 5000): Promise<DelayResult> 
 export function deleteNode(id: string): Promise<void> {
   return request<void>({ url: `/nodes/${encodeURIComponent(id)}`, method: 'delete' })
 }
+
+export function deleteNodes(ids: string[]): Promise<{ deleted: number }> {
+  return request<{ deleted: number }>({
+    url: '/nodes/batch-delete',
+    method: 'post',
+    data: { node_ids: ids }
+  })
+}

@@ -6,6 +6,7 @@ import Settings from './Settings.vue'
 import { defaultConfig } from '@/stores/config'
 import * as configApi from '@/api/config'
 import * as nodeApi from '@/api/nodes'
+import { request } from '@/api/client'
 import { variant } from '@/stores/variant'
 
 vi.mock('@/api/config', () => ({ getConfig: vi.fn(), updateConfig: vi.fn() }))
@@ -117,6 +118,23 @@ describe('settings workflows', () => {
     wrapper.unmount()
   })
 
+  it('saves a dedicated SOCKS5 port pinned to a selected node', async () => {
+    vi.mocked(nodeApi.listNodes).mockResolvedValue([{
+      id: 'node-1', name: 'Pinned exit', protocol: 'http', owner: 3,
+      server: { host: 'proxy.example', port: 8080 }, status: 'idle'
+    }])
+    const wrapper = await render()
+    await wrapper.findAll('.category-nav button').find(button => button.text() === '通用')!.trigger('click')
+    await wrapper.findAll('button').find(button => button.text().includes('添加端口'))!.trigger('click')
+    expect(wrapper.findAll('.socks-listener-row')).toHaveLength(1)
+    await wrapper.find('.save-bar button').trigger('click')
+    await flushPromises()
+    expect(configApi.updateConfig).toHaveBeenCalledWith(expect.objectContaining({
+      socks_listeners: [{ port: 10809, node_id: 'node-1' }]
+    }))
+    wrapper.unmount()
+  })
+
   it('keeps TUN takeover and SOCKS-only mode mutually exclusive', async () => {
     const wrapper = await render()
     await wrapper.find('[aria-label="仅 SOCKS5 端口使用代理"]').trigger('click')
@@ -136,6 +154,29 @@ describe('settings workflows', () => {
     await wrapper.find('.save-bar button').trigger('click')
     await flushPromises()
     expect(configApi.updateConfig).toHaveBeenCalledWith(expect.objectContaining({ load_balance: defaultConfig().load_balance }))
+    wrapper.unmount()
+  })
+
+  it('checks for updates from the About category', async () => {
+    vi.mocked(request).mockImplementation(async config => {
+      if (typeof config === 'object' && config.url === '/update/check') {
+        return {
+          current_version: '1.0.0',
+          latest_version: '1.1.0',
+          release_name: 'DuoRelay 1.1.0',
+          update_available: true,
+          can_update: true
+        }
+      }
+      return { version: 'test', variant: 'full' }
+    })
+    const wrapper = await render()
+    await wrapper.findAll('.category-nav button').find(button => button.text() === '关于')!.trigger('click')
+    await wrapper.findAll('button').find(button => button.text() === '检查更新')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('DuoRelay 1.1.0')
+    expect(wrapper.text()).toContain('一键更新并重启')
+    expect(request).toHaveBeenCalledWith({ url: '/update/check', timeout: 35000 })
     wrapper.unmount()
   })
 })

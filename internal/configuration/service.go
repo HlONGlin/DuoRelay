@@ -43,6 +43,7 @@ type Settings struct {
 	MixedPort            int                          `json:"mixed_port"`
 	SOCKSOnly            bool                         `json:"socks_only"`
 	SOCKSPort            int                          `json:"socks_port"`
+	SOCKSListeners       []SOCKSListener              `json:"socks_listeners"`
 	LoadBalance          generator.LoadBalanceOptions `json:"load_balance"`
 	AllowLAN             bool                         `json:"allow_lan"`
 	LogLevel             string                       `json:"log_level"`
@@ -73,6 +74,7 @@ type State struct {
 	ID                string                        `json:"id"`
 	Kernel            ir.KernelType                 `json:"kernel"`
 	NodeIDs           []string                      `json:"node_ids"`
+	SOCKSListeners    []SOCKSListener               `json:"socks_listeners,omitempty"`
 	Mode              string                        `json:"mode"`
 	TransparentMode   transparent.Mode              `json:"transparent_mode,omitempty"`
 	LoadBalance       *generator.LoadBalanceOptions `json:"load_balance,omitempty"`
@@ -103,6 +105,7 @@ func (s *State) Public() *State {
 	copy.SystemProxy = nil
 	copy.SystemProxyTarget = ""
 	copy.NodeIDs = append([]string{}, s.NodeIDs...)
+	copy.SOCKSListeners = append([]SOCKSListener{}, s.SOCKSListeners...)
 	return &copy
 }
 
@@ -121,7 +124,7 @@ func New(s *store.Store, runtime Runtime, directory string) *Service {
 
 func (s *Service) SetTransparent(manager *transparent.Manager) { s.Transparent = manager }
 func defaults() Settings {
-	return Settings{ConfigVersion: CurrentConfigVersion, Kernel: ir.KernelType(variant.DefaultKernel), InboundHost: "127.0.0.1", InboundPort: 1080, MixedPort: 7890, SOCKSPort: 10808, LoadBalance: generator.DefaultLoadBalanceOptions(), LogLevel: "info", DNSServers: []string{"223.5.5.5", "8.8.8.8"}, TUNStack: "system", TransparentMode: transparent.ModeOff, RoutingMode: "bypass_mainland", DefaultOutbound: "PROXY", RoutingRules: defaultRoutingRules()}
+	return Settings{ConfigVersion: CurrentConfigVersion, Kernel: ir.KernelType(variant.DefaultKernel), InboundHost: "127.0.0.1", InboundPort: 1080, MixedPort: 7890, SOCKSPort: 10808, SOCKSListeners: []SOCKSListener{}, LoadBalance: generator.DefaultLoadBalanceOptions(), LogLevel: "info", DNSServers: []string{"223.5.5.5", "8.8.8.8"}, TUNStack: "system", TransparentMode: transparent.ModeOff, RoutingMode: "bypass_mainland", DefaultOutbound: "PROXY", RoutingRules: defaultRoutingRules()}
 }
 
 func defaultRoutingRules() []generator.RoutingRule {
@@ -220,6 +223,16 @@ func (s *Service) Settings(ctx context.Context) (Settings, error) {
 	return value, err
 }
 func (s *Service) SaveSettings(ctx context.Context, value Settings) error {
+	// Older panels omit socks_listeners when saving settings. Preserve mappings
+	// in that case; current clients send an explicit empty array to clear them.
+	if value.SOCKSListeners == nil {
+		var previous Settings
+		if err := s.Store.State(ctx, "settings", &previous); err == nil {
+			value.SOCKSListeners = previous.SOCKSListeners
+		} else if !errors.Is(err, store.ErrNotFound) {
+			return err
+		}
+	}
 	if value.ConfigVersion == 0 {
 		value.ConfigVersion = CurrentConfigVersion
 	}
@@ -258,6 +271,15 @@ func (s *Service) SaveSettings(ctx context.Context, value Settings) error {
 	}
 	if value.SOCKSPort < 1 || value.SOCKSPort > 65535 || (value.SOCKSOnly && (value.SOCKSPort == value.MixedPort || value.SOCKSPort == value.InboundPort)) {
 		return fmt.Errorf("%w: SOCKS5 端口无效或与混合端口冲突", store.ErrInvalid)
+	}
+	if err := validateSOCKSListeners(value, value.SOCKSListeners); err != nil {
+		return err
+	}
+	for _, listener := range value.SOCKSListeners {
+		node, err := s.Store.Node(ctx, listener.NodeID)
+		if err != nil || !variant.SupportsProtocol(node.Protocol) {
+			return fmt.Errorf("%w: SOCKS5 端口 %d 指定的节点不存在或当前版本不支持", store.ErrInvalid, listener.Port)
+		}
 	}
 	if err := value.LoadBalance.Validate(); err != nil {
 		return fmt.Errorf("%w: %v", store.ErrInvalid, err)
@@ -505,6 +527,9 @@ func (s *Service) applyPrepared(ctx context.Context, request ApplyRequest, setti
 	if settings.SOCKSOnly && request.Content != "" {
 		return nil, fmt.Errorf("%w: 仅 SOCKS5 代理模式下请从节点生成配置，或先关闭该设置", store.ErrInvalid)
 	}
+	if len(settings.SOCKSListeners) > 0 && request.Content != "" {
+		return nil, fmt.Errorf("%w: 多 SOCKS5 端口需要由节点生成配置", store.ErrInvalid)
+	}
 	nodeIDs := []string{}
 	content := []byte(request.Content)
 	if len(content) == 0 {
@@ -544,11 +569,15 @@ func (s *Service) applyPrepared(ctx context.Context, request ApplyRequest, setti
 				nodeIDs = append(nodeIDs, id)
 			}
 		}
+		extraNodes, socksListeners, err := s.resolveSOCKSListeners(ctx, request.Kernel, settings.SOCKSListeners)
+		if err != nil {
+			return nil, err
+		}
 		defaultOutbound, routingRules := effectiveRouting(settings, request.outbound)
 		if composition != nil && settings.RoutingMode != "blacklist" {
 			defaultOutbound = "PROXY"
 		}
-		options := &generator.GenerateOptions{InboundHost: settings.InboundHost, InboundPort: settings.InboundPort, MixedPort: settings.MixedPort, SystemProxy: settings.SystemProxy, DNSServers: settings.DNSServers, DNSFakeIP: settings.DNSFakeIP, EnableTUN: settings.EnableTUN, TransparentMode: string(settings.TransparentMode), RedirectPort: settings.InboundPort, TProxyPort: settings.InboundPort + 1, TUNStack: settings.TUNStack, LogLevel: settings.LogLevel, DefaultOutbound: defaultOutbound, RoutingRules: routingRules}
+		options := &generator.GenerateOptions{InboundHost: settings.InboundHost, InboundPort: settings.InboundPort, MixedPort: settings.MixedPort, SystemProxy: settings.SystemProxy, DNSServers: settings.DNSServers, DNSFakeIP: settings.DNSFakeIP, EnableTUN: settings.EnableTUN, TransparentMode: string(settings.TransparentMode), RedirectPort: settings.InboundPort, TProxyPort: settings.InboundPort + 1, TUNStack: settings.TUNStack, LogLevel: settings.LogLevel, DefaultOutbound: defaultOutbound, RoutingRules: routingRules, ExtraNodes: extraNodes, SOCKSListeners: socksListeners}
 		options.SOCKSOnly, options.SOCKSPort, options.Composition = settings.SOCKSOnly, settings.SOCKSPort, composition
 		if settings.AllowLAN {
 			options.InboundHost = "0.0.0.0"
@@ -668,7 +697,7 @@ func (s *Service) applyPrepared(ctx context.Context, request ApplyRequest, setti
 			mode = "select"
 		}
 	}
-	state := &State{ConfigVersion: CurrentConfigVersion, ID: id, Kernel: request.Kernel, NodeIDs: nodeIDs, Mode: mode, TransparentMode: settings.TransparentMode, LoadBalance: request.LoadBalance, AppliedAt: time.Now().UTC(), Path: path, Controller: controller, Secret: secret, SystemProxy: proxySnapshot, SystemProxyTarget: proxyTarget}
+	state := &State{ConfigVersion: CurrentConfigVersion, ID: id, Kernel: request.Kernel, NodeIDs: nodeIDs, SOCKSListeners: append([]SOCKSListener{}, settings.SOCKSListeners...), Mode: mode, TransparentMode: settings.TransparentMode, LoadBalance: request.LoadBalance, AppliedAt: time.Now().UTC(), Path: path, Controller: controller, Secret: secret, SystemProxy: proxySnapshot, SystemProxyTarget: proxyTarget}
 	state.Chain = request.chain
 	// Finish the durable state update even if the HTTP client disconnected.
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
