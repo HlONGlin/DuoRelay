@@ -75,5 +75,32 @@ cat > "$STAGING/build-info.json" <<EOF
 {"version":"$VERSION","variant":"$VARIANT","commit":"$COMMIT","build_time":"$BUILD_TIME","platform":"linux/$ARCH","kernels_included":$([[ "$WITH_KERNELS" == 1 ]] && echo true || echo false)}
 EOF
 
-tar -C "$(dirname "$STAGING")" -czf "$ARCHIVE" "$(basename "$STAGING")"
+PACKAGE_NAME="$(basename "$STAGING")"
+PACKAGE_PARENT="$(dirname "$STAGING")"
+TAR_TMP="$(mktemp "$DIST/.${PACKAGE_NAME}.tar.XXXXXX")"
+trap 'rm -f "$TAR_TMP"' EXIT
+
+EXECUTABLES=("$PACKAGE_NAME/duorelay")
+if [[ "$WITH_KERNELS" == 1 ]]; then
+  EXECUTABLES+=("$PACKAGE_NAME/kernels/mihomo")
+  [[ "$VARIANT" == full ]] && EXECUTABLES+=("$PACKAGE_NAME/kernels/sing-box")
+fi
+while IFS= read -r -d '' path; do
+  EXECUTABLES+=("$PACKAGE_NAME/$path")
+done < <(cd "$STAGING" && find deploy -type f -name '*.sh' -print0)
+
+(
+  cd "$PACKAGE_PARENT"
+  find "$PACKAGE_NAME" -type d -print0 |
+    tar --null --no-recursion --mode=0755 -cf "$TAR_TMP" --files-from=-
+  find "$PACKAGE_NAME" -type f \
+    ! -path "$PACKAGE_NAME/duorelay" \
+    ! -path "$PACKAGE_NAME/kernels/mihomo" \
+    ! -path "$PACKAGE_NAME/kernels/sing-box" \
+    ! -name '*.sh' -print0 |
+    tar --null --no-recursion --mode=0644 -rf "$TAR_TMP" --files-from=-
+  printf '%s\0' "${EXECUTABLES[@]}" |
+    tar --null --no-recursion --mode=0755 -rf "$TAR_TMP" --files-from=-
+)
+gzip -n -c "$TAR_TMP" > "$ARCHIVE"
 echo "created $ARCHIVE"
