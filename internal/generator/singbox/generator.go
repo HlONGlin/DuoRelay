@@ -5,6 +5,7 @@ package singbox
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"runtime"
 	"strconv"
 	"strings"
@@ -56,8 +57,23 @@ func (g *Generator) Generate(nodes []*ir.Node, opts *generator.GenerateOptions) 
 		}
 		extraNodes = append(extraNodes, node)
 	}
+	runtimeNodes := generator.PrepareRuntimeNames(append(append([]*ir.Node{}, validNodes...), extraNodes...))
+	validNodes = runtimeNodes[:len(validNodes)]
+	extraNodes = runtimeNodes[len(validNodes):]
+	listeners := append([]generator.SOCKSListener(nil), opts.SOCKSListeners...)
+	for i := range listeners {
+		for j, original := range opts.ExtraNodes {
+			if listeners[i].Outbound == original.Name && j < len(extraNodes) {
+				listeners[i].Outbound = extraNodes[j].Name
+				break
+			}
+		}
+	}
 
-	dns, resolver := g.generateDNS(opts)
+	dns, resolver, err := g.generateDNS(opts)
+	if err != nil {
+		return nil, err
+	}
 
 	// Separate endpoints from outbounds
 	outbounds, endpoints, err := g.generateOutboundsAndEndpoints(validNodes)
@@ -103,7 +119,8 @@ func (g *Generator) Generate(nodes []*ir.Node, opts *generator.GenerateOptions) 
 		if err != nil {
 			return nil, err
 		}
-		outbounds = append(outbounds, extraOutbounds...)
+		// This helper includes the built-in tags, already emitted above.
+		outbounds = append(outbounds, extraOutbounds[2:]...)
 		endpoints = append(endpoints, extraEndpoints...)
 	}
 	available := make(map[string]struct{}, len(outbounds))
@@ -118,16 +135,20 @@ func (g *Generator) Generate(nodes []*ir.Node, opts *generator.GenerateOptions) 
 	if err := generator.ValidateOutboundReferences(opts.DefaultOutbound, opts.RoutingRules, available); err != nil {
 		return nil, err
 	}
-	if err := generator.ValidateSOCKSListenerOutbounds(opts.SOCKSListeners, available); err != nil {
+	if err := generator.ValidateSOCKSListenerOutbounds(listeners, available); err != nil {
 		return nil, err
 	}
+	// Proxy server names use the bootstrap resolver through the route default;
+	// user destinations on DIRECT must use the configured business DNS instead.
+	// DNS transports use their own direct dialer so this cannot recurse.
+	outbounds[0]["domain_resolver"] = dns["final"]
 	config := map[string]any{
 		"log": map[string]any{
 			"level": opts.LogLevel,
 		},
 		"dns":      dns,
 		"inbounds": g.generateInbounds(opts),
-		"route":    g.generateRoute(opts, resolver),
+		"route":    g.generateRouteWithListeners(opts, resolver, listeners),
 	}
 	config["outbounds"] = outbounds
 	if len(endpoints) > 0 {
@@ -143,7 +164,16 @@ func (g *Generator) Generate(nodes []*ir.Node, opts *generator.GenerateOptions) 
 	return json.MarshalIndent(config, "", "  ")
 }
 
+func (g *Generator) generateRouteWithListeners(opts *generator.GenerateOptions, resolver string, listeners []generator.SOCKSListener) map[string]any {
+	copy := *opts
+	copy.SOCKSListeners = listeners
+	return g.generateRoute(&copy, resolver)
+}
+
 func usesProxyOutbound(opts *generator.GenerateOptions) bool {
+	if opts.DNSDetour == "PROXY" {
+		return true
+	}
 	if opts.DefaultOutbound == "PROXY" {
 		return true
 	}
@@ -160,31 +190,43 @@ func usesProxyOutbound(opts *generator.GenerateOptions) bool {
 
 // generateDNS builds the DNS config using the sing-box 1.12+ server format.
 // It returns the config and the tag of the default domain resolver.
-func (g *Generator) generateDNS(opts *generator.GenerateOptions) (map[string]any, string) {
+func (g *Generator) generateDNS(opts *generator.GenerateOptions) (map[string]any, string, error) {
 	servers := make([]map[string]any, 0, len(opts.DNSServers)+1)
 	rules := make([]map[string]any, 0, 1)
-	resolver := ""
+	resolver := "dns-bootstrap"
+	bootstrap := generator.DNSBootstrap(opts)
+	if net.ParseIP(bootstrap) == nil {
+		return nil, "", fmt.Errorf("DNS bootstrap must be an IP address")
+	}
+	// An omitted detour uses the DNS transport's direct dialer. sing-box rejects
+	// an explicit detour to a direct outbound without dialer options at startup.
+	servers = append(servers, map[string]any{"type": "udp", "tag": resolver, "server": bootstrap})
 
 	for i, server := range opts.DNSServers {
-		tag := fmt.Sprintf("dns-%d", i)
-		servers = append(servers, map[string]any{
-			"type":   "udp",
-			"server": server,
-			"tag":    tag,
-		})
-		if i == 0 {
-			resolver = tag
+		address, err := generator.ParseDNSAddress(server)
+		if err != nil {
+			return nil, "", fmt.Errorf("DNS server %d: %w", i+1, err)
 		}
+		tag := fmt.Sprintf("dns-%d", i)
+		serverConfig := map[string]any{
+			"type":        address.Type,
+			"server":      address.Host,
+			"server_port": address.Port,
+			"tag":         tag,
+		}
+		if detour := generator.DNSDetour(opts); detour != "DIRECT" {
+			serverConfig["detour"] = detour
+		}
+		if address.Path != "" {
+			serverConfig["path"] = address.Path
+		}
+		if net.ParseIP(address.Host) == nil {
+			serverConfig["domain_resolver"] = resolver
+		}
+		servers = append(servers, serverConfig)
 	}
 
 	// sing-box 1.14 requires a domain resolver for outbound domain addresses.
-	if len(servers) == 0 {
-		resolver = "dns-default"
-		servers = append(servers, map[string]any{
-			"type": "local",
-			"tag":  resolver,
-		})
-	}
 
 	if opts.DNSFakeIP {
 		servers = append(servers, map[string]any{
@@ -202,11 +244,16 @@ func (g *Generator) generateDNS(opts *generator.GenerateOptions) (map[string]any
 	dns := map[string]any{
 		"servers": servers,
 	}
+	if len(opts.DNSServers) > 0 {
+		dns["final"] = "dns-0"
+	} else {
+		dns["final"] = resolver
+	}
 	if len(rules) > 0 {
 		dns["rules"] = rules
 	}
 
-	return dns, resolver
+	return dns, resolver, nil
 }
 
 func (g *Generator) generateInbounds(opts *generator.GenerateOptions) []map[string]any {
@@ -275,6 +322,9 @@ func (g *Generator) generateOutboundsAndEndpoints(nodes []*ir.Node) ([]map[strin
 
 	for _, node := range nodes {
 		// OpenConnect and OpenVPN are endpoints, not outbounds
+		if err := ir.ValidateConnectionFeatures(node); err != nil {
+			return nil, nil, err
+		}
 		if node.Protocol == ir.ProtocolOpenConnect {
 			endpoint := g.convertOpenConnectEndpoint(node)
 			if endpoint != nil {
@@ -324,6 +374,7 @@ func (g *Generator) generateRoute(opts *generator.GenerateOptions, resolver stri
 		mode = "tun"
 	}
 	if mode == "tun" {
+		rules = append(rules, map[string]any{"inbound": []string{"tun-in"}, "action": "sniff"})
 		rules = append(rules, map[string]any{"protocol": []string{"dns"}, "action": "hijack-dns"})
 	}
 	for _, listener := range opts.SOCKSListeners {
@@ -843,10 +894,10 @@ func (g *Generator) convertVMess(node *ir.Node) map[string]any {
 		if len(node.Security.ALPN) > 0 {
 			tls["alpn"] = node.Security.ALPN
 		}
-		if node.Security.Fingerprint != "" {
+		if fingerprint := realityFingerprint(node); fingerprint != "" {
 			tls["utls"] = map[string]any{
 				"enabled":     true,
-				"fingerprint": node.Security.Fingerprint,
+				"fingerprint": fingerprint,
 			}
 		}
 		outbound["tls"] = tls
@@ -883,6 +934,8 @@ func (g *Generator) convertVLESS(node *ir.Node) map[string]any {
 			if node.Transport.Path != "" {
 				transport["service_name"] = node.Transport.Path
 			}
+		case "xhttp":
+			return nil
 		}
 		outbound["transport"] = transport
 	}
@@ -895,8 +948,12 @@ func (g *Generator) convertVLESS(node *ir.Node) map[string]any {
 		if len(node.Security.ALPN) > 0 {
 			tls["alpn"] = node.Security.ALPN
 		}
-		if node.Security.Fingerprint != "" {
-			tls["utls"] = map[string]any{"enabled": true, "fingerprint": node.Security.Fingerprint}
+		fingerprint := node.Security.Fingerprint
+		if node.Security.Type == "reality" && fingerprint == "" {
+			fingerprint = "chrome"
+		}
+		if fingerprint != "" {
+			tls["utls"] = map[string]any{"enabled": true, "fingerprint": fingerprint}
 		}
 		if node.Security.Type == "reality" {
 			reality := map[string]any{"enabled": true}
@@ -949,8 +1006,8 @@ func (g *Generator) convertTrojan(node *ir.Node) map[string]any {
 		if len(node.Security.ALPN) > 0 {
 			tls["alpn"] = node.Security.ALPN
 		}
-		if node.Security.Fingerprint != "" {
-			tls["utls"] = map[string]any{"enabled": true, "fingerprint": node.Security.Fingerprint}
+		if fingerprint := realityFingerprint(node); fingerprint != "" {
+			tls["utls"] = map[string]any{"enabled": true, "fingerprint": fingerprint}
 		}
 		outbound["tls"] = tls
 	}
@@ -981,8 +1038,8 @@ func (g *Generator) convertHysteria2(node *ir.Node) map[string]any {
 	if len(node.Security.ALPN) > 0 {
 		tls["alpn"] = node.Security.ALPN
 	}
-	if node.Security.Fingerprint != "" {
-		tls["utls"] = map[string]any{"enabled": true, "fingerprint": node.Security.Fingerprint}
+	if fingerprint := realityFingerprint(node); fingerprint != "" {
+		tls["utls"] = map[string]any{"enabled": true, "fingerprint": fingerprint}
 	}
 	if node.Security.Opts != nil {
 		if insecure, ok := node.Security.Opts["insecure"].(bool); ok {
@@ -1019,8 +1076,8 @@ func (g *Generator) convertTUIC(node *ir.Node) map[string]any {
 	if len(node.Security.ALPN) > 0 {
 		tls["alpn"] = node.Security.ALPN
 	}
-	if node.Security.Fingerprint != "" {
-		tls["utls"] = map[string]any{"enabled": true, "fingerprint": node.Security.Fingerprint}
+	if fingerprint := realityFingerprint(node); fingerprint != "" {
+		tls["utls"] = map[string]any{"enabled": true, "fingerprint": fingerprint}
 	}
 	if node.Security.Opts != nil {
 		if insecure, ok := node.Security.Opts["insecure"].(bool); ok {
@@ -1062,8 +1119,8 @@ func (g *Generator) convertHysteria(node *ir.Node) map[string]any {
 	if len(node.Security.ALPN) > 0 {
 		tls["alpn"] = node.Security.ALPN
 	}
-	if node.Security.Fingerprint != "" {
-		tls["utls"] = map[string]any{"enabled": true, "fingerprint": node.Security.Fingerprint}
+	if fingerprint := realityFingerprint(node); fingerprint != "" {
+		tls["utls"] = map[string]any{"enabled": true, "fingerprint": fingerprint}
 	}
 	outbound["tls"] = tls
 	return outbound
@@ -1086,8 +1143,8 @@ func (g *Generator) convertAnyTLS(node *ir.Node) map[string]any {
 	if len(node.Security.ALPN) > 0 {
 		tls["alpn"] = node.Security.ALPN
 	}
-	if node.Security.Fingerprint != "" {
-		tls["utls"] = map[string]any{"enabled": true, "fingerprint": node.Security.Fingerprint}
+	if fingerprint := realityFingerprint(node); fingerprint != "" {
+		tls["utls"] = map[string]any{"enabled": true, "fingerprint": fingerprint}
 	}
 	if node.Security.Opts != nil {
 		if insecure, ok := node.Security.Opts["insecure"].(bool); ok {
@@ -1140,6 +1197,19 @@ func (g *Generator) convertOpenConnectEndpoint(node *ir.Node) map[string]any {
 	}
 
 	return endpoint
+}
+
+func realityFingerprint(node *ir.Node) string {
+	if node == nil {
+		return ""
+	}
+	if node.Security.Fingerprint != "" {
+		return node.Security.Fingerprint
+	}
+	if node.Security.Type == "reality" {
+		return "chrome"
+	}
+	return ""
 }
 
 // Validate validates sing-box config by calling sing-box check

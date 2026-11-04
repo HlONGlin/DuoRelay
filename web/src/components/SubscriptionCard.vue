@@ -13,6 +13,9 @@
     </div>
 
     <div class="sub-url">{{ maskUrl(subscription.url) }}</div>
+    <el-alert v-if="subscription.last_error" :title="subscription.last_error" type="error" :closable="false" />
+    <details v-if="subscription.skipped?.length"><summary>{{ t('跳过的无效条目：', 'Skipped entries: ') }}{{ subscription.skipped.length }}</summary><ul><li v-for="skip in subscription.skipped" :key="skip.line">{{ skip.line }}: {{ skip.reason }}</li></ul></details>
+    <p v-if="subscription.diff?.duplicates">{{ t('已跳过重复节点：', 'Duplicates skipped: ') }}{{ subscription.diff.duplicates }}</p>
 
     <div class="sub-usage">
       <div class="usage-row">
@@ -72,6 +75,7 @@ defineEmits<{
 
 const statusLabel = computed(() => {
   switch (props.subscription.last_status) {
+    case 'ok':
     case 'success':
       return t('正常', 'OK')
     case 'error':

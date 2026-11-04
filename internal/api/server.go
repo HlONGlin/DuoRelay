@@ -214,6 +214,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/subscription-groups", s.groups)
 	s.mux.HandleFunc("GET /api/nodes", s.listNodes)
 	s.mux.HandleFunc("POST /api/nodes", s.createNode)
+	s.mux.HandleFunc("PUT /api/nodes/{id}", s.editNode)
 	s.mux.HandleFunc("POST /api/nodes/import", s.importNodes)
 	s.mux.HandleFunc("DELETE /api/nodes/{id}", s.deleteNode)
 	s.mux.HandleFunc("POST /api/nodes/batch-delete", s.deleteNodes)
@@ -232,6 +233,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/config/apply", s.applyConfig)
 	s.mux.HandleFunc("POST /api/config/chain/preview", s.previewChain)
 	s.mux.HandleFunc("GET /api/kernel/logs", s.logs)
+	s.mux.HandleFunc("DELETE /api/kernel/logs", s.clearLogs)
+	s.mux.HandleFunc("GET /api/kernel/logs/policy", s.logPolicy)
+	s.mux.HandleFunc("PUT /api/kernel/logs/policy", s.logPolicy)
 	s.mux.HandleFunc("GET /api/kernel/logs/summary", s.logSummary)
 	s.mux.HandleFunc("GET /ws/logs", s.logStream)
 	s.mux.HandleFunc("GET /api/kernel/status", s.kernelStatus)
@@ -271,7 +275,7 @@ func fail(w http.ResponseWriter, err error) {
 	case errors.Is(err, context.Canceled):
 		WriteError(w, 408, &Error{Code: "CANCELLED", What: "Operation cancelled"})
 	case errors.Is(err, subscription.ErrUpdate):
-		WriteError(w, 502, &Error{Code: "SUBSCRIPTION_UPDATE_FAILED", What: "Subscription update failed; previous nodes were retained"})
+		WriteError(w, 502, &Error{Code: "SUBSCRIPTION_UPDATE_FAILED", What: "Subscription update failed; previous nodes were retained", Why: err.Error()})
 	case errors.Is(err, configuration.ErrApply):
 		why := strings.Join(strings.Fields(strings.TrimSpace(err.Error())), " ")
 		if len(why) > 500 {
@@ -344,7 +348,7 @@ func (s *Server) updateSubscription(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	WriteJSON(w, 200, map[string]any{"nodes_added": sub.Diff.Added, "nodes_removed": sub.Diff.Removed, "nodes_changed": sub.Diff.Changed, "nodes_total": len(nodes), "subscription": sub})
+	WriteJSON(w, 200, map[string]any{"nodes_added": sub.Diff.Added, "nodes_removed": sub.Diff.Removed, "nodes_changed": sub.Diff.Changed, "nodes_total": len(nodes), "duplicates": sub.Diff.Duplicates, "skipped": sub.Skipped, "subscription": sub})
 }
 func (s *Server) groups(w http.ResponseWriter, r *http.Request) {
 	values, err := s.Subscriptions.Groups(r.Context())
@@ -422,11 +426,83 @@ func (s *Server) createNode(w http.ResponseWriter, r *http.Request) {
 	node.ID = ""
 	node.Source = ir.Source{Type: "manual"}
 	node.Owner = ir.GetProtocolOwner(node.Protocol)
+	if err := ir.ValidateConnectionFeatures(&node); err != nil {
+		fail(w, fmt.Errorf("%w: %v", store.ErrInvalid, err))
+		return
+	}
 	if err := s.Store.SaveNode(r.Context(), &node); err != nil {
 		fail(w, err)
 		return
 	}
 	WriteJSON(w, 201, node)
+}
+
+func (s *Server) editNode(w http.ResponseWriter, r *http.Request) {
+	node, err := s.Store.Node(r.Context(), r.PathValue("id"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	var input map[string]json.RawMessage
+	if err := decode(w, r, &input, false); err != nil {
+		fail(w, err)
+		return
+	}
+	allowed := map[string]bool{"name": true, "server": true, "transport": true, "security": true, "proto": true, "extra": true, "group_id": true, "tags": true, "favorite": true, "sort_order": true}
+	for key, value := range input {
+		if !allowed[key] {
+			fail(w, fmt.Errorf("%w: field %s cannot be edited", store.ErrInvalid, key))
+			return
+		}
+		if string(value) == "null" {
+			fail(w, fmt.Errorf("%w: field %s cannot be null", store.ErrInvalid, key))
+			return
+		}
+		if unmarshalErr := json.Unmarshal(value, nodeField(node, key)); unmarshalErr != nil {
+			fail(w, fmt.Errorf("%w: invalid field %s", store.ErrInvalid, key))
+			return
+		}
+	}
+	if err := validateEditedNode(node); err != nil {
+		fail(w, err)
+		return
+	}
+	node.Owner = ir.GetProtocolOwner(node.Protocol)
+	if node.Protocol == ir.ProtocolVLESS && node.Transport.Type == "xhttp" {
+		node.Owner = ir.KernelSetMihomo
+	}
+	if err := s.Store.SaveNode(r.Context(), node); err != nil {
+		fail(w, err)
+		return
+	}
+	WriteJSON(w, http.StatusOK, node)
+}
+
+func nodeField(node *ir.Node, key string) any {
+	switch key {
+	case "name":
+		return &node.Name
+	case "server":
+		return &node.Server
+	case "transport":
+		return &node.Transport
+	case "security":
+		return &node.Security
+	case "proto":
+		return &node.Proto
+	case "extra":
+		return &node.Extra
+	case "group_id":
+		return &node.GroupID
+	case "tags":
+		return &node.Tags
+	case "favorite":
+		return &node.Favorite
+	case "sort_order":
+		return &node.SortOrder
+	default:
+		return new(any)
+	}
 }
 
 func (s *Server) importNodes(w http.ResponseWriter, r *http.Request) {
@@ -445,7 +521,7 @@ func (s *Server) importNodes(w http.ResponseWriter, r *http.Request) {
 		fail(w, fmt.Errorf("%w: subscription parser is not configured", store.ErrInvalid))
 		return
 	}
-	nodes, err := s.Subscriptions.Parse([]byte(input.Content))
+	nodes, skipped, err := s.Subscriptions.ParseDetailed([]byte(input.Content))
 	if err != nil {
 		fail(w, fmt.Errorf("%w: %v", store.ErrInvalid, err))
 		return
@@ -454,16 +530,22 @@ func (s *Server) importNodes(w http.ResponseWriter, r *http.Request) {
 		fail(w, fmt.Errorf("%w: content contains no usable nodes", store.ErrInvalid))
 		return
 	}
+	duplicates := 0
+	imported := make([]*ir.Node, 0, len(nodes))
 	for _, node := range nodes {
 		node.ID = ""
 		node.Source = ir.Source{Type: "import"}
-		node.Owner = ir.GetProtocolOwner(node.Protocol)
-		if err := s.Store.SaveNode(r.Context(), node); err != nil {
+		added, err := s.Store.ImportNode(r.Context(), node)
+		if err != nil {
 			fail(w, err)
 			return
+		} else if !added {
+			duplicates++
+			continue
 		}
+		imported = append(imported, node)
 	}
-	WriteJSON(w, 201, map[string]any{"nodes": nodes, "nodes_total": len(nodes)})
+	WriteJSON(w, 201, map[string]any{"nodes": imported, "nodes_total": len(imported), "added": len(imported), "duplicates": duplicates, "skipped": skipped})
 }
 
 func (s *Server) deleteNodes(w http.ResponseWriter, r *http.Request) {
@@ -902,6 +984,9 @@ func (s *Server) logStream(w http.ResponseWriter, r *http.Request) {
 	}
 	ticker := time.NewTicker(25 * time.Second)
 	defer ticker.Stop()
+	flush := time.NewTicker(250 * time.Millisecond)
+	defer flush.Stop()
+	pending := make(map[string]kernel.LogEntry)
 	for {
 		select {
 		case <-r.Context().Done():
@@ -915,9 +1000,25 @@ func (s *Server) logStream(w http.ResponseWriter, r *http.Request) {
 			if !matchesLog(query, entry) {
 				continue
 			}
-			if err := write(map[string]any{"type": "log", "log": logEntryJSON(entry, classifyLogLevel(entry))}); err != nil {
-				return
+			key := entry.Source + "\x00" + kernel.LogMessageKey(entry.Line)
+			previous, exists := pending[key]
+			if !exists && len(pending) >= kernel.DefaultLogViewLimit {
+				continue
 			}
+			entry.Count = previous.Count + max(1, entry.Count)
+			pending[key] = entry
+		case <-flush.C:
+			batch := make([]kernel.LogEntry, 0, len(pending))
+			for _, entry := range pending {
+				batch = append(batch, entry)
+			}
+			sort.Slice(batch, func(i, j int) bool { return batch[i].Timestamp.Before(batch[j].Timestamp) })
+			for _, entry := range batch {
+				if err := write(map[string]any{"type": "log", "log": logEntryJSON(entry, classifyLogLevel(entry))}); err != nil {
+					return
+				}
+			}
+			clear(pending)
 		case <-ticker.C:
 			// A client that only receives server heartbeats is still alive. Refresh
 			// the read deadline before sending the next ping so idle dashboards do
@@ -952,7 +1053,7 @@ func (s *Server) parseLogQuery(r *http.Request) (logQuery, error) {
 	if name != "sing-box" && name != "mihomo" {
 		return logQuery{}, fmt.Errorf("%w: invalid kernel", store.ErrInvalid)
 	}
-	result := logQuery{Kernel: name, Limit: 200, Level: strings.ToLower(strings.TrimSpace(query.Get("level"))), Source: strings.ToLower(strings.TrimSpace(query.Get("source"))), Search: strings.TrimSpace(query.Get("search"))}
+	result := logQuery{Kernel: name, Limit: kernel.DefaultLogViewLimit, Level: strings.ToLower(strings.TrimSpace(query.Get("level"))), Source: strings.ToLower(strings.TrimSpace(query.Get("source"))), Search: strings.TrimSpace(query.Get("search"))}
 	if value := query.Get("limit"); value != "" {
 		parsed, err := strconv.Atoi(value)
 		if err != nil || parsed < 1 || parsed > 10000 {
@@ -977,17 +1078,19 @@ func (s *Server) filteredLogs(query logQuery) []map[string]any {
 	if query.Search != "" {
 		query.Search = strings.ToLower(query.Search)
 	}
-	filtered := make([]map[string]any, 0, min(query.Limit, len(entries)))
+	filtered := make([]kernel.LogEntry, 0, min(query.Limit*2, len(entries)))
 	for _, entry := range entries {
 		if !matchesLog(query, entry) {
 			continue
 		}
-		filtered = append(filtered, logEntryJSON(entry, classifyLogLevel(entry)))
+		filtered = append(filtered, entry)
 	}
-	if len(filtered) > query.Limit {
-		filtered = filtered[len(filtered)-query.Limit:]
+	collapsed := kernel.CollapseLogs(filtered, query.Limit)
+	result := make([]map[string]any, 0, len(collapsed))
+	for _, entry := range collapsed {
+		result = append(result, logEntryJSON(entry, classifyLogLevel(entry)))
 	}
-	return filtered
+	return result
 }
 
 func matchesLog(query logQuery, entry kernel.LogEntry) bool {
@@ -1062,7 +1165,7 @@ func (s *Server) logSummary(w http.ResponseWriter, r *http.Request) {
 }
 
 func logEntryJSON(entry kernel.LogEntry, level string) map[string]any {
-	return map[string]any{"time": entry.Timestamp, "level": level, "message": entry.Line, "timestamp": entry.Timestamp, "source": entry.Source, "line": entry.Line}
+	return map[string]any{"time": entry.Timestamp, "level": level, "message": entry.Line, "timestamp": entry.Timestamp, "source": entry.Source, "line": entry.Line, "count": max(1, entry.Count), "repeat_key": kernel.LogMessageKey(entry.Line)}
 }
 
 func classifyLogLevel(entry kernel.LogEntry) string {

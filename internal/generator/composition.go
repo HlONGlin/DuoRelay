@@ -42,6 +42,31 @@ func (o LoadBalanceOptions) Validate() error {
 	return nil
 }
 
+// PrepareRuntimeNames returns copies with names that are unique within one
+// generated kernel configuration. The stored display name remains unchanged.
+func PrepareRuntimeNames(nodes []*ir.Node) []*ir.Node {
+	used := map[string]bool{"DIRECT": true, "REJECT": true, "PROXY": true}
+	prepared := make([]*ir.Node, 0, len(nodes))
+	for _, node := range nodes {
+		if node == nil {
+			prepared = append(prepared, nil)
+			continue
+		}
+		copy := *node
+		base := strings.TrimSpace(node.Name)
+		if base == "" {
+			base = "节点"
+		}
+		copy.Name = base
+		for suffix := 2; used[copy.Name]; suffix++ {
+			copy.Name = fmt.Sprintf("%s (%d)", base, suffix)
+		}
+		used[copy.Name] = true
+		prepared = append(prepared, &copy)
+	}
+	return prepared
+}
+
 // PrepareComposition validates instead of silently omitting incompatible nodes.
 // Duplicate display names get distinct runtime tags without changing the store.
 func PrepareComposition(nodes []*ir.Node, c *Composition, kernel ir.KernelType) ([]*ir.Node, error) {
@@ -69,9 +94,7 @@ func PrepareComposition(nodes []*ir.Node, c *Composition, kernel ir.KernelType) 
 	default:
 		return nil, fmt.Errorf("不支持的多节点启动方式")
 	}
-	used := map[string]bool{"DIRECT": true, "REJECT": true, "PROXY": true}
 	ids := map[string]bool{}
-	prepared := make([]*ir.Node, 0, len(nodes))
 	for _, node := range nodes {
 		if node == nil {
 			return nil, fmt.Errorf("节点不存在")
@@ -83,18 +106,8 @@ func PrepareComposition(nodes []*ir.Node, c *Composition, kernel ir.KernelType) 
 			return nil, fmt.Errorf("请勿重复选择同一个节点")
 		}
 		ids[node.ID] = true
-		copy := *node
-		base := strings.TrimSpace(node.Name)
-		if base == "" {
-			base = "节点"
-		}
-		copy.Name = base
-		for suffix := 2; used[copy.Name]; suffix++ {
-			copy.Name = fmt.Sprintf("%s (%d)", base, suffix)
-		}
-		used[copy.Name] = true
-		prepared = append(prepared, &copy)
 	}
+	prepared := PrepareRuntimeNames(nodes)
 	if c.Mode == "chain" {
 		if _, err := PlanChain(prepared, kernel, true); err != nil {
 			return nil, err

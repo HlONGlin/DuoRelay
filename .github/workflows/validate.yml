@@ -1,0 +1,68 @@
+name: Validate full and lite
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Check documentation and installer
+        run: |
+          python3 scripts/check-docs.py
+          bash -n scripts/install-linux.sh
+          python3 scripts/test-bootstrap-linux.py
+          python3 scripts/test-install-linux.py
+      - name: Build and test frontend
+        working-directory: web
+        run: |
+          npm ci --no-audit --no-fund
+          npm run type-check
+          npm test
+          npm run build
+      - name: Download and verify pinned Linux kernels
+        run: go run ./deploy/docker/download-kernels.go --arch amd64 --out kernels --variant full
+      - name: Test full and lite with required kernel checks
+        env:
+          DUORELAY_REQUIRE_KERNELS: '1'
+        run: |
+          go test ./...
+          go test -tags lite ./...
+          go vet ./...
+          go vet -tags lite ./...
+          go test -race ./internal/kernel ./internal/configuration ./internal/subscription ./internal/store ./internal/api ./internal/auth
+      - name: Build and run API and real SOCKS traffic acceptance
+        run: |
+          go build -o /tmp/duorelay-full ./cmd/duorelay
+          go build -tags lite -o /tmp/duorelay-lite ./cmd/duorelay
+          python3 scripts/acceptance-api.py --full /tmp/duorelay-full --lite /tmp/duorelay-lite --kernels kernels --work /tmp/duorelay-acceptance
+      - name: Cross compile desktop targets
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          for target in windows/amd64 darwin/amd64 darwin/arm64; do
+            for variant in full lite; do
+              GOOS=${target%/*} GOARCH=${target#*/} go build -tags "$variant" -o /tmp/duorelay-${target%/*}-${target#*/}-$variant ./cmd/duorelay
+            done
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-acceptance-results
+          path: /tmp/duorelay-acceptance
+          if-no-files-found: ignore

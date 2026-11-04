@@ -121,6 +121,9 @@ export interface ProxyNode {
 }
 
 export interface Subscription {
+	last_error?: string
+	skipped?: { line: number; reason: string }[]
+	diff?: { duplicates?: number }
   id: string
   name: string
   url: string
@@ -153,6 +156,8 @@ export interface KernelStatus {
 }
 
 export interface KernelLog {
+	count?: number
+	repeat_key?: string
   time: string
   level: string
   message: string
@@ -259,11 +264,14 @@ export interface AppConfig {
   allow_lan: boolean
   log_level: LogLevel
   dns_servers: string[]
+  dns_bootstrap?: string
+  dns_detour?: string
   dns_fake_ip: boolean
   enable_tun: boolean
   transparent_mode: TransparentMode
   transparent_modes?: TransparentModeInfo[]
   transparent_active?: TransparentMode
+  transparent_reason?: string
   tun_stack: TunStack
   system_proxy: boolean
   system_proxy_supported: boolean

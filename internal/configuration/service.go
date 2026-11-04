@@ -49,10 +49,13 @@ type Settings struct {
 	LogLevel             string                       `json:"log_level"`
 	DNSServers           []string                     `json:"dns_servers"`
 	DNSFakeIP            bool                         `json:"dns_fake_ip"`
+	DNSBootstrap         string                       `json:"dns_bootstrap"`
+	DNSDetour            string                       `json:"dns_detour"`
 	EnableTUN            bool                         `json:"enable_tun"`
 	TransparentMode      transparent.Mode             `json:"transparent_mode"`
 	TransparentModes     []transparent.ModeInfo       `json:"transparent_modes,omitempty"`
 	TransparentActive    transparent.Mode             `json:"transparent_active,omitempty"`
+	TransparentReason    string                       `json:"transparent_reason,omitempty"`
 	TUNStack             string                       `json:"tun_stack"`
 	SystemProxy          bool                         `json:"system_proxy"`
 	SystemProxySupported bool                         `json:"system_proxy_supported"`
@@ -77,6 +80,7 @@ type State struct {
 	SOCKSListeners    []SOCKSListener               `json:"socks_listeners,omitempty"`
 	Mode              string                        `json:"mode"`
 	TransparentMode   transparent.Mode              `json:"transparent_mode,omitempty"`
+	TransparentPort   int                           `json:"transparent_port,omitempty"`
 	LoadBalance       *generator.LoadBalanceOptions `json:"load_balance,omitempty"`
 	AppliedAt         time.Time                     `json:"applied_at"`
 	Path              string                        `json:"path,omitempty"`
@@ -86,6 +90,7 @@ type State struct {
 	Auxiliary         []RuntimeConfig               `json:"auxiliary,omitempty"`
 	SystemProxy       *systemproxy.Snapshot         `json:"system_proxy,omitempty"`
 	SystemProxyTarget string                        `json:"system_proxy_target,omitempty"`
+	RuntimeNames      map[string]string             `json:"runtime_names,omitempty"`
 }
 
 type RuntimeConfig struct {
@@ -104,6 +109,7 @@ func (s *State) Public() *State {
 	copy.Auxiliary = nil
 	copy.SystemProxy = nil
 	copy.SystemProxyTarget = ""
+	copy.RuntimeNames = nil
 	copy.NodeIDs = append([]string{}, s.NodeIDs...)
 	copy.SOCKSListeners = append([]SOCKSListener{}, s.SOCKSListeners...)
 	return &copy
@@ -124,7 +130,7 @@ func New(s *store.Store, runtime Runtime, directory string) *Service {
 
 func (s *Service) SetTransparent(manager *transparent.Manager) { s.Transparent = manager }
 func defaults() Settings {
-	return Settings{ConfigVersion: CurrentConfigVersion, Kernel: ir.KernelType(variant.DefaultKernel), InboundHost: "127.0.0.1", InboundPort: 1080, MixedPort: 7890, SOCKSPort: 10808, SOCKSListeners: []SOCKSListener{}, LoadBalance: generator.DefaultLoadBalanceOptions(), LogLevel: "info", DNSServers: []string{"223.5.5.5", "8.8.8.8"}, TUNStack: "system", TransparentMode: transparent.ModeOff, RoutingMode: "bypass_mainland", DefaultOutbound: "PROXY", RoutingRules: defaultRoutingRules()}
+	return Settings{ConfigVersion: CurrentConfigVersion, Kernel: ir.KernelType(variant.DefaultKernel), InboundHost: "127.0.0.1", InboundPort: 1080, MixedPort: 7890, SOCKSPort: 10808, SOCKSListeners: []SOCKSListener{}, LoadBalance: generator.DefaultLoadBalanceOptions(), LogLevel: "info", DNSServers: []string{"https://1.1.1.1/dns-query"}, DNSBootstrap: "223.5.5.5", DNSDetour: "PROXY", TUNStack: "system", TransparentMode: transparent.ModeOff, RoutingMode: "bypass_mainland", DefaultOutbound: "PROXY", RoutingRules: defaultRoutingRules()}
 }
 
 func defaultRoutingRules() []generator.RoutingRule {
@@ -186,19 +192,22 @@ func (s *Service) Settings(ctx context.Context) (Settings, error) {
 	}
 	if sameRoutingRules(value.RoutingRules, defaultRoutingRules()) {
 		for i := range value.RoutingRules {
-			value.RoutingRules[i].Source = "bypass"
-			value.RoutingRules[i].Enabled = true
-			value.RoutingRules[i].ID = fmt.Sprintf("bypass-%d", i+1)
+			if value.RoutingRules[i].ID == "" {
+				value.RoutingRules[i].Source = "bypass"
+				value.RoutingRules[i].Enabled = true
+				value.RoutingRules[i].ID = fmt.Sprintf("bypass-%d", i+1)
+			}
 		}
 	}
 	for i := range value.RoutingRules {
+		legacyRule := value.RoutingRules[i].ID == ""
 		if value.RoutingRules[i].Source == "" {
 			value.RoutingRules[i].Source = "user"
 		}
 		if value.RoutingRules[i].ID == "" {
 			value.RoutingRules[i].ID = fmt.Sprintf("rule-%d", i+1)
 		}
-		if !value.RoutingRules[i].Enabled {
+		if !value.RoutingRules[i].Enabled && legacyRule {
 			// The old model had no enabled field, so old rules remain active.
 			value.RoutingRules[i].Enabled = true
 		}
@@ -214,8 +223,26 @@ func (s *Service) Settings(ctx context.Context) (Settings, error) {
 	if s.Transparent != nil {
 		value.TransparentModes = s.Transparent.Capabilities()
 	}
+	value.TransparentActive, value.TransparentReason = transparent.ModeOff, ""
 	if state, stateErr := s.Current(ctx); stateErr == nil && state != nil {
-		value.TransparentActive = state.TransparentMode
+		if runtime, ok := s.Runtime.(interface{ Status() map[string]any }); ok {
+			key := string(state.Kernel)
+			if state.Kernel == ir.KernelSingBox {
+				key = "singbox"
+			}
+			status, _ := runtime.Status()[key].(map[string]any)
+			if status["running"] == true && state.TransparentMode != "" {
+				value.TransparentActive = state.TransparentMode
+			}
+		}
+	}
+	if value.TransparentMode != value.TransparentActive {
+		value.TransparentReason = "所选模式尚未应用或内核未运行；保存后重新启动节点。"
+		for _, mode := range value.TransparentModes {
+			if mode.Mode == value.TransparentMode && !mode.Supported && mode.Reason != "" {
+				value.TransparentReason = mode.Reason
+			}
+		}
 	}
 	if variant.Name == "lite" {
 		value.Kernel = ir.KernelMihomo
@@ -223,6 +250,23 @@ func (s *Service) Settings(ctx context.Context) (Settings, error) {
 	return value, err
 }
 func (s *Service) SaveSettings(ctx context.Context, value Settings) error {
+	if value.DNSBootstrap == "" {
+		value.DNSBootstrap = defaults().DNSBootstrap
+	}
+	if net.ParseIP(value.DNSBootstrap) == nil {
+		return fmt.Errorf("%w: DNS bootstrap must be an IP address", store.ErrInvalid)
+	}
+	if value.DNSDetour != "" && value.DNSDetour != "PROXY" && value.DNSDetour != "DIRECT" {
+		return fmt.Errorf("%w: invalid DNS detour", store.ErrInvalid)
+	}
+	if len(value.DNSServers) == 0 || len(value.DNSServers) > 16 {
+		return fmt.Errorf("%w: configure 1..16 DNS servers", store.ErrInvalid)
+	}
+	for _, server := range value.DNSServers {
+		if _, err := generator.ParseDNSAddress(server); err != nil {
+			return fmt.Errorf("%w: %v", store.ErrInvalid, err)
+		}
+	}
 	// Older panels omit socks_listeners when saving settings. Preserve mappings
 	// in that case; current clients send an explicit empty array to clear them.
 	if value.SOCKSListeners == nil {
@@ -324,6 +368,9 @@ func (s *Service) SaveSettings(ctx context.Context, value Settings) error {
 	if s.Transparent != nil {
 		value.TransparentModes = s.Transparent.Capabilities()
 	}
+	if err := s.preflightTransparent(value); err != nil {
+		return fmt.Errorf("%w: %v", store.ErrInvalid, err)
+	}
 	return s.Store.SaveState(ctx, "settings", value)
 }
 
@@ -374,13 +421,7 @@ func (s *Service) Resume(ctx context.Context) error {
 	if variant.Name == "lite" && (!variant.SupportsKernel(string(state.Kernel)) || len(state.Auxiliary) > 0) {
 		return fmt.Errorf("精简版不支持已保存的双核配置；数据保留，请重新选择 mihomo 节点")
 	}
-	settings, settingsErr := s.Settings(ctx)
-	if settingsErr != nil {
-		return settingsErr
-	}
-	if err := s.prepareTransparent(settings); err != nil {
-		return fmt.Errorf("%w: transparent setup: %v", ErrApply, err)
-	}
+	s.PruneConfigHistory(&state)
 	if err := s.startState(&state); err != nil {
 		_ = s.Runtime.StopAll()
 		_ = s.cleanupTransparent()
@@ -484,6 +525,9 @@ func (s *Service) Apply(ctx context.Context, request ApplyRequest) (*State, erro
 	if err != nil {
 		return nil, err
 	}
+	if err := s.preflightTransparent(settings); err != nil {
+		return nil, fmt.Errorf("%w: transparent preflight: %v", store.ErrInvalid, err)
+	}
 	if request.Mode == "chain" {
 		return s.applyChain(ctx, request, settings)
 	}
@@ -531,6 +575,7 @@ func (s *Service) applyPrepared(ctx context.Context, request ApplyRequest, setti
 		return nil, fmt.Errorf("%w: 多 SOCKS5 端口需要由节点生成配置", store.ErrInvalid)
 	}
 	nodeIDs := []string{}
+	var runtimeNames map[string]string
 	content := []byte(request.Content)
 	if len(content) == 0 {
 		nodes := []*ir.Node{}
@@ -573,12 +618,27 @@ func (s *Service) applyPrepared(ctx context.Context, request ApplyRequest, setti
 		if err != nil {
 			return nil, err
 		}
+		runtimeNodes := generator.PrepareRuntimeNames(append(append([]*ir.Node{}, nodes...), extraNodes...))
+		nodes = runtimeNodes[:len(nodes)]
+		extraNodes = runtimeNodes[len(nodes):]
+		if request.outbound != "" && len(nodes) == 1 {
+			request.outbound = nodes[0].Name
+		}
+		runtimeNames = make(map[string]string, len(runtimeNodes))
+		for _, node := range runtimeNodes {
+			if node.ID != "" {
+				if _, exists := runtimeNames[node.ID]; !exists {
+					runtimeNames[node.ID] = node.Name
+				}
+			}
+		}
 		defaultOutbound, routingRules := effectiveRouting(settings, request.outbound)
 		if composition != nil && settings.RoutingMode != "blacklist" {
 			defaultOutbound = "PROXY"
 		}
 		options := &generator.GenerateOptions{InboundHost: settings.InboundHost, InboundPort: settings.InboundPort, MixedPort: settings.MixedPort, SystemProxy: settings.SystemProxy, DNSServers: settings.DNSServers, DNSFakeIP: settings.DNSFakeIP, EnableTUN: settings.EnableTUN, TransparentMode: string(settings.TransparentMode), RedirectPort: settings.InboundPort, TProxyPort: settings.InboundPort + 1, TUNStack: settings.TUNStack, LogLevel: settings.LogLevel, DefaultOutbound: defaultOutbound, RoutingRules: routingRules, ExtraNodes: extraNodes, SOCKSListeners: socksListeners}
 		options.SOCKSOnly, options.SOCKSPort, options.Composition = settings.SOCKSOnly, settings.SOCKSPort, composition
+		options.DNSBootstrap, options.DNSDetour = settings.DNSBootstrap, settings.DNSDetour
 		if settings.AllowLAN {
 			options.InboundHost = "0.0.0.0"
 		}
@@ -698,6 +758,10 @@ func (s *Service) applyPrepared(ctx context.Context, request ApplyRequest, setti
 		}
 	}
 	state := &State{ConfigVersion: CurrentConfigVersion, ID: id, Kernel: request.Kernel, NodeIDs: nodeIDs, SOCKSListeners: append([]SOCKSListener{}, settings.SOCKSListeners...), Mode: mode, TransparentMode: settings.TransparentMode, LoadBalance: request.LoadBalance, AppliedAt: time.Now().UTC(), Path: path, Controller: controller, Secret: secret, SystemProxy: proxySnapshot, SystemProxyTarget: proxyTarget}
+	state.TransparentPort = settings.InboundPort
+	if runtimeNames != nil {
+		state.RuntimeNames = runtimeNames
+	}
 	state.Chain = request.chain
 	// Finish the durable state update even if the HTTP client disconnected.
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
@@ -706,7 +770,7 @@ func (s *Service) applyPrepared(ctx context.Context, request ApplyRequest, setti
 		return nil, rollback(err)
 	}
 	retained = true
-	removeReplacedConfig(previous)
+	removeReplacedConfig(previous, path)
 	return state, nil
 }
 
@@ -743,6 +807,13 @@ func (s *Service) prepareTransparent(settings Settings) error {
 		return nil
 	}
 	return s.Transparent.Prepare(settings.TransparentMode, settings.InboundPort, settings.InboundPort+1)
+}
+
+func (s *Service) preflightTransparent(settings Settings) error {
+	if s.Transparent == nil {
+		return nil
+	}
+	return s.Transparent.Preflight(settings.TransparentMode, settings.InboundPort, settings.InboundPort+1)
 }
 
 func (s *Service) cleanupTransparent() error {
@@ -812,9 +883,8 @@ func withController(content []byte, kernel ir.KernelType, allowLAN bool) ([]byte
 	}
 	container := root
 	addressKey := "external-controller"
-	defaultAddress := "127.0.0.1:19093"
+	defaultAddress := "127.0.0.1:0"
 	if kernel == ir.KernelSingBox {
-		defaultAddress = "127.0.0.1:19094"
 		addressKey = "external_controller"
 		experimental, _ := root["experimental"].(map[string]any)
 		if experimental == nil {
@@ -831,7 +901,12 @@ func withController(content []byte, kernel ir.KernelType, allowLAN bool) ([]byte
 	}
 	address, _ := container[addressKey].(string)
 	if address == "" {
-		address = defaultAddress
+		listener, listenErr := net.Listen("tcp4", defaultAddress)
+		if listenErr != nil {
+			return nil, "", "", listenErr
+		}
+		address = listener.Addr().String()
+		_ = listener.Close()
 		container[addressKey] = address
 	}
 	secret, _ := container["secret"].(string)
@@ -875,6 +950,11 @@ func (s *Service) ProbeHTTP(ctx context.Context, node *ir.Node, target string, t
 	}
 	client := clashapi.NewClient(state.Controller, state.Secret, clashapi.KernelType(state.Kernel))
 	tag := node.Name
+	if state.RuntimeNames != nil {
+		if runtimeTag, ok := state.RuntimeNames[node.ID]; ok {
+			tag = runtimeTag
+		}
+	}
 	if state.Chain != nil {
 		for _, hop := range state.Chain.Hops {
 			if hop.ID == node.ID {

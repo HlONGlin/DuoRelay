@@ -1,6 +1,6 @@
 # DuoRelay Development Log
 
-[简体中文](DEVLOG.md) | English
+[简体中文](../../DEVLOG.md) | English
 
 ## 2024-10-31 - Accelerating the P0 Phase
 

@@ -1,7 +1,5 @@
 package transparent
 
-import "runtime"
-
 type Mode string
 
 const (
@@ -25,6 +23,7 @@ type Manager struct {
 
 type backend interface {
 	Capabilities() []ModeInfo
+	Preflight(Mode, int, int) error
 	Prepare(Mode, int, int) error
 	Cleanup() error
 }
@@ -39,10 +38,17 @@ func (m *Manager) Capabilities() []ModeInfo {
 }
 
 func (m *Manager) Prepare(mode Mode, redirectPort, tproxyPort int) error {
-	if mode == "" || mode == ModeOff || runtime.GOOS != "linux" {
-		return nil
+	if mode == "" || mode == ModeOff {
+		return m.Cleanup()
 	}
 	return m.backend.Prepare(mode, redirectPort, tproxyPort)
+}
+
+func (m *Manager) Preflight(mode Mode, redirectPort, tproxyPort int) error {
+	if m == nil || m.backend == nil || mode == "" || mode == ModeOff {
+		return nil
+	}
+	return m.backend.Preflight(mode, redirectPort, tproxyPort)
 }
 
 func (m *Manager) Cleanup() error {

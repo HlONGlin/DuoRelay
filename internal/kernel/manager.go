@@ -39,6 +39,10 @@ type Manager struct {
 	logHistory        map[string]*RingBuffer
 	logDir            string
 	logFileMu         sync.Mutex
+	logCleanupStop    chan struct{}
+	logCleanupDone    chan struct{}
+	logCleanupWake    chan struct{}
+	logPolicy         LogPolicy
 }
 
 type RunMode string

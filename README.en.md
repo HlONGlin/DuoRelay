@@ -142,7 +142,7 @@ These checks do not replace real network acceptance testing. Transparent proxy t
 
 ## Documentation
 
-The [documentation index](docs/README.en.md) links to usage, development, architecture and acceptance documents. Historical reports and designs remain as originally written; consult the code and latest acceptance records for current capabilities.
+The [documentation index](docs/README.en.md) links to usage, development, architecture and acceptance documents. The [November issue record](docs/issue-resolution-2026-11.md) lists all 23 CSV items and test boundaries; [operations](docs/operations.md) covers DNS, privileges, scheduled log cleanup, online database/key backups and stdin password resets (Chinese). Historical plans and reports are in the [archive](docs/archive/README.md).
 
 ## License
 

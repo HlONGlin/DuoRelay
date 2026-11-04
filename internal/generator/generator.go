@@ -40,8 +40,10 @@ type GenerateOptions struct {
 	Composition     *Composition
 
 	// DNS config
-	DNSServers []string
-	DNSFakeIP  bool
+	DNSServers   []string
+	DNSFakeIP    bool
+	DNSBootstrap string
+	DNSDetour    string
 
 	// Routing
 	RuleSets        []string

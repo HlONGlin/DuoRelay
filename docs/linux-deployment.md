@@ -89,13 +89,15 @@ cd web && npm ci && cd ..
 
 ## 安装
 
-系统服务安装需要 root 和 systemd。服务单元将网络 capabilities 限定为 `CAP_NET_ADMIN`、`CAP_NET_RAW`，并允许访问 `/dev/net/tun`；设备本身还需具备相应访问权限。TUN 的路由和 DNS hijack 由内核管理，redirect/tproxy 的自有 nftables/iptables 链与策略路由由 DuoRelay 管理。停止、启动失败或回滚后的清理仍需在目标系统验证。
+系统服务安装需要 root 和 systemd。默认服务以 `duorelay` 用户运行，不授予网络管理能力；需要透明代理时给下列命令增加 `--transparent`，安装 root 服务覆盖及必要 capabilities、TUN 设备访问和私有 xtables 锁路径。数据由 StateDirectory 管理；自定义路径与模式切换由安装器维护。具体权限、在线备份和恢复步骤见[运维指南](operations.md)。停止、启动失败或回滚后的真实网络清理仍需在目标系统验证。
 
 ```bash
 sudo ./scripts/install-linux.sh --package ./dist/duorelay-linux-amd64-0.3.0
+# 透明代理服务，升级已有数据时先备份并启用每日备份
+sudo ./scripts/install-linux.sh --package ./dist/duorelay-linux-amd64-0.3.0 --transparent --backup
 ```
 
-打包脚本同时生成上述目录及同名 `.tar.gz`；安装脚本的 `--package` 接受解压后的目录，不接受压缩包。默认程序放在 `/opt/duorelay`，数据放在 `/var/lib/duorelay`。关于页可检查 GitHub 正式版；默认系统服务的程序目录受保护，因此不会提供原地一键更新，请按本节停止服务、备份数据并重新安装目标版本。其他可写安装目录的一键更新条件见[应用更新说明](app-update.md)。
+打包脚本同时生成上述目录及同名 `.tar.gz`；安装脚本的 `--package` 接受解压后的目录，不接受压缩包。默认程序放在 `/opt/duorelay`，数据放在 `/var/lib/duorelay`。关于页可检查正式发布版本；默认普通服务的程序目录受保护，更新时可加 `--backup` 重新运行安装器。安装器原子替换可执行文件后重启服务，并保留数据。透明服务及其他可写安装目录的一键更新条件见[应用更新说明](app-update.md)。
 
 ```bash
 sudo systemctl status duorelay

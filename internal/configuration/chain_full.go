@@ -122,15 +122,18 @@ func (s *Service) applyChain(ctx context.Context, request ApplyRequest, settings
 		if settings.RoutingMode != "blacklist" {
 			outbound = "PROXY"
 		}
-		opts := &generator.GenerateOptions{InboundHost: settings.InboundHost, InboundPort: settings.InboundPort, MixedPort: settings.MixedPort, SystemProxy: settings.SystemProxy, SOCKSOnly: settings.SOCKSOnly, SOCKSPort: settings.SOCKSPort, EnableTUN: settings.EnableTUN, TUNStack: settings.TUNStack, DNSServers: settings.DNSServers, DNSFakeIP: settings.DNSFakeIP, LogLevel: settings.LogLevel, DefaultOutbound: outbound, RoutingRules: routing}
+		opts := &generator.GenerateOptions{InboundHost: settings.InboundHost, InboundPort: settings.InboundPort, MixedPort: settings.MixedPort, SystemProxy: settings.SystemProxy, SOCKSOnly: settings.SOCKSOnly, SOCKSPort: settings.SOCKSPort, EnableTUN: settings.EnableTUN, TransparentMode: string(settings.TransparentMode), RedirectPort: settings.InboundPort, TProxyPort: settings.InboundPort + 1, TUNStack: settings.TUNStack, DNSServers: settings.DNSServers, DNSFakeIP: settings.DNSFakeIP, LogLevel: settings.LogLevel, DefaultOutbound: outbound, RoutingRules: routing}
 		if settings.AllowLAN {
 			opts.InboundHost = "0.0.0.0"
 		}
+		opts.DNSBootstrap, opts.DNSDetour = settings.DNSBootstrap, settings.DNSDetour
 		if !primary {
 			opts.DefaultOutbound = "DIRECT"
+			opts.DNSDetour = "DIRECT"
 			opts.RoutingRules = nil
 			opts.SOCKSOnly = false
 			opts.EnableTUN = false
+			opts.TransparentMode = "off"
 			opts.SystemProxy = false
 		} else {
 			// Generate the selector even when blacklist routing defaults to DIRECT.
@@ -244,7 +247,7 @@ func (s *Service) applyChain(ctx context.Context, request ApplyRequest, settings
 		}
 		configs = append(configs, generatedChainConfig{k, content})
 	}
-	return s.installChain(ctx, request, plan, configs, settings.AllowLAN, release, settings.SOCKSListeners)
+	return s.installChain(ctx, request, plan, configs, settings, release, settings.SOCKSListeners)
 }
 
 func chainAddBridge(root map[string]any, k ir.KernelType, b chainBridge) {

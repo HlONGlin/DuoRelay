@@ -89,7 +89,7 @@ The packaging script supports `amd64` and `arm64`. The frontend is embedded in `
 
 ## Installation
 
-System service installation requires root and systemd. The service unit limits network capabilities to `CAP_NET_ADMIN` and `CAP_NET_RAW` and permits access to `/dev/net/tun`; the device also needs appropriate permissions. The kernel manages TUN routing and DNS hijacking; DuoRelay manages its redirect/tproxy nftables/iptables chains and policy routes. Cleanup after stop, startup failure or rollback still needs verification on target systems.
+System service installation requires root and systemd. The default service runs as `duorelay` without network administration capabilities. Add `--transparent` to install an explicit root service override with required capabilities, TUN device access and a private xtables lock. StateDirectory manages default data storage; custom paths use a generated override. Add `--backup` to snapshot an existing database/key and install the daily backup timer. The installer atomically replaces binaries and preserves data. See the [operations guide](operations.md) (Chinese); real network cleanup still needs target-system verification.
 
 ```bash
 sudo ./scripts/install-linux.sh --package ./dist/duorelay-linux-amd64-0.3.0

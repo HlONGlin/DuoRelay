@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/holi/duorelay/internal/ir"
+	"github.com/holi/duorelay/internal/parser"
 	"gopkg.in/yaml.v3"
 )
 
@@ -27,6 +29,11 @@ func decodeBase64(content []byte) ([]byte, error) {
 // ParseFormat recognizes native configuration lists, share links and base64.
 func ParseFormat(content []byte) (string, error) {
 	return detectFormat(content, 0)
+}
+
+type ParseSkip struct {
+	Line   int    `json:"line"`
+	Reason string `json:"reason"`
 }
 
 func detectFormat(content []byte, depth int) (string, error) {
@@ -126,23 +133,30 @@ func hasOpenVPNProfile(content []byte) bool {
 }
 
 func (m *Manager) Parse(content []byte) ([]*ir.Node, error) {
+	nodes, _, err := m.ParseDetailed(content)
+	return nodes, err
+}
+
+// ParseDetailed keeps usable share-link lines when individual lines are not
+// supported. A document with no usable nodes still fails.
+func (m *Manager) ParseDetailed(content []byte) ([]*ir.Node, []ParseSkip, error) {
 	var err error
 	content, err = normalizeContent(content)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	format, err := ParseFormat(content)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for format == "base64" || strings.HasSuffix(format, "-base64") {
 		content, err = decodeBase64(content)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		content, err = normalizeContent(content)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if format == "base64" {
 			format = "links"
@@ -152,34 +166,33 @@ func (m *Manager) Parse(content []byte) ([]*ir.Node, error) {
 	}
 	switch format {
 	case "proxy-ini":
-		return m.parseProxyINI(content)
-	case "sip008":
-		return parseSIP008(content)
-	case "xray", "xray-single":
-		return parseXray(content, format)
+		return m.parseINIDetailed(content)
+	case "sip008", "xray", "xray-single", "v2rayn":
+		return m.parseJSONDetailed(content, format)
 	}
 	nodes := []*ir.Node{}
 	if format == "openvpn" {
 		if m.Registry == nil {
-			return nil, fmt.Errorf("OpenVPN profile parser registry is not configured")
+			return nil, nil, fmt.Errorf("OpenVPN profile parser registry is not configured")
 		}
 		value, err := m.Registry.ParseAny(string(content))
 		if err != nil {
-			return nil, fmt.Errorf("invalid OpenVPN profile")
+			return nil, nil, fmt.Errorf("invalid OpenVPN profile")
 		}
 		node, ok := value.(*ir.Node)
 		if !ok {
-			return nil, fmt.Errorf("OpenVPN parser did not return an IR node")
+			return nil, nil, fmt.Errorf("OpenVPN parser did not return an IR node")
 		}
 		if err := validateParsedNode(node); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return []*ir.Node{node}, nil
+		return []*ir.Node{node}, nil, nil
 	}
 	if format == "links" {
 		if m.Registry == nil {
-			return nil, fmt.Errorf("share-link parser registry is not configured")
+			return nil, nil, fmt.Errorf("share-link parser registry is not configured")
 		}
+		skipped := []ParseSkip{}
 		for index, line := range strings.Split(string(content), "\n") {
 			line = strings.TrimSpace(line)
 			if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") || strings.HasPrefix(line, "//") {
@@ -188,7 +201,8 @@ func (m *Manager) Parse(content []byte) ([]*ir.Node, error) {
 			if isNativeMieru(line) {
 				items, err := parseNativeMieru(line)
 				if err != nil {
-					return nil, fmt.Errorf("line %d: %w", index+1, err)
+					skipped = append(skipped, ParseSkip{Line: index + 1, Reason: err.Error()})
+					continue
 				}
 				nodes = append(nodes, items...)
 				continue
@@ -196,14 +210,23 @@ func (m *Manager) Parse(content []byte) ([]*ir.Node, error) {
 			if strings.HasPrefix(strings.ToLower(line), "ssd://") {
 				items, err := parseSSD(line)
 				if err != nil {
-					return nil, fmt.Errorf("line %d: invalid SSD subscription", index+1)
+					skipped = append(skipped, ParseSkip{Line: index + 1, Reason: "invalid SSD subscription"})
+					continue
 				}
 				nodes = append(nodes, items...)
 				continue
 			}
 			value, err := m.Registry.ParseAny(line)
 			if err != nil {
-				return nil, fmt.Errorf("line %d: invalid or unsupported share link", index+1)
+				reason := "invalid or unsupported share link"
+				if errors.Is(err, parser.ErrUnsupportedFeature) {
+					reason = err.Error()
+				}
+				if strings.Contains(strings.ToLower(line), "xhttp") && strings.HasPrefix(strings.ToLower(line), "vless://") {
+					reason = "VLESS XHTTP: " + reason
+				}
+				skipped = append(skipped, ParseSkip{Line: index + 1, Reason: reason})
+				continue
 			}
 			var node *ir.Node
 			switch value := value.(type) {
@@ -212,17 +235,23 @@ func (m *Manager) Parse(content []byte) ([]*ir.Node, error) {
 			case ir.Node:
 				node = &value
 			default:
-				return nil, fmt.Errorf("line %d: parser did not return an IR node", index+1)
+				skipped = append(skipped, ParseSkip{Line: index + 1, Reason: "parser did not return an IR node"})
+				continue
 			}
 			if err := validateParsedNode(node); err != nil {
-				return nil, fmt.Errorf("line %d: %w", index+1, err)
+				skipped = append(skipped, ParseSkip{Line: index + 1, Reason: err.Error()})
+				continue
 			}
 			nodes = append(nodes, node)
 		}
-		return nodes, nil
+		if len(nodes) == 0 {
+			return nil, skipped, fmt.Errorf("subscription contains no usable nodes")
+		}
+		return nodes, skipped, nil
 	}
 	if format == "v2rayn" {
-		return m.parseV2RayNJSON(content)
+		nodes, err := m.parseV2RayNJSON(content)
+		return nodes, nil, err
 	}
 	var root struct {
 		Proxies   []map[string]any `yaml:"proxies"`
@@ -230,20 +259,21 @@ func (m *Manager) Parse(content []byte) ([]*ir.Node, error) {
 	}
 	if format == "clash-list" {
 		if err := yaml.Unmarshal(content, &root.Proxies); err != nil {
-			return nil, fmt.Errorf("invalid proxy list")
+			return nil, nil, fmt.Errorf("invalid proxy list")
 		}
 	} else if format == "sing-box-list" {
 		if err := yaml.Unmarshal(content, &root.Outbounds); err != nil {
-			return nil, fmt.Errorf("invalid outbound list")
+			return nil, nil, fmt.Errorf("invalid outbound list")
 		}
 		format = "sing-box"
 	} else if err := yaml.Unmarshal(content, &root); err != nil {
-		return nil, fmt.Errorf("invalid subscription document")
+		return nil, nil, fmt.Errorf("invalid subscription document")
 	}
 	entries := root.Proxies
 	if format == "sing-box" {
 		entries = root.Outbounds
 	}
+	skipped := []ParseSkip{}
 	for index, entry := range entries {
 		typ := text(entry["type"])
 		if typ == "direct" || typ == "reject" || typ == "reject-drop" {
@@ -257,11 +287,15 @@ func (m *Manager) Parse(content []byte) ([]*ir.Node, error) {
 		}
 		node, err := nativeNode(entry, format)
 		if err != nil {
-			return nil, fmt.Errorf("node %d: %w", index+1, err)
+			skipped = append(skipped, ParseSkip{Line: index + 1, Reason: err.Error()})
+			continue
 		}
 		nodes = append(nodes, node)
 	}
-	return nodes, nil
+	if len(nodes) == 0 {
+		return nil, skipped, fmt.Errorf("subscription contains no usable nodes")
+	}
+	return nodes, skipped, nil
 }
 
 func text(v any) string {
@@ -300,7 +334,21 @@ func validateParsedNode(n *ir.Node) error {
 	if n.Owner == 0 {
 		n.Owner = ir.GetProtocolOwner(n.Protocol)
 	}
-	return nil
+	var credentials []string
+	switch n.Protocol {
+	case ir.ProtocolVLESS, ir.ProtocolVMess:
+		credentials = []string{"uuid"}
+	case ir.ProtocolShadowsocks:
+		credentials = []string{"method", "password"}
+	case ir.ProtocolTrojan, ir.ProtocolAnyTLS:
+		credentials = []string{"password"}
+	}
+	for _, key := range credentials {
+		if value, ok := n.Proto[key].(string); !ok || strings.TrimSpace(value) == "" {
+			return fmt.Errorf("missing required connection credentials")
+		}
+	}
+	return ir.ValidateConnectionFeatures(n)
 }
 
 func looksLikeV2RayN(entry map[string]any) bool {
@@ -449,6 +497,13 @@ func v2rayNNode(entry map[string]any) (*ir.Node, error) {
 	if network != "" && network != "tcp" && network != "none" {
 		n.Transport.Type = network
 	}
+	if n.Transport.Type == "xhttp" {
+		for _, key := range []string{"mode", "scMaxEachPostBytes", "scMinPostsIntervalMs", "xPaddingBytes", "xPaddingKey", "extra", "xmux", "scStreamUpServerSecs", "xPaddingObfsMode", "xPaddingVerify"} {
+			if value, ok := entry[key]; ok {
+				n.Transport.Opts[key] = value
+			}
+		}
+	}
 	n.Transport.Path = firstText(entry, "path")
 	n.Transport.Host = firstText(entry, "host")
 	tls := firstText(entry, "tls")
@@ -563,10 +618,33 @@ func nativeNode(entry map[string]any, format string) (*ir.Node, error) {
 		if network := text(entry["network"]); network != "" {
 			n.Transport.Type = network
 		}
+		if n.Transport.Type == "xhttp" {
+			opts := object(entry["xhttp-opts"])
+			n.Transport.Path, n.Transport.Host = text(opts["path"]), text(opts["host"])
+			for key, value := range opts {
+				switch key {
+				case "path", "host":
+				case "mode":
+					n.Transport.Opts[key] = value
+				case "sc-max-each-post-bytes":
+					n.Transport.Opts["scMaxEachPostBytes"] = value
+				case "sc-min-posts-interval-ms":
+					n.Transport.Opts["scMinPostsIntervalMs"] = value
+				case "x-padding-bytes":
+					n.Transport.Opts["xPaddingBytes"] = value
+				case "x-padding-key":
+					n.Transport.Opts["xPaddingKey"] = value
+				default:
+					return nil, fmt.Errorf("unsupported XHTTP option")
+				}
+			}
+		}
 		ws := object(entry["ws-opts"])
-		n.Transport.Path = text(ws["path"])
-		n.Transport.Host = text(object(ws["headers"])["Host"])
-		n.Transport.Opts["headers"] = object(ws["headers"])
+		if n.Transport.Type == "ws" {
+			n.Transport.Path = text(ws["path"])
+			n.Transport.Host = text(object(ws["headers"])["Host"])
+			n.Transport.Opts["headers"] = object(ws["headers"])
+		}
 		if n.Transport.Type == "grpc" {
 			n.Transport.Path = text(object(entry["grpc-opts"])["grpc-service-name"])
 		}
@@ -597,7 +675,9 @@ func nativeNode(entry map[string]any, format string) (*ir.Node, error) {
 			n.Transport.Path = text(transport["service_name"])
 		}
 		n.Transport.Host = text(object(transport["headers"])["Host"])
-		n.Transport.Opts["headers"] = object(transport["headers"])
+		if n.Transport.Type == "ws" {
+			n.Transport.Opts["headers"] = object(transport["headers"])
+		}
 		for key, value := range transport {
 			if key != "type" && key != "path" && key != "headers" && key != "service_name" {
 				n.Transport.Opts[key] = value

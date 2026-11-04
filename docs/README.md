@@ -21,6 +21,7 @@
 | [订阅格式](subscription-formats.md) | 支持的输入格式及限制 |
 | [多节点代理与节点管理](multi-node-proxy.md) | 节点批量删除、负载均衡、链式代理与 SOCKS5 端口绑定 |
 | [应用更新](app-update.md) | 关于页检查更新、一键更新流程、支持的平台及安装目录权限限制 |
+| [日常运维与故障恢复](operations.md) | 透明代理权限、DNS、日志清理、在线备份、密码重置与 HTTPS |
 
 ## 验证记录
 
@@ -30,6 +31,7 @@
 | [路由验收](routing-acceptance.md) | 规则格式、优先级、导入导出与验证结果 |
 | [容器验收](container-acceptance.md) | Orca Linux 容器环境和逐项结果 |
 | [协议验证报告](protocol-verification-report.md) | 协议覆盖和验证资料 |
+| [2026-11 问题修复与验收](issue-resolution-2026-11.md) | CSV 全部 23 项的处理、容器实测与待验证范围 |
 
 容器中的通过项不能代替真实宿主机或 Windows/macOS 验收；未完成的真实流量和 DNS 泄漏检查仍标为未验证。
 
@@ -43,3 +45,5 @@
 | [Clash API 差异](clashapi-diff.md) | 内核 API 差异记录 |
 
 `P0-*`、`P1-*`、`P2-*`、`P3-*` 等文件为阶段性计划或报告，保留历史上下文，不代表当前全部事项的最终验收结论。
+
+根目录原有受跟踪的阶段总结、状态和计划已移至[历史文档归档](archive/README.md)。构建使用的 DESIGN 文档仍在根目录；本地未跟踪笔记不纳入发布。

@@ -13,10 +13,11 @@ import (
 )
 
 var (
-	ErrInvalidFormat    = errors.New("invalid format")
-	ErrUnsupportedProto = errors.New("unsupported protocol")
-	ErrMissingField     = errors.New("missing required field")
-	ErrInvalidField     = errors.New("invalid field value")
+	ErrInvalidFormat      = errors.New("invalid format")
+	ErrUnsupportedProto   = errors.New("unsupported protocol")
+	ErrMissingField       = errors.New("missing required field")
+	ErrInvalidField       = errors.New("invalid field value")
+	ErrUnsupportedFeature = errors.New("unsupported feature")
 )
 
 // Parser defines the interface for protocol parsers
@@ -173,18 +174,35 @@ func SetTLS(node *ir.Node, q url.Values) {
 }
 
 func SetTransport(node *ir.Node, q url.Values) error {
-	t := strings.ToLower(q.Get("type"))
+	t := strings.ToLower(firstNonEmpty(q.Get("type"), q.Get("net")))
 	if t == "" {
 		return nil
 	}
 	switch t {
-	case "tcp", "ws", "grpc", "http", "h2", "quic":
+	case "tcp", "ws", "grpc", "http", "h2", "quic", "xhttp":
 	default:
 		return fmt.Errorf("%w: unsupported transport %q", ErrInvalidField, t)
 	}
 	node.Transport.Type = t
 	node.Transport.Path = q.Get("path")
 	node.Transport.Host = q.Get("host")
+	if t == "xhttp" {
+		node.Transport.Opts = map[string]any{}
+		for _, key := range []string{"extra", "scStreamUpServerSecs", "xmux", "xPaddingObfsMode", "xPaddingVerify"} {
+			if q.Get(key) != "" {
+				return fmt.Errorf("%w: XHTTP option %s cannot be represented by the pinned kernels", ErrUnsupportedFeature, key)
+			}
+		}
+		mode := q.Get("mode")
+		if mode != "" && mode != "auto" && mode != "packet-up" && mode != "stream-up" && mode != "stream-one" {
+			return fmt.Errorf("%w: unsupported XHTTP mode", ErrUnsupportedFeature)
+		}
+		for _, key := range []string{"mode", "scMaxEachPostBytes", "scMinPostsIntervalMs", "xPaddingBytes", "xPaddingKey"} {
+			if value := q.Get(key); value != "" {
+				node.Transport.Opts[key] = value
+			}
+		}
+	}
 	if t == "grpc" {
 		node.Transport.Path = firstNonEmpty(q.Get("serviceName"), q.Get("service_name"))
 		node.Transport.Opts = map[string]any{"service_name": node.Transport.Path}

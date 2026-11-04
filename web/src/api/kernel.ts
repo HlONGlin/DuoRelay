@@ -21,7 +21,7 @@ export function stopKernel(): Promise<KernelStatus> {
 }
 
 export function getKernelLogs(query: KernelLogQuery = {}): Promise<KernelLog[]> {
-  return request<KernelLog[]>({ url: '/kernel/logs', method: 'get', params: { limit: 200, ...query } })
+  return request<KernelLog[]>({ url: '/kernel/logs', method: 'get', params: { limit: 100, ...query } })
 }
 
 export function getKernelLogSummary(query: KernelLogQuery = {}): Promise<KernelLogSummary> {
@@ -39,4 +39,20 @@ export function openKernelLogStream(query: KernelLogQuery = {}): WebSocket {
 
 export function getConnections(): Promise<ConnectionsSnapshot> {
   return request<ConnectionsSnapshot>({ url: '/kernel/connections', method: 'get' })
+}
+
+export interface LogPolicy {
+  retention_days: number
+  cleanup_hours: number
+  last_cleanup?: string
+  last_error?: string
+}
+export function getLogPolicy(): Promise<LogPolicy> {
+  return request<LogPolicy>({ url: '/kernel/logs/policy' })
+}
+export function saveLogPolicy(data: LogPolicy): Promise<LogPolicy> {
+  return request<LogPolicy>({ url: '/kernel/logs/policy', method: 'put', data: { retention_days: data.retention_days, cleanup_hours: data.cleanup_hours } })
+}
+export function clearKernelLogs(kernel?: KernelType): Promise<void> {
+  return request<void>({ url: '/kernel/logs', method: 'delete', params: { kernel } })
 }

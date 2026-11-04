@@ -66,7 +66,7 @@ func TestParseSubscriptionFormats(t *testing.T) {
 			}
 		})
 	}
-	for _, body := range []string{"", "garbage", "proxies: [{name: bad, type: ss, server: host, port: 0}]", shareLink + "\nunsupported://host:80"} {
+	for _, body := range []string{"", "garbage", "proxies: [{name: bad, type: ss, server: host, port: 0}]"} {
 		if _, err := m.Parse([]byte(body)); err == nil {
 			t.Fatalf("invalid input accepted: %s", body)
 		}

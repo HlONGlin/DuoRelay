@@ -94,7 +94,7 @@ export const useKernelStore = defineStore('kernel', () => {
         getKernelLogs(query),
         getKernelLogSummary(query)
       ])
-      logs.value = items
+      logs.value = items.slice(-100)
       logSummary.value = summary
     } catch (err) {
       error.value = err instanceof Error ? err.message : localize('获取日志失败', 'Failed to fetch logs')
@@ -102,11 +102,15 @@ export const useKernelStore = defineStore('kernel', () => {
   }
 
   function appendLiveLog(item: KernelLog) {
-    logs.value = [...logs.value, item].slice(-200)
+    const index = logs.value.findIndex(log => log.source === item.source && (log.repeat_key ?? log.message) === (item.repeat_key ?? item.message))
+    if (index >= 0) {
+      const previous = logs.value[index]
+      logs.value = [...logs.value.filter((_, i) => i !== index), { ...previous, ...item, count: (previous.count ?? 1) + (item.count ?? 1) }]
+    } else logs.value = [...logs.value, item].slice(-100)
     const level = item.level as keyof typeof logSummary.value.levels
     if (level in logSummary.value.levels) {
-      logSummary.value.levels[level]++
-      logSummary.value.total++
+      logSummary.value.levels[level] += item.count ?? 1
+      logSummary.value.total += item.count ?? 1
     }
   }
 

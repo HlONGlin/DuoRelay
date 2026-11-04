@@ -12,7 +12,7 @@
           <template v-if="category === 'general'">
             <div class="form-grid">
               <el-form-item :label="t('监听地址', 'Listen address')"><el-input v-model="form.inbound_host" placeholder="127.0.0.1" /><div class="field-hint">{{ t('仅本机使用时保留 127.0.0.1。', 'Keep 127.0.0.1 for local access only.') }}</div></el-form-item>
-              <el-form-item :label="t('允许局域网连接', 'Allow LAN connections')"><el-switch v-model="form.allow_lan" /><div class="field-hint">{{ t('其他设备访问时需同时调整监听地址。', 'Adjust the listen address as well to allow access from other devices.') }}</div></el-form-item>
+              <el-form-item :label="t('允许局域网连接', 'Allow LAN connections')"><el-switch v-model="form.allow_lan" /><div class="field-hint">{{ t('仅控制代理端口是否接受局域网连接；关闭后 TUN 仍会接管本机流量。', 'Controls LAN access to proxy listeners. TUN still captures local traffic when this is off.') }}</div></el-form-item>
               <el-form-item :label="isLite ? t('透明代理监听端口', 'Transparent proxy listen port') : t('sing-box 混合代理端口', 'sing-box mixed proxy port')"><el-input-number v-model="form.inbound_port" :min="1" :max="65535" /></el-form-item>
               <el-form-item :label="t('mihomo 混合代理端口', 'mihomo mixed proxy port')"><el-input-number v-model="form.mixed_port" :min="1" :max="65535" /></el-form-item>
             </div>
@@ -31,7 +31,9 @@
             </div>
             <p v-if="form.socks_listeners.length === 0" class="field-hint">{{ t('尚未添加端口绑定。', 'No additional port bindings.') }}</p>
             <el-divider />
-            <el-form-item :label="t('DNS 服务器', 'DNS servers')"><el-input v-model="dnsText" type="textarea" :rows="4" :placeholder="t('每行一个 DNS 服务器', 'One DNS server per line')" /><div class="field-hint">{{ t('例如 223.5.5.5，每行填写一个地址。', 'For example, 223.5.5.5; enter one address per line.') }}</div></el-form-item>
+            <el-form-item :label="t('DNS 服务器', 'DNS servers')"><el-input v-model="dnsText" type="textarea" :rows="4" :placeholder="t('每行一个 DNS 服务器', 'One DNS server per line')" /><div class="field-hint">{{ t('支持 IP、udp://、tcp://、tls:// 和 https://；推荐 https://1.1.1.1/dns-query。', 'Supports IP, udp://, tcp://, tls:// and https://; recommended: https://1.1.1.1/dns-query.') }}</div></el-form-item>
+            <el-form-item :label="t('DNS 出口', 'DNS outbound')"><el-select v-model="form.dns_detour"><el-option label="PROXY" value="PROXY" /><el-option label="DIRECT" value="DIRECT" /><el-option :label="t('跟随默认出口', 'Follow default outbound')" value="" /></el-select></el-form-item>
+            <el-form-item :label="t('节点域名引导 DNS', 'Bootstrap DNS for proxy servers')"><el-input v-model="form.dns_bootstrap" /><div class="field-hint">{{ t('填写可直连的 DNS IP，仅用于解析代理服务器和 DNS 服务器域名，避免循环解析。', 'An IP reachable directly, used to resolve proxy and DNS server hostnames without recursion.') }}</div></el-form-item>
             <el-form-item label="Fake-IP"><el-switch v-model="form.dns_fake_ip" /><div class="field-hint">{{ t('使用虚拟 IP 映射域名，需配合对应内核的 DNS 配置。', 'Map domains to virtual IP addresses; requires appropriate kernel DNS configuration.') }}</div></el-form-item>
           </template>
           <template v-if="category === 'kernel'">
@@ -44,6 +46,7 @@
               <div class="field-hint">{{ translateCapability(selectedTransparentMode?.prerequisites) }}</div>
               <div class="field-hint">DNS: {{ translateCapability(selectedTransparentMode?.dns_description) }}</div>
               <div class="field-hint">{{ t('当前生效：', 'Currently active: ') }}{{ transparentModeLabel(form.transparent_active ?? 'off') }}</div>
+              <el-alert v-if="form.transparent_mode !== (form.transparent_active || 'off')" type="warning" :closable="false" :title="t('所选模式尚未生效。保存后重新启动节点；若启动失败，请查看权限预检提示。', 'The selected mode is pending. Save and restart the node; check preflight details if startup fails.')" :description="translateCapability(form.transparent_reason)" />
             </el-form-item>
             <el-form-item :label="t('TUN 全流量接管', 'TUN system traffic capture')"><el-switch v-model="form.enable_tun" :disabled="!transparentModes.find((mode) => mode.mode === 'tun')?.supported" :aria-label="t('TUN 全流量接管', 'TUN system traffic capture')" @change="changeTun" /><div class="field-hint">{{ t('接管 IPv4/IPv6 系统流量并劫持 TCP/UDP DNS；启用严格路由防止流量回落直连。需要管理员或 NET_ADMIN 权限及可用的 TUN 设备。路由规则仍决定哪些流量直连。', 'Captures IPv4/IPv6 system traffic and intercepts TCP/UDP DNS; strict routing prevents fallback to direct connections. Requires administrator or NET_ADMIN privileges and a TUN device. Routing rules still determine direct traffic.') }}</div></el-form-item>
             <el-form-item :label="t('TUN 网络栈', 'TUN network stack')"><el-select v-model="form.tun_stack" :disabled="!form.enable_tun"><el-option v-for="stack in ['system', 'gvisor', 'mixed']" :key="stack" :value="stack" :label="stack" /></el-select></el-form-item>
@@ -307,6 +310,9 @@ function transparentModeLabel(mode: string) { return ({ off: t('关闭', 'Off'),
 function translateCapability(value?: string) {
   if (!value || appearance.language !== 'en') return value ?? ''
   const translations: Record<string, string> = {
+    '所选模式尚未应用或内核未运行；保存后重新启动节点。': 'The selected mode has not been applied or its kernel is stopped. Save and restart the node.',
+    '当前进程缺少 CAP_NET_ADMIN/CAP_NET_RAW；请使用 root、systemd Capability 配置或容器 --cap-add': 'The process lacks CAP_NET_ADMIN/CAP_NET_RAW. Configure systemd capabilities or container --cap-add.',
+    '/dev/net/tun 不可用或不可读写；服务需 DeviceAllow 或容器需显式映射': '/dev/net/tun is unavailable or not writable. Configure service device access or map the container device.',
     '无需系统权限': 'No system privileges required',
     '不接管 DNS。': 'Does not capture DNS.',
     '不接管 DNS；按应用自身代理设置运行。': 'Does not capture DNS; applications use their own proxy settings.',

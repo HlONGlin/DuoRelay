@@ -1,6 +1,6 @@
 # DuoRelay First-Day Results
 
-[简体中文](SUMMARY.md) | English
+[简体中文](../../SUMMARY.md) | English
 
 Date: 2024-10-31. About six hours of work; the source report estimated a 6× speed-up from parallel development.
 

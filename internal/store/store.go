@@ -5,14 +5,17 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"sync"
 
 	_ "modernc.org/sqlite" // Pure Go SQLite driver
 )
 
 // Store represents the database store
 type Store struct {
-	db   *sql.DB
-	aead cipher.AEAD
+	db            *sql.DB
+	aead          cipher.AEAD
+	importMu      sync.Mutex
+	encryptionKey []byte
 }
 
 // Config holds database configuration

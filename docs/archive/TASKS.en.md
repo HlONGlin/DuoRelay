@@ -1,6 +1,6 @@
 # DuoRelay Project Task Tracking
 
-[简体中文](TASKS.md) | English
+[简体中文](../../TASKS.md) | English
 
 This file is a historical task plan. Its early progress table reported 1/69 tasks complete on 2024-10-31; later phase acceptance reports supersede it.
 
@@ -19,9 +19,9 @@ This file is a historical task plan. Its early progress table reported 1/69 task
 
 The plan listed project skeleton, pinned kernel downloads, protocol comparison, Clash API, IR model, generators, kernel process manager, UDP/SOCKS5 experiment, sample library and technical/G0 review. Dependencies were documented between tasks: for example, protocol verification needed pinned kernels, generators needed IR, and the UDP experiment depended on Clash API.
 
-G0 criteria were both kernel APIs integrated, a UDP/coexistence decision, approved IR and verified 28-entry protocol inventory. The source plan's “current status” is stale; use the dated [P0 review](docs/P0-10-technical-review.en.md) and current acceptance docs instead.
+G0 criteria were both kernel APIs integrated, a UDP/coexistence decision, approved IR and verified 28-entry protocol inventory. The source plan's “current status” is stale; use the dated [P0 review](../P0-10-technical-review.en.md) and current acceptance docs instead.
 
-The remainder of the Chinese file contains detailed P1–P4 task estimates and checklists. Their implementation history is preserved in the corresponding phase reports and the [documentation index](docs/README.en.md).
+The remainder of the Chinese file contains detailed P1–P4 task estimates and checklists. Their implementation history is preserved in the corresponding phase reports and the [documentation index](../README.en.md).
 
 ## Original P0 Checklist
 

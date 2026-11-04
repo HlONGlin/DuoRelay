@@ -1,6 +1,6 @@
 # DuoRelay P0 Phase Completion Summary
 
-[简体中文](P0_COMPLETE.md) | English
+[简体中文](../../P0_COMPLETE.md) | English
 
 Date: 2024-10-31. This historical summary reports P0 at 5/10 (50%), while later P0-10 review records all ten tasks complete and G0 passed. See the dated review for the final phase outcome.
 

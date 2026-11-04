@@ -1,6 +1,6 @@
 # P2-17~21 Remaining Protocol Integration Assessment
 
-[简体中文](P2-17~21-remaining-protocols-analysis.md) | English
+[简体中文](../../P2-17~21-remaining-protocols-analysis.md) | English
 
 **Assessment date**: 2024-10-31
 

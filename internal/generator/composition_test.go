@@ -205,10 +205,10 @@ func TestSOCKSOnlyGuardWithTUN(t *testing.T) {
 					t.Fatal("TUN, mixed and SOCKS listeners must be present")
 				}
 				rules := root["route"].(map[string]any)["rules"].([]any)
-				if rules[0].(map[string]any)["action"] != "hijack-dns" {
+				if rules[0].(map[string]any)["action"] != "sniff" || rules[1].(map[string]any)["action"] != "hijack-dns" {
 					t.Fatal("TUN DNS must be hijacked before user routes")
 				}
-				guard := rules[1].(map[string]any)
+				guard := rules[2].(map[string]any)
 				if guard["invert"] != true || guard["outbound"] != "DIRECT" {
 					t.Fatal("TUN must bypass custom proxy rules")
 				}

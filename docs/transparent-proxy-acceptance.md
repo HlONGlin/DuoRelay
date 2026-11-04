@@ -4,6 +4,8 @@
 
 Date: 2026-11-03
 
+2026-11-04 更新：本轮通过 orca-linux 普通 Linux 容器完成权限失败保护、重名节点、双内核实际启动、多 SOCKS5 端口和指定 DNS 请求验收，并交叉编译 Windows/macOS full/lite。本轮容器未提供 TUN 和 NET_ADMIN，未重新执行下文旧记录中的特权设置/清理测试；真实透明流量及 DNS 泄漏仍未验证。详见[本轮问题记录](issue-resolution-2026-11.md)。
+
 面板提供 `off`、`redirect`、`tproxy` 和 `tun`。旧的 `enable_tun` 字段仍兼容，启用时会规范化为 `tun`。模式卡片显示前置条件、当前支持范围、DNS 行为和失败原因；不支持的组合由能力数据禁用。
 
 ## 模式约束

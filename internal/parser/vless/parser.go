@@ -30,8 +30,16 @@ func (p Parser) Parse(input string) (any, error) {
 	n := parser.NewNode(ir.ProtocolVLESS, "", u)
 	parser.SetName(n, u.Fragment)
 	q := u.Query()
+	if q.Get("pqv") != "" {
+		return nil, fmt.Errorf("%w: Reality pqv is not supported by the pinned kernels", parser.ErrUnsupportedFeature)
+	}
 	if err := parser.SetTransport(n, q); err != nil {
 		return nil, err
+	}
+	if n.Transport.Type == "xhttp" {
+		// XHTTP is currently rendered by mihomo only; keep the node importable
+		// while preventing a sing-box config that cannot represent it.
+		n.Owner = ir.KernelSetMihomo
 	}
 	parser.SetTLS(n, q)
 	n.Proto["uuid"], n.Proto["encryption"], n.Proto["flow"] = uuid, first(q.Get("encryption"), "none"), q.Get("flow")

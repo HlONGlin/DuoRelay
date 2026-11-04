@@ -1,9 +1,13 @@
 allow-lan: false
 dns:
+    default-nameserver:
+        - 223.5.5.5
     enable: true
     nameserver:
+        - 223.5.5.5#DIRECT
+        - 8.8.8.8#DIRECT
+    proxy-server-nameserver:
         - 223.5.5.5
-        - 8.8.8.8
 log-level: info
 mixed-port: 7890
 mode: rule

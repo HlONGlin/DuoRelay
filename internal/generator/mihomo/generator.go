@@ -51,6 +51,18 @@ func (g *Generator) Generate(nodes []*ir.Node, opts *generator.GenerateOptions) 
 		}
 		runtimeNodes = append(runtimeNodes, node)
 	}
+	prepared := generator.PrepareRuntimeNames(runtimeNodes)
+	listeners := append([]generator.SOCKSListener(nil), opts.SOCKSListeners...)
+	for i := range listeners {
+		for j, original := range opts.ExtraNodes {
+			if listeners[i].Outbound == original.Name && len(validNodes)+j < len(prepared) {
+				listeners[i].Outbound = prepared[len(validNodes)+j].Name
+				break
+			}
+		}
+	}
+	validNodes = prepared[:len(validNodes)]
+	runtimeNodes = prepared
 	proxies, err := g.generateProxies(runtimeNodes)
 	if err != nil {
 		return nil, err
@@ -78,7 +90,7 @@ func (g *Generator) Generate(nodes []*ir.Node, opts *generator.GenerateOptions) 
 					p["udp"] = plan.Hops[i].UDP
 				}
 			}
-			for i := 1; i < len(proxies); i++ {
+			for i := 1; i < len(validNodes); i++ {
 				proxies[i]["dialer-proxy"] = names[i-1]
 			}
 			proxyGroups = []map[string]any{{"name": "PROXY", "type": "select", "proxies": []string{names[len(names)-1]}}}
@@ -96,7 +108,7 @@ func (g *Generator) Generate(nodes []*ir.Node, opts *generator.GenerateOptions) 
 	if err := generator.ValidateOutboundReferences(opts.DefaultOutbound, opts.RoutingRules, available); err != nil {
 		return nil, err
 	}
-	if err := generator.ValidateSOCKSListenerOutbounds(opts.SOCKSListeners, available); err != nil {
+	if err := generator.ValidateSOCKSListenerOutbounds(listeners, available); err != nil {
 		return nil, err
 	}
 
@@ -108,7 +120,7 @@ func (g *Generator) Generate(nodes []*ir.Node, opts *generator.GenerateOptions) 
 		"dns":          g.generateDNS(opts),
 		"proxies":      proxies,
 		"proxy-groups": proxyGroups,
-		"rules":        g.generateRules(opts),
+		"rules":        g.generateRulesWithListeners(opts, listeners),
 	}
 	mode := opts.TransparentMode
 	if opts.EnableTUN {
@@ -159,13 +171,24 @@ func (g *Generator) Generate(nodes []*ir.Node, opts *generator.GenerateOptions) 
 	return yaml.Marshal(config)
 }
 
+func (g *Generator) generateRulesWithListeners(opts *generator.GenerateOptions, listeners []generator.SOCKSListener) []string {
+	copy := *opts
+	copy.SOCKSListeners = listeners
+	return g.generateRules(&copy)
+}
+
 func (g *Generator) generateDNS(opts *generator.GenerateOptions) map[string]any {
 	nameservers := make([]string, len(opts.DNSServers))
 	copy(nameservers, opts.DNSServers)
+	for i, server := range nameservers {
+		nameservers[i] = server + "#" + generator.DNSDetour(opts)
+	}
 
 	dns := map[string]any{
-		"enable":     true,
-		"nameserver": nameservers,
+		"enable":                  true,
+		"nameserver":              nameservers,
+		"default-nameserver":      []string{generator.DNSBootstrap(opts)},
+		"proxy-server-nameserver": []string{generator.DNSBootstrap(opts)},
 	}
 
 	if opts.DNSFakeIP {
@@ -179,6 +202,9 @@ func (g *Generator) generateProxies(nodes []*ir.Node) ([]map[string]any, error) 
 	proxies := make([]map[string]any, 0, len(nodes))
 
 	for _, node := range nodes {
+		if err := ir.ValidateConnectionFeatures(node); err != nil {
+			return nil, err
+		}
 		if node.Protocol == ir.ProtocolOpenVPN {
 			proxy, err := g.convertOpenVPN(node)
 			if err != nil {
@@ -1028,6 +1054,31 @@ func (g *Generator) convertVLESS(node *ir.Node) map[string]any {
 		if node.Transport.Path != "" {
 			proxy["grpc-opts"] = map[string]any{"grpc-service-name": node.Transport.Path}
 		}
+	case "xhttp":
+		options := map[string]any{}
+		if node.Transport.Path != "" {
+			options["path"] = node.Transport.Path
+		}
+		if node.Transport.Host != "" {
+			options["host"] = node.Transport.Host
+		}
+		for key, value := range node.Transport.Opts {
+			switch key {
+			case "mode":
+				options[key] = value
+			case "scMaxEachPostBytes":
+				options["sc-max-each-post-bytes"] = value
+			case "scMinPostsIntervalMs":
+				options["sc-min-posts-interval-ms"] = value
+			case "xPaddingBytes":
+				options["x-padding-bytes"] = value
+			case "xPaddingKey":
+				options["x-padding-key"] = value
+			}
+		}
+		if len(options) > 0 {
+			proxy["xhttp-opts"] = options
+		}
 	}
 
 	if node.Security.Type == "tls" || node.Security.Type == "reality" {
@@ -1042,6 +1093,9 @@ func (g *Generator) convertVLESS(node *ir.Node) map[string]any {
 			proxy["client-fingerprint"] = node.Security.Fingerprint
 		}
 		if node.Security.Type == "reality" {
+			if node.Security.Fingerprint == "" {
+				proxy["client-fingerprint"] = "chrome"
+			}
 			reality := map[string]any{}
 			if publicKey, ok := node.Security.Opts["public_key"].(string); ok && publicKey != "" {
 				reality["public-key"] = publicKey

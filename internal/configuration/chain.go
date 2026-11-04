@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,7 +16,10 @@ import (
 	"github.com/holi/duorelay/internal/ir"
 	"github.com/holi/duorelay/internal/kernel"
 	"github.com/holi/duorelay/internal/store"
+	"github.com/holi/duorelay/internal/systemproxy"
+	"github.com/holi/duorelay/internal/transparent"
 	"github.com/holi/duorelay/internal/variant"
+	"gopkg.in/yaml.v3"
 )
 
 type modeRuntime interface{ SetMode(kernel.RunMode) error }
@@ -45,7 +50,7 @@ func (s *Service) chainNodes(ctx context.Context, ids []string) ([]*ir.Node, err
 		used[copy.Name] = true
 		nodes = append(nodes, &copy)
 	}
-	return nodes, nil
+	return generator.PrepareRuntimeNames(nodes), nil
 }
 
 func (s *Service) PreviewChain(ctx context.Context, request ApplyRequest) (*generator.ChainPlan, error) {
@@ -157,6 +162,18 @@ func chainAppend(root map[string]any, key string, entry any) {
 }
 
 func (s *Service) startState(state *State) error {
+	if s.Transparent != nil {
+		port, err := stateTransparentPort(state)
+		if err != nil {
+			return err
+		}
+		if err := s.Transparent.Preflight(state.TransparentMode, port, port+1); err != nil {
+			return err
+		}
+		if err := s.Transparent.Prepare(state.TransparentMode, port, port+1); err != nil {
+			return err
+		}
+	}
 	if variant.Name == "lite" && (!variant.SupportsKernel(string(state.Kernel)) || len(state.Auxiliary) > 0) {
 		return fmt.Errorf("精简版不支持已保存的双核配置；数据保留，请重新选择 mihomo 节点")
 	}
@@ -179,7 +196,49 @@ func (s *Service) startState(state *State) error {
 	return s.start(state.Kernel, state.Path)
 }
 
-func (s *Service) installChain(ctx context.Context, request ApplyRequest, plan *generator.ChainPlan, configs []generatedChainConfig, allowLAN bool, release func(), socksListeners []SOCKSListener) (*State, error) {
+// Older states did not persist the applied redirect/TPROXY port. Read the
+// retained configuration instead of using settings the user has since edited.
+func stateTransparentPort(state *State) (int, error) {
+	if state.TransparentPort != 0 {
+		return state.TransparentPort, nil
+	}
+	if state.TransparentMode != transparent.ModeRedirect && state.TransparentMode != transparent.ModeTProxy {
+		return defaults().InboundPort, nil
+	}
+	data, err := os.ReadFile(state.Path)
+	if err != nil {
+		return 0, fmt.Errorf("read applied transparent port: %w", err)
+	}
+	var root map[string]any
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return 0, err
+	}
+	var value any
+	if state.Kernel == ir.KernelMihomo {
+		key := "redir-port"
+		if state.TransparentMode == transparent.ModeTProxy {
+			key = "tproxy-port"
+		}
+		value = root[key]
+	} else {
+		for _, inbound := range chainEntries(root, "inbounds") {
+			if inbound["type"] == string(state.TransparentMode) {
+				value = inbound["listen_port"]
+				break
+			}
+		}
+	}
+	port, err := strconv.Atoi(fmt.Sprint(value))
+	if err != nil || port < 1 || port > 65535 {
+		return 0, fmt.Errorf("cannot determine the previous transparent port; reapply the configuration")
+	}
+	if state.TransparentMode == transparent.ModeTProxy {
+		port--
+	}
+	return port, nil
+}
+
+func (s *Service) installChain(ctx context.Context, request ApplyRequest, plan *generator.ChainPlan, configs []generatedChainConfig, settings Settings, release func(), socksListeners []SOCKSListener) (*State, error) {
 	directory := s.Directory
 	if directory == "" {
 		directory = filepath.Join("data", "configs")
@@ -188,6 +247,11 @@ func (s *Service) installChain(ctx context.Context, request ApplyRequest, plan *
 		return nil, err
 	}
 	state := &State{ConfigVersion: CurrentConfigVersion, ID: uuid.NewString(), Kernel: plan.Kernel, Mode: "chain", Chain: plan, NodeIDs: append([]string{}, request.NodeIDs...), SOCKSListeners: append([]SOCKSListener{}, socksListeners...), AppliedAt: time.Now().UTC()}
+	state.TransparentMode, state.TransparentPort = settings.TransparentMode, settings.InboundPort
+	state.RuntimeNames = map[string]string{}
+	for _, hop := range plan.Hops {
+		state.RuntimeNames[hop.ID] = hop.Name
+	}
 	var paths []string
 	retained := false
 	defer func() {
@@ -198,7 +262,7 @@ func (s *Service) installChain(ctx context.Context, request ApplyRequest, plan *
 		}
 	}()
 	for _, config := range configs {
-		content, controller, secret, err := withController(config.content, config.kernel, allowLAN && config.kernel == plan.Kernel)
+		content, controller, secret, err := withController(config.content, config.kernel, settings.AllowLAN && config.kernel == plan.Kernel)
 		if err != nil {
 			return nil, err
 		}
@@ -227,6 +291,22 @@ func (s *Service) installChain(ctx context.Context, request ApplyRequest, plan *
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return nil, err
 	}
+	if settings.SystemProxy {
+		if !systemproxy.Supported() {
+			return nil, fmt.Errorf("%w: system proxy is unavailable", store.ErrInvalid)
+		}
+		if previous != nil && previous.SystemProxy != nil {
+			copy := *previous.SystemProxy
+			state.SystemProxy = &copy
+		} else {
+			snapshot, err := systemproxy.Capture()
+			if err != nil {
+				return nil, fmt.Errorf("%w: capture system proxy: %v", ErrApply, err)
+			}
+			state.SystemProxy = &snapshot
+		}
+		state.SystemProxyTarget = systemProxyTarget(settings, state.Kernel)
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -235,15 +315,30 @@ func (s *Service) installChain(ctx context.Context, request ApplyRequest, plan *
 	}
 	rollback := func(cause error) error {
 		stopErr := s.Runtime.StopAll()
+		cleanupErr := s.cleanupTransparent()
 		var restoreErr error
 		if previous != nil {
 			restoreErr = s.startState(previous)
 		}
-		return errors.Join(fmt.Errorf("%w: %v", ErrApply, cause), stopErr, restoreErr)
+		if previous != nil && previous.SystemProxyTarget != "" {
+			restoreErr = errors.Join(restoreErr, setSystemProxyTarget(previous.SystemProxyTarget))
+		} else if state.SystemProxy != nil {
+			restoreErr = errors.Join(restoreErr, systemproxy.Restore(*state.SystemProxy))
+		}
+		return errors.Join(fmt.Errorf("%w: %v", ErrApply, cause), stopErr, cleanupErr, restoreErr)
 	}
 	release()
 	if err := s.startState(state); err != nil {
 		return nil, rollback(err)
+	}
+	if state.SystemProxyTarget != "" {
+		if err := setSystemProxyTarget(state.SystemProxyTarget); err != nil {
+			return nil, rollback(err)
+		}
+	} else if previous != nil && previous.SystemProxy != nil {
+		if err := systemproxy.Restore(*previous.SystemProxy); err != nil {
+			return nil, rollback(err)
+		}
 	}
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
@@ -251,18 +346,87 @@ func (s *Service) installChain(ctx context.Context, request ApplyRequest, plan *
 		return nil, rollback(err)
 	}
 	retained = true
-	removeReplacedConfig(previous)
+	pathsToKeep := []string{state.Path}
+	for _, auxiliary := range state.Auxiliary {
+		pathsToKeep = append(pathsToKeep, auxiliary.Path)
+	}
+	removeReplacedConfig(previous, pathsToKeep...)
 	return state, nil
 }
 
-func removeReplacedConfig(previous *State) {
-	if previous == nil {
+const configHistoryLimit = 10
+
+func removeReplacedConfig(previous *State, current ...string) {
+	directories := map[string]struct{}{}
+	addDirectory := func(path string) {
+		if path != "" {
+			directories[filepath.Dir(path)] = struct{}{}
+		}
+	}
+	if previous != nil {
+		addDirectory(previous.Path)
+		for _, config := range previous.Auxiliary {
+			addDirectory(config.Path)
+		}
+	}
+	for _, path := range current {
+		addDirectory(path)
+	}
+	for directory := range directories {
+		pruneConfigHistory(directory, current...)
+	}
+}
+
+func pruneConfigHistory(directory string, current ...string) {
+	entries, err := os.ReadDir(directory)
+	if err != nil {
 		return
 	}
-	if previous.Path != "" {
-		_ = os.Remove(previous.Path)
+	keep := map[string]struct{}{}
+	for _, path := range current {
+		if path != "" {
+			keep[filepath.Base(path)] = struct{}{}
+		}
 	}
-	for _, config := range previous.Auxiliary {
-		_ = os.Remove(config.Path)
+	type configFile struct {
+		name string
+		date time.Time
 	}
+	files := make([]configFile, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() || (filepath.Ext(entry.Name()) != ".json" && filepath.Ext(entry.Name()) != ".yaml") {
+			continue
+		}
+		stem := strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))
+		stem = strings.TrimSuffix(strings.TrimSuffix(stem, "-sing-box"), "-mihomo")
+		if _, err := uuid.Parse(stem); err != nil {
+			continue
+		}
+		info, err := entry.Info()
+		if err == nil {
+			files = append(files, configFile{name: entry.Name(), date: info.ModTime()})
+		}
+	}
+	sort.SliceStable(files, func(i, j int) bool { return files[i].date.After(files[j].date) })
+	for index, file := range files {
+		if index < configHistoryLimit {
+			continue
+		}
+		if _, explicitlyKept := keep[file.name]; explicitlyKept {
+			continue
+		}
+		_ = os.Remove(filepath.Join(directory, file.name))
+	}
+}
+
+// PruneConfigHistory is also called on startup; current files always survive.
+func (s *Service) PruneConfigHistory(state *State) {
+	var keep []string
+	if state != nil {
+		keep = append(keep, state.Path)
+		for _, aux := range state.Auxiliary {
+			keep = append(keep, aux.Path)
+		}
+	}
+	pruneConfigHistory(s.Directory, keep...)
 }

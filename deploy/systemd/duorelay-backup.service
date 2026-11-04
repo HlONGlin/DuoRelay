@@ -1,0 +1,15 @@
+[Unit]
+Description=Back up DuoRelay database and encryption key
+
+[Service]
+Type=oneshot
+User=@DUORELAY_USER@
+Group=@DUORELAY_USER@
+UMask=0077
+StateDirectory=duorelay
+StateDirectoryMode=0750
+ExecStart=/bin/sh -ec 'mkdir -p "@DUORELAY_DATA@/backups"; exec "@DUORELAY_PREFIX@/duorelay" --db "@DUORELAY_DATA@/duorelay.db" --backup "@DUORELAY_DATA@/backups/$$(date -u +%%Y%%m%%dT%%H%%M%%SZ)"'
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=@DUORELAY_DATA@
+PrivateTmp=true

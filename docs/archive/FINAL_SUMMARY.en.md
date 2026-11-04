@@ -1,6 +1,6 @@
 # DuoRelay P0 Final Summary
 
-[简体中文](FINAL_SUMMARY.md) | English
+[简体中文](../../FINAL_SUMMARY.md) | English
 
 Date: 2024-10-31. This source snapshot reports P0 at 5/10 tasks (50%), although it is titled “final”; later records document the eventual 10/10 completion and G0 approval.
 

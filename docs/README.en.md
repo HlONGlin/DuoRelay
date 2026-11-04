@@ -12,6 +12,8 @@
 
 This index collects commonly used documentation. Historical plans, progress reports and designs describe their respective dates; consult the code and acceptance records for current capabilities and verification limits.
 
+The November fixes are documented in the [issue resolution record](issue-resolution-2026-11.md) and [operations guide](operations.md) (Chinese). Tracked root-level progress reports and plans now live in the [historical archive](archive/README.md); DESIGN sources used by the frontend build remain at the repository root.
+
 ## Usage and Deployment
 
 | Document | Contents |

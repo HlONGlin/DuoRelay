@@ -1,6 +1,6 @@
 # DuoRelay Project Status Summary
 
-[简体中文](STATUS_SUMMARY.md) | English
+[简体中文](../../STATUS_SUMMARY.md) | English
 
 Historical snapshot: 2024-10-31. The source report says P0 was 50% complete (5/10 tasks); current status is in [STATUS](STATUS.en.md).
 

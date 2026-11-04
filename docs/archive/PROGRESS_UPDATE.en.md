@@ -1,6 +1,6 @@
 # DuoRelay Progress Update
 
-[简体中文](PROGRESS_UPDATE.md) | English
+[简体中文](../../PROGRESS_UPDATE.md) | English
 
 **Updated**: Evening of 2024-10-31. This is a historical snapshot.
 

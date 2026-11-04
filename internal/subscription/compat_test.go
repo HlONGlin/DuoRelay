@@ -180,7 +180,7 @@ func TestSubscriptionEncodingsAndFailures(t *testing.T) {
 		`{"outbounds":"malformed"}`, `{"outbounds":null}`, `{"servers":[{"server":"ss.example","server_port":0,"method":"aes-256-gcm","password":"secret"}]}`,
 		"[Proxy]\nBad = ss, host, 8388, password=\"secret", "[Proxy]\nBad = vmess, host, 443, username=" + sampleUUID + ", tls=bad",
 		"mierus://alice:secret@host?profile=a&port=3000&protocol=TCP&port=4000", "mierus://alice:secret@host?profile=a&port=3000-99999&protocol=TCP", "mieru://truncated", "ssd://garbage",
-		shareLink + "\nunknown://secret@host:443", "hy2://secret@host:99999", "ss://aes-256-gcm:@host:8388",
+		"unknown://secret@host:443", "hy2://secret@host:99999", "ss://aes-256-gcm:@host:8388",
 	} {
 		nodes, err := m.Parse([]byte(body))
 		if err == nil && len(nodes) != 0 {
@@ -213,15 +213,22 @@ func TestHTTPSubscriptionCompatibilityAndAtomicFailure(t *testing.T) {
 		t.Fatalf("HTTP Base64 subscription: %v", err)
 	}
 	body.Store("anytls://pass@any.example:443#AnyTLS\nunknown://secret@unknown:443")
-	if _, err := m.Update(ctx, sub.ID); err == nil {
-		t.Fatal("partial refresh accepted")
+	if nodes, err := m.Update(ctx, sub.ID); err != nil || len(nodes) != 1 {
+		t.Fatal("partial refresh should retain usable nodes", err)
 	}
 	saved, err := m.Store.Nodes(ctx, sub.ID)
-	if err != nil || len(saved) != 2 {
-		t.Fatal("failed parse removed previous nodes")
+	if err != nil || len(saved) != 1 {
+		t.Fatal("partial refresh did not persist usable nodes")
 	}
 	status, _ := m.Get(ctx, sub.ID)
-	if status.LastStatus != "error" || strings.Contains(status.LastError, "secret") {
+	if status.LastStatus != "ok" || len(status.Skipped) != 1 || status.Skipped[0].Line != 2 || strings.Contains(status.Skipped[0].Reason, "secret") {
 		t.Fatal("bad failure status")
+	}
+	body.Store("unknown://secret@unknown:443")
+	if _, err := m.Update(ctx, sub.ID); err == nil {
+		t.Fatal("entirely unusable refresh accepted")
+	}
+	if saved, err := m.Store.Nodes(ctx, sub.ID); err != nil || len(saved) != 1 {
+		t.Fatal("failed refresh removed previous usable nodes")
 	}
 }

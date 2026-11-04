@@ -151,6 +151,7 @@ make build
 | Linux systemd 安装、用户服务、卸载 | [Linux 部署](docs/linux-deployment.md) |
 | Windows 打包、运行和数据迁移 | [Windows 部署](docs/windows-deployment.md) |
 | 源码开发、测试与目录结构 | [开发指南](docs/DEVELOPMENT.md) |
+| 透明代理权限、日志清理、备份、重置密码与 HTTPS | [运维指南](docs/operations.md) |
 
 程序常用参数如下，完整参数可通过 `./build/duorelay -h` 查看。
 
@@ -161,6 +162,9 @@ make build
 | `-kernels` | `kernels` | 内核可执行文件目录 |
 | `-config-dir` | `data/configs` | 生成配置的目录 |
 | `-cookie-secure` | `false` | HTTPS 反向代理下设置 Secure 会话 Cookie |
+| `-backup` | 空 | 在线备份数据库与配套密钥到新目录，然后退出 |
+| `-reset-password` | `false` | 从 stdin 重置指定管理员密码并撤销其会话 |
+| `-username` | `admin` | 密码重置的账号 |
 
 迁移时请备份整个数据目录，尤其是数据库和对应的 `.key` 文件；丢失密钥会导致已加密的订阅地址无法恢复。
 
@@ -192,7 +196,7 @@ npm run build
 
 ## 文档索引
 
-使用、开发、架构和验收文档入口见 [docs/README.md](docs/README.md)。阶段报告和历史设计保留原貌，当前能力以代码与最近的验收记录为准。
+使用、开发、架构和验收文档入口见 [docs/README.md](docs/README.md)。本次 CSV 的 23 项处理及验证范围见[问题修复记录](docs/issue-resolution-2026-11.md)；历史总结与计划见[归档索引](docs/archive/README.md)。当前能力以代码与最近的验收记录为准。
 
 ## 许可证
 

@@ -4,6 +4,8 @@
 
 Date: 2026-11-03
 
+Update on 2026-11-04: this run used an ordinary orca-linux container for permission failure protection, duplicate node names, actual kernel startup, separate SOCKS ports and configured-DNS requests. Windows/macOS full/lite were cross compiled. This container lacked TUN/NET_ADMIN, so privileged setup/cleanup from the earlier record below was not rerun. Real transparent traffic and DNS leak checks remain unverified. See the [November issue record](issue-resolution-2026-11.md).
+
 The panel offers `off`, `redirect`, `tproxy` and `tun`. The legacy `enable_tun` field remains compatible and is normalized to `tun` when enabled. Mode cards display prerequisites, current support, DNS behavior and failure reasons; capability data disables unsupported combinations.
 
 ## Mode Constraints

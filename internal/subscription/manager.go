@@ -3,6 +3,7 @@ package subscription
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -27,33 +29,43 @@ import (
 
 var ErrUnavailable = errors.New("subscription store is not configured")
 var ErrUpdate = errors.New("subscription update failed")
+var ErrFetchURL = errors.New("subscription URL error")
+var ErrFetchNetwork = errors.New("subscription network error")
+var ErrFetchDNS = errors.New("subscription DNS error")
+var ErrFetchTimeout = errors.New("subscription timeout")
+var ErrFetchTLS = errors.New("subscription TLS error")
+var ErrFetchHTTP = errors.New("subscription HTTP error")
+var ErrFetchBody = errors.New("subscription response error")
+var ErrFetchParse = errors.New("subscription parse error")
 
 type Diff struct {
-	Added   int `json:"added"`
-	Removed int `json:"removed"`
-	Changed int `json:"changed"`
+	Added      int `json:"added"`
+	Removed    int `json:"removed"`
+	Changed    int `json:"changed"`
+	Duplicates int `json:"duplicates"`
 }
 
 type Subscription struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	URL         string    `json:"url"`
-	UserAgent   string    `json:"user_agent"`
-	Interval    int       `json:"interval"` // hours; zero on create means 24 hours
-	Group       string    `json:"group"`
-	Disabled    bool      `json:"disabled"`
-	LastUpdate  time.Time `json:"last_update"`
-	LastAttempt time.Time `json:"last_attempt"`
-	LastStatus  string    `json:"last_status"`
-	LastError   string    `json:"last_error,omitempty"`
-	NextUpdate  time.Time `json:"next_update"`
-	Failures    int       `json:"failures"`
-	Diff        Diff      `json:"diff"`
-	Used        int64     `json:"used"`
-	Total       int64     `json:"total"`
-	Expire      time.Time `json:"expire"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          string      `json:"id"`
+	Name        string      `json:"name"`
+	URL         string      `json:"url"`
+	UserAgent   string      `json:"user_agent"`
+	Interval    int         `json:"interval"` // hours; zero on create means 24 hours
+	Group       string      `json:"group"`
+	Disabled    bool        `json:"disabled"`
+	LastUpdate  time.Time   `json:"last_update"`
+	LastAttempt time.Time   `json:"last_attempt"`
+	LastStatus  string      `json:"last_status"`
+	LastError   string      `json:"last_error,omitempty"`
+	NextUpdate  time.Time   `json:"next_update"`
+	Failures    int         `json:"failures"`
+	Diff        Diff        `json:"diff"`
+	Skipped     []ParseSkip `json:"skipped,omitempty"`
+	Used        int64       `json:"used"`
+	Total       int64       `json:"total"`
+	Expire      time.Time   `json:"expire"`
+	CreatedAt   time.Time   `json:"created_at"`
+	UpdatedAt   time.Time   `json:"updated_at"`
 }
 
 // Manager borrows Store; its owner closes the database after Run has stopped.
@@ -377,14 +389,40 @@ func (m *Manager) Update(ctx context.Context, id string) ([]*ir.Node, error) {
 	now := time.Now().UTC()
 	diff := Diff{}
 	seen := map[string]bool{}
+	fingerprints := map[string]bool{}
+	oldByFingerprint := map[string]*ir.Node{}
+	oldByEndpoint := map[string][]*ir.Node{}
+	endpointKey := func(n *ir.Node) string {
+		return fmt.Sprintf("%s\x00%s\x00%s\x00%d", n.Protocol, n.Name, n.Server.Host, n.Server.Port)
+	}
+	for _, n := range oldNodes {
+		oldByFingerprint[fingerprint(n)] = n
+		key := endpointKey(n)
+		oldByEndpoint[key] = append(oldByEndpoint[key], n)
+	}
+	unique := make([]*ir.Node, 0, len(nodes))
 	for _, node := range nodes {
-		identity := fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%d", id, node.Protocol, node.Name, node.Server.Host, node.Server.Port)
+		// A subscription node's identity is its connection parameters, not its
+		// display name. Providers commonly rename the same endpoint between
+		// refreshes and may repeat it with different labels in one response.
+		fp := fingerprint(node)
+		if fingerprints[fp] {
+			diff.Duplicates++
+			continue
+		}
+		fingerprints[fp] = true
+		identity := id + "\x00" + fp
 		digest := sha256.Sum256([]byte(identity))
 		node.ID = hex.EncodeToString(digest[:16])
-		if seen[node.ID] {
-			return nil, fmt.Errorf("%w: duplicate node identity", ErrUpdate)
+		if previous := oldByFingerprint[fp]; previous != nil && !seen[previous.ID] {
+			node.ID = previous.ID
+		} else if candidates := oldByEndpoint[endpointKey(node)]; len(candidates) == 1 && !seen[candidates[0].ID] {
+			// Preserve identity on a credential change only when the previous
+			// endpoint is unambiguous. Duplicate names never identify a node.
+			node.ID = candidates[0].ID
 		}
 		seen[node.ID] = true
+		unique = append(unique, node)
 		node.Source = ir.Source{Type: "subscription", SubscriptionID: id}
 		node.CreatedAt = now
 		node.UpdatedAt = now
@@ -406,6 +444,7 @@ func (m *Manager) Update(ctx context.Context, id string) ([]*ir.Node, error) {
 			diff.Added++
 		}
 	}
+	nodes = unique
 	for id := range old {
 		if !seen[id] {
 			diff.Removed++
@@ -465,13 +504,12 @@ func (m *Manager) Update(ctx context.Context, id string) ([]*ir.Node, error) {
 	return nodes, nil
 }
 func fingerprint(n *ir.Node) string {
-	data, _ := json.Marshal([]any{n.Protocol, n.Server, n.Transport, n.Security, n.Proto, n.Extra})
-	return string(data)
+	return ir.ConnectionFingerprint(n)
 }
 func (m *Manager) fetch(ctx context.Context, sub *Subscription) ([]*ir.Node, http.Header, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sub.URL, nil)
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: invalid URL", ErrUpdate)
+		return nil, nil, &fetchError{kind: ErrFetchURL, cause: err}
 	}
 	ua := sub.UserAgent
 	if ua == "" {
@@ -484,28 +522,45 @@ func (m *Manager) fetch(ctx context.Context, sub *Subscription) ([]*ir.Node, htt
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: fetch failed", ErrUpdate)
+		return nil, nil, &fetchError{kind: classifyFetchError(err), cause: err}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, nil, fmt.Errorf("%w: HTTP %d", ErrUpdate, resp.StatusCode)
+		return nil, nil, fmt.Errorf("%w: %w: HTTP %d", ErrUpdate, ErrFetchHTTP, resp.StatusCode)
 	}
 	const limit = 16 * 1024 * 1024
 	body, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: read failed", ErrUpdate)
+		return nil, nil, &fetchError{kind: ErrFetchBody, cause: err}
 	}
 	if len(body) > limit {
-		return nil, nil, fmt.Errorf("%w: response exceeds 16 MiB", ErrUpdate)
+		return nil, nil, fmt.Errorf("%w: %w: response exceeds 16 MiB", ErrUpdate, ErrFetchBody)
 	}
-	nodes, err := m.Parse(body)
+	nodes, skipped, err := m.ParseDetailed(body)
+	sub.Skipped = skipped
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: %v", ErrUpdate, err)
+		return nil, nil, fmt.Errorf("%w: %w: %w", ErrUpdate, ErrFetchParse, err)
 	}
 	if len(nodes) == 0 {
-		return nil, nil, fmt.Errorf("%w: subscription contains no usable nodes", ErrUpdate)
+		return nil, nil, fmt.Errorf("%w: %w: subscription contains no usable nodes", ErrUpdate, ErrFetchParse)
 	}
 	return nodes, resp.Header, nil
+}
+
+func classifyFetchError(err error) error {
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return ErrFetchDNS
+	}
+	var timeoutErr interface{ Timeout() bool }
+	if errors.As(err, &timeoutErr) && timeoutErr.Timeout() {
+		return ErrFetchTimeout
+	}
+	var tlsErr *tls.CertificateVerificationError
+	if errors.As(err, &tlsErr) || strings.Contains(strings.ToLower(err.Error()), "tls") || strings.Contains(strings.ToLower(err.Error()), "certificate") {
+		return ErrFetchTLS
+	}
+	return ErrFetchNetwork
 }
 
 // Run performs due updates until cancellation. Retry deadlines survive restarts.

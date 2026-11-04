@@ -204,6 +204,9 @@ func (s *Store) initEncryption(cfg *Config) error {
 		return err
 	}
 	s.aead, err = cipher.NewGCM(block)
+	if err == nil {
+		s.encryptionKey = append([]byte(nil), key...)
+	}
 	return err
 }
 
@@ -241,6 +244,9 @@ func (s *Store) SaveNode(ctx context.Context, n *ir.Node) error {
 	if n.ID == "" {
 		n.ID = uuid.NewString()
 	}
+	if n.Protocol == ir.ProtocolVLESS && n.Transport.Type == "xhttp" {
+		n.Owner = ir.KernelSetMihomo
+	}
 	if n.CreatedAt.IsZero() {
 		n.CreatedAt = time.Now().UTC()
 	}
@@ -251,6 +257,51 @@ func (s *Store) SaveNode(ctx context.Context, n *ir.Node) error {
 	}
 	_, err = s.db.ExecContext(ctx, `INSERT INTO nodes(id,name,protocol,ir_json) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,protocol=excluded.protocol,ir_json=excluded.ir_json,updated_at=CURRENT_TIMESTAMP`, n.ID, n.Name, n.Protocol, string(data))
 	return err
+}
+
+// FindNodeByFingerprint returns an existing node with the same connection
+// parameters, ignoring its display and management fields.
+func (s *Store) FindNodeByFingerprint(ctx context.Context, candidate *ir.Node) (*ir.Node, error) {
+	want := nodeFingerprint(candidate)
+	rows, err := s.db.QueryContext(ctx, "SELECT ir_json FROM nodes")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var data string
+		if err := rows.Scan(&data); err != nil {
+			return nil, err
+		}
+		var node ir.Node
+		if err := json.Unmarshal([]byte(data), &node); err != nil {
+			continue
+		}
+		if nodeFingerprint(&node) == want {
+			return &node, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return nil, nil
+}
+
+func nodeFingerprint(n *ir.Node) string {
+	return ir.ConnectionFingerprint(n)
+}
+
+// ImportNode serializes the duplicate check and insert for concurrent imports.
+// Manual creation remains free to create independent nodes intentionally.
+func (s *Store) ImportNode(ctx context.Context, node *ir.Node) (bool, error) {
+	s.importMu.Lock()
+	defer s.importMu.Unlock()
+	if existing, err := s.FindNodeByFingerprint(ctx, node); err != nil {
+		return false, err
+	} else if existing != nil {
+		return false, nil
+	}
+	return true, s.SaveNode(ctx, node)
 }
 
 func (s *Store) Node(ctx context.Context, id string) (*ir.Node, error) {

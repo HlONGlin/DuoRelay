@@ -289,6 +289,7 @@ func TestConfigAndLogAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	settingsValue["default_outbound"] = "DIRECT"
+	settingsValue["dns_detour"] = "DIRECT"
 	settingsValue["routing_mode"] = "blacklist"
 	settings, _ = json.Marshal(settingsValue)
 	call(t, s, "PUT", "/api/config", string(settings), 200)

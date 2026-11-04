@@ -1,13 +1,21 @@
 {
   "dns": {
+    "final": "dns-0",
     "servers": [
       {
         "server": "223.5.5.5",
+        "tag": "dns-bootstrap",
+        "type": "udp"
+      },
+      {
+        "server": "223.5.5.5",
+        "server_port": 53,
         "tag": "dns-0",
         "type": "udp"
       },
       {
         "server": "8.8.8.8",
+        "server_port": 53,
         "tag": "dns-1",
         "type": "udp"
       }
@@ -26,6 +34,7 @@
   },
   "outbounds": [
     {
+      "domain_resolver": "dns-0",
       "tag": "DIRECT",
       "type": "direct"
     },
@@ -43,7 +52,7 @@
     }
   ],
   "route": {
-    "default_domain_resolver": "dns-0",
+    "default_domain_resolver": "dns-bootstrap",
     "final": "DIRECT",
     "rules": [
       {

@@ -2,18 +2,20 @@
 Description=DuoRelay proxy manager
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=3
 
 [Service]
 Type=simple
 User=@DUORELAY_USER@
 Group=@DUORELAY_USER@
 WorkingDirectory=@DUORELAY_PREFIX@
-ExecStart=@DUORELAY_PREFIX@/duorelay --listen 127.0.0.1:8080 --db @DUORELAY_DATA@/duorelay.db --config-dir @DUORELAY_DATA@/configs --kernels @DUORELAY_PREFIX@/kernels
+StateDirectory=duorelay
+StateDirectoryMode=0750
+ExecStart=@DUORELAY_PREFIX@/duorelay --listen 127.0.0.1:8080 --db ${STATE_DIRECTORY}/duorelay.db --config-dir ${STATE_DIRECTORY}/configs --kernels @DUORELAY_PREFIX@/kernels
 Restart=on-failure
-RestartSec=3
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
-DeviceAllow=/dev/net/tun rw
+RestartSec=15
+TimeoutStopSec=20
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true

@@ -99,10 +99,25 @@ func (s *Service) Login(ctx context.Context, username, password string) (string,
 	}
 	token := base64.RawURLEncoding.EncodeToString(tokenBytes)
 	expiresAt := time.Now().UTC().Add(SessionTTL)
-	if err := s.Store.CreateAuthSession(ctx, hashToken(token), username, expiresAt); err != nil {
+	if err := s.Store.CreateAuthSessionForPassword(ctx, hashToken(token), username, hash, expiresAt); err != nil {
+		if errors.Is(err, store.ErrConflict) {
+			return "", ErrInvalid
+		}
 		return "", err
 	}
 	return token, nil
+}
+
+// ResetPassword is only exposed by the local CLI, never an unauthenticated API.
+func (s *Service) ResetPassword(ctx context.Context, username, password string) error {
+	if len(password) < 8 || len(password) > 72 {
+		return fmt.Errorf("password must contain 8..72 bytes")
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	return s.Store.ResetAuthPassword(ctx, strings.TrimSpace(username), string(hash))
 }
 
 func (s *Service) Authenticate(ctx context.Context, r *http.Request) (string, error) {

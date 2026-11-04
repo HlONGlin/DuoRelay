@@ -80,6 +80,12 @@ type Source struct {
 
 // CanRunOn checks if this node can run on the specified kernel
 func (n *Node) CanRunOn(kernel KernelType) bool {
+	if n == nil {
+		return false
+	}
+	if n.Protocol == ProtocolVLESS && n.Transport.Type == "xhttp" && kernel == KernelSingBox {
+		return false
+	}
 	switch kernel {
 	case KernelSingBox:
 		return n.Owner&KernelSetSingBox != 0

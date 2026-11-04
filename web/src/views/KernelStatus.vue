@@ -96,12 +96,19 @@
             </div>
           </div>
           <div class="log-summary">
+            <span>{{ t('最多显示最近 100 条不同日志，重复信息合并计数', 'Shows up to 100 recent distinct entries; repeats are counted') }}</span>
             <span>{{ t('总计', 'Total') }} {{ store.logSummary.total }}</span>
             <span class="summary-info">{{ t('信息', 'Info') }} {{ store.logSummary.levels.info }}</span>
             <span class="summary-warn">{{ t('警告', 'Warning') }} {{ store.logSummary.levels.warn }}</span>
             <span class="summary-error">{{ t('错误', 'Error') }} {{ store.logSummary.levels.error }}</span>
             <span class="summary-debug">{{ t('调试', 'Debug') }} {{ store.logSummary.levels.debug }}</span>
           </div>
+          <el-form inline class="log-maintenance" label-position="left" @submit.prevent="persistLogPolicy">
+            <el-form-item :label="t('日志保留天数', 'Days to retain')"><el-input-number v-model="logPolicy.retention_days" :min="1" :max="365" size="small" /></el-form-item>
+            <el-form-item :label="t('清理间隔（小时，0 为关闭）', 'Cleanup interval (hours, 0 disables)')"><el-input-number v-model="logPolicy.cleanup_hours" :min="0" :max="720" size="small" /></el-form-item>
+            <el-form-item><el-button size="small" :loading="policySaving" @click="persistLogPolicy">{{ t('保存清理计划', 'Save cleanup schedule') }}</el-button><el-button size="small" @click="handleClearLogs">{{ t('清空当前内核日志', 'Clear kernel logs') }}</el-button></el-form-item>
+          </el-form>
+          <el-alert v-if="logPolicy.last_error" :title="logPolicy.last_error" type="error" :closable="false" />
           <div v-if="store.logSummary.clusters.length" class="log-clusters">
             <span class="cluster-title">{{ t('重复错误', 'Repeated errors') }}</span>
             <el-tag
@@ -120,7 +127,7 @@
             <div v-for="(log, index) in store.logs" :key="`${log.time}-${index}`" class="log-line">
               <span class="log-time">{{ formatDate(log.time) }}</span>
               <span class="log-level" :class="`level-${log.level}`">{{ log.level }}</span>
-              <span class="log-message">{{ log.message }}</span>
+              <span class="log-message">{{ log.message }} <el-tag v-if="(log.count ?? 1) > 1" size="small">×{{ log.count }}</el-tag></span>
             </div>
           </el-scrollbar>
         </el-tab-pane>
@@ -164,7 +171,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { openKernelLogStream } from '@/api/kernel'
+import { openKernelLogStream, getLogPolicy, saveLogPolicy, clearKernelLogs, type LogPolicy } from '@/api/kernel'
 import { useKernelStore } from '@/stores/kernel'
 import { useNodesStore } from '@/stores/nodes'
 import { useAppearanceStore } from '@/stores/appearance'
@@ -182,6 +189,26 @@ const connectionsLoading = ref(false)
 const logLevel = ref<'all' | 'info' | 'warn' | 'error' | 'debug'>('all')
 const logSource = ref<'all' | 'stdout' | 'stderr'>('all')
 const logSearch = ref('')
+const logPolicy = ref<LogPolicy>({ retention_days: 7, cleanup_hours: 24 })
+const policySaving = ref(false)
+
+async function persistLogPolicy() {
+  policySaving.value = true
+  try { logPolicy.value = await saveLogPolicy(logPolicy.value); ElMessage.success(t('日志清理计划已保存', 'Log cleanup schedule saved')) }
+  catch (err) { ElMessage.error(err instanceof Error ? err.message : t('保存失败', 'Save failed')) }
+  finally { policySaving.value = false }
+}
+async function handleClearLogs() {
+  try {
+    await ElMessageBox.confirm(t('确定清空当前内核的内存和持久化日志吗？', 'Clear in-memory and saved logs for this kernel?'), t('清空日志', 'Clear logs'), { type: 'warning' })
+    stopLogStream()
+    await clearKernelLogs(store.status.active_kernel || undefined)
+    await refreshLogs()
+    startLogStream()
+  } catch (err) {
+    if (err !== 'cancel' && err !== 'close') { ElMessage.error(err instanceof Error ? err.message : t('清空失败', 'Clear failed')); startLogStream() }
+  }
+}
 
 let pollTimer: number | undefined
 let logSocket: WebSocket | undefined
@@ -218,7 +245,7 @@ function startLogStream() {
   logSocket.onmessage = (event) => {
     try {
       const message = JSON.parse(event.data) as { type: string; logs?: typeof store.logs; log?: typeof store.logs[number] }
-      if (message.type === 'snapshot' && message.logs) store.logs = message.logs
+      if (message.type === 'snapshot' && message.logs) store.logs = message.logs.slice(-100)
       if (message.type === 'log' && message.log) store.appendLiveLog(message.log)
     } catch {
       // Ignore malformed stream messages; the HTTP refresh remains available.
@@ -305,6 +332,7 @@ watch([logLevel, logSource, logSearch], () => {
 })
 
 onMounted(async () => {
+  try { logPolicy.value = await getLogPolicy() } catch (err) { ElMessage.error(err instanceof Error ? err.message : t('无法读取清理计划', 'Could not read cleanup schedule')) }
   await refreshAll()
   startPolling()
 })

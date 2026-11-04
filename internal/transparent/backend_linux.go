@@ -4,10 +4,14 @@ package transparent
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -27,7 +31,7 @@ func (b *linuxBackend) Capabilities() []ModeInfo {
 	hasTun := fileAvailable("/dev/net/tun")
 	nft := commandAvailable("nft")
 	iptables := commandAvailable("iptables")
-	admin := commandAvailable("ip")
+	admin := commandAvailable("ip") && hasNetAdmin() && hasNetRaw()
 	firewall := nft || iptables
 	base := "需要 root 或 CAP_NET_ADMIN/CAP_NET_RAW；" + "iproute2；"
 	if !firewall {
@@ -37,8 +41,75 @@ func (b *linuxBackend) Capabilities() []ModeInfo {
 		{Mode: ModeOff, Supported: true, Prerequisites: "无需系统权限", DNSDescription: "不接管 DNS；按应用自身代理设置运行。"},
 		{Mode: ModeRedirect, Supported: firewall && admin, Reason: unavailable(firewall && admin, "缺少 nftables/iptables 或 iproute2"), Prerequisites: base + "redirect 只接管 TCP；DNS 不自动劫持，需使用内核 DNS 配置或系统明确指向代理 DNS。", DNSDescription: "redirect 不接管 UDP DNS；使用系统 DNS 会产生 DNS 泄漏，面板会明确标记。"},
 		{Mode: ModeTProxy, Supported: firewall && admin, Reason: unavailable(firewall && admin, "缺少 nftables/iptables 或 iproute2"), Prerequisites: base + "内核需支持 TPROXY、fwmark 和策略路由。", DNSDescription: "TPROXY 可接管 TCP/UDP，但 DuoRelay 当前只建立代理流量链，DNS 仍需显式配置到代理 DNS，避免把系统 DNS 当成已接管。"},
-		{Mode: ModeTUN, Supported: hasTun, Reason: unavailable(hasTun, "/dev/net/tun 不可用；服务需 DeviceAllow 或容器需显式映射"), Prerequisites: "仅需 CAP_NET_ADMIN 与 CAP_NET_RAW，并可读写 /dev/net/tun；内核负责 TUN 路由和 DNS hijack。", DNSDescription: "TUN 通过内核 DNS hijack 接管 TCP/UDP 53；内部 DNS 分流规则先于用户规则，避免 DNS 泄漏。"},
+		{Mode: ModeTUN, Supported: hasTun && hasNetAdmin() && hasNetRaw(), Reason: linuxCapabilityReason(hasTun), Prerequisites: "需要 root 或 CAP_NET_ADMIN/CAP_NET_RAW，并可读写 /dev/net/tun；内核负责 TUN 路由和 DNS hijack。", DNSDescription: "TUN 通过内核 DNS hijack 接管 TCP/UDP 53；内部 DNS 分流规则先于用户规则，避免 DNS 泄漏。"},
 	}
+}
+
+func linuxCapabilityReason(hasTun bool) string {
+	if !hasTun {
+		return "/dev/net/tun 不可用或不可读写；服务需 DeviceAllow 或容器需显式映射"
+	}
+	if !hasNetAdmin() || !hasNetRaw() {
+		return "当前进程缺少 CAP_NET_ADMIN/CAP_NET_RAW；请使用 root、systemd Capability 配置或容器 --cap-add"
+	}
+	return ""
+}
+
+func (b *linuxBackend) Preflight(mode Mode, redirectPort, tproxyPort int) error {
+	if mode == ModeOff || mode == "" {
+		return nil
+	}
+	if redirectPort < 1 || redirectPort > 65535 || tproxyPort < 1 || tproxyPort > 65535 {
+		return fmt.Errorf("transparent proxy ports are invalid")
+	}
+	if !hasNetAdmin() || !hasNetRaw() {
+		return fmt.Errorf("transparent proxy requires effective CAP_NET_ADMIN and CAP_NET_RAW; root inside a restricted container is insufficient")
+	}
+	if mode == ModeTUN {
+		if !fileAvailable("/dev/net/tun") {
+			return fmt.Errorf("/dev/net/tun is unavailable or not readable/writable")
+		}
+		return nil
+	}
+	if !commandAvailable("ip") {
+		return fmt.Errorf("iproute2 command is required")
+	}
+	if mode != ModeRedirect && mode != ModeTProxy {
+		return fmt.Errorf("unsupported transparent mode %q", mode)
+	}
+	_, err := firewallTool(mode)
+	return err
+}
+
+func firewallTool(mode Mode) (string, error) {
+	var failures []error
+	if commandAvailable("nft") {
+		if err := runCommand("nft", "list", "tables"); err == nil {
+			return "nft", nil
+		} else {
+			failures = append(failures, err)
+		}
+	}
+	if commandAvailable("iptables") {
+		lockPath := os.Getenv("XTABLES_LOCKFILE")
+		if lockPath == "" {
+			lockPath = "/run/xtables.lock"
+		}
+		lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
+		if err == nil {
+			_ = lock.Close()
+			table := "nat"
+			if mode == ModeTProxy {
+				table = "mangle"
+			}
+			err = runCommand("iptables", "-w", "2", "-t", table, "-L", "-n")
+			if err == nil {
+				return "iptables", nil
+			}
+		}
+		failures = append(failures, fmt.Errorf("iptables/xtables.lock access: %w", err))
+	}
+	return "", fmt.Errorf("no usable firewall backend (use the root system service for redirect/tproxy): %v", failures)
 }
 
 func unavailable(ok bool, reason string) string {
@@ -49,27 +120,33 @@ func unavailable(ok bool, reason string) string {
 }
 
 func (b *linuxBackend) Prepare(mode Mode, redirectPort, tproxyPort int) error {
-	if mode != ModeRedirect && mode != ModeTProxy {
-		return nil
-	}
-	if redirectPort < 1 || redirectPort > 65535 || tproxyPort < 1 || tproxyPort > 65535 {
-		return fmt.Errorf("transparent proxy ports are invalid")
+	if err := b.Preflight(mode, redirectPort, tproxyPort); err != nil {
+		return err
 	}
 	if err := b.Cleanup(); err != nil {
 		return err
 	}
-	if commandAvailable("nft") {
-		b.tool = "nft"
+	if mode != ModeRedirect && mode != ModeTProxy {
+		return nil
+	}
+	tool, err := firewallTool(mode)
+	if err != nil {
+		return err
+	}
+	b.tool, b.active = tool, mode
+	// Remove only DuoRelay's stale rules, using the backend that passed preflight.
+	if err := b.Cleanup(); err != nil {
+		return err
+	}
+	b.tool, b.active = tool, mode
+	if tool == "nft" {
 		if err := b.prepareNFT(mode, redirectPort, tproxyPort); err != nil {
-			return err
-		}
-	} else if commandAvailable("iptables") {
-		b.tool = "iptables"
-		if err := b.prepareIPTables(mode, redirectPort, tproxyPort); err != nil {
-			return err
+			return errors.Join(err, b.Cleanup())
 		}
 	} else {
-		return fmt.Errorf("nftables or iptables is required")
+		if err := b.prepareIPTables(mode, redirectPort, tproxyPort); err != nil {
+			return errors.Join(err, b.Cleanup())
+		}
 	}
 	b.active = mode
 	return nil
@@ -116,8 +193,11 @@ func (b *linuxBackend) prepareIPTables(mode Mode, redirectPort, tproxyPort int) 
 }
 
 func (b *linuxBackend) Cleanup() error {
+	if b.tool == "" {
+		return nil
+	}
 	var errs []string
-	if commandAvailable("nft") {
+	if b.tool == "nft" {
 		if err := runCommand("nft", "delete", "table", "ip", redirectTable); err != nil && !isMissing(err) {
 			errs = append(errs, err.Error())
 		}
@@ -125,7 +205,7 @@ func (b *linuxBackend) Cleanup() error {
 			errs = append(errs, err.Error())
 		}
 	}
-	if commandAvailable("iptables") {
+	if b.tool == "iptables" {
 		for _, args := range [][]string{
 			{"-t", "nat", "-D", "PREROUTING", "-p", "tcp", "-j", "DUORELAY_REDIRECT"},
 			{"-t", "nat", "-F", "DUORELAY_REDIRECT"}, {"-t", "nat", "-X", "DUORELAY_REDIRECT"},
@@ -138,17 +218,17 @@ func (b *linuxBackend) Cleanup() error {
 			}
 		}
 	}
-	if commandAvailable("ip") {
+	if b.active == ModeTProxy && commandAvailable("ip") {
 		for _, args := range [][]string{{"rule", "del", "fwmark", tproxyMark, "table", strconv.Itoa(tproxyTable)}, {"route", "del", "local", "0.0.0.0/0", "dev", "lo", "table", strconv.Itoa(tproxyTable)}} {
 			if err := runCommand("ip", args...); err != nil && !isMissing(err) {
 				errs = append(errs, err.Error())
 			}
 		}
 	}
-	b.active, b.tool = ModeOff, ""
 	if len(errs) > 0 {
 		return fmt.Errorf("transparent cleanup: %s", strings.Join(errs, "; "))
 	}
+	b.active, b.tool = ModeOff, ""
 	return nil
 }
 
@@ -173,7 +253,9 @@ func runCommands(commands [][]string) error {
 }
 
 func runCommand(name string, args ...string) error {
-	output, err := exec.Command(name, args...).CombinedOutput()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	output, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(output)))
 	}
@@ -191,6 +273,27 @@ func isMissing(err error) bool {
 }
 func commandAvailable(name string) bool { _, err := exec.LookPath(name); return err == nil }
 func fileAvailable(name string) bool {
-	_, err := exec.LookPath("test")
-	return err == nil && exec.Command("test", "-r", name).Run() == nil
+	file, err := os.OpenFile(name, os.O_RDWR, 0)
+	if err != nil {
+		return false
+	}
+	_ = file.Close()
+	return true
+}
+
+func hasNetAdmin() bool { return effectiveCapability(12) }
+func hasNetRaw() bool   { return effectiveCapability(13) }
+func effectiveCapability(bit uint) bool {
+	data, err := os.ReadFile("/proc/self/status")
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if !strings.HasPrefix(line, "CapEff:") {
+			continue
+		}
+		value, err := strconv.ParseUint(strings.TrimSpace(strings.TrimPrefix(line, "CapEff:")), 16, 64)
+		return err == nil && value&(uint64(1)<<bit) != 0
+	}
+	return false
 }

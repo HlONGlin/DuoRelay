@@ -16,6 +16,12 @@ export function listNodes(params: NodeQuery = {}): Promise<ProxyNode[]> {
 export interface ImportNodesResult {
   nodes: ProxyNode[]
   nodes_total: number
+  duplicates?: number
+  skipped?: { line: number; reason: string }[]
+}
+
+export function updateNode(id: string, data: Record<string, unknown>): Promise<ProxyNode> {
+  return request<ProxyNode>({ url: `/nodes/${encodeURIComponent(id)}`, method: 'put', data })
 }
 
 export function importNodes(content: string): Promise<ImportNodesResult> {

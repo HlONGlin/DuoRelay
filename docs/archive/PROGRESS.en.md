@@ -1,6 +1,6 @@
 # DuoRelay Live Progress Board
 
-[简体中文](PROGRESS.md) | English
+[简体中文](../../PROGRESS.md) | English
 
 **Updated**: 2024-10-31 (historical snapshot)
 

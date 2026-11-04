@@ -99,7 +99,7 @@ func TestTUNEnablesStrictDualStackRoutingAndDNSHijack(t *testing.T) {
 		t.Fatalf("TUN route does not detect the outbound interface: %#v", config.Route)
 	}
 	rules, _ := config.Route["rules"].([]any)
-	if len(rules) == 0 || rules[0].(map[string]any)["action"] != "hijack-dns" {
+	if len(rules) < 2 || rules[0].(map[string]any)["action"] != "sniff" || rules[1].(map[string]any)["action"] != "hijack-dns" {
 		t.Fatalf("DNS hijack rule missing or ordered after user routes: %#v", rules)
 	}
 	if runtime.GOOS == "linux" && tun["auto_redirect"] != true {

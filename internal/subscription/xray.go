@@ -94,6 +94,16 @@ func applyXrayStream(node *ir.Node, stream map[string]any) error {
 		node.Transport.Type = "grpc"
 		node.Transport.Path = text(object(stream["grpcSettings"])["serviceName"])
 		node.Transport.Opts["service_name"] = node.Transport.Path
+	case "xhttp":
+		node.Transport.Type = "xhttp"
+		opts := object(stream["xhttpSettings"])
+		node.Transport.Path, node.Transport.Host = text(opts["path"]), text(opts["host"])
+		for key, value := range opts {
+			if key != "path" && key != "host" {
+				node.Transport.Opts[key] = value
+			}
+		}
+		node.Owner = ir.KernelSetMihomo
 	default:
 		return fmt.Errorf("unsupported Xray transport")
 	}
@@ -115,9 +125,12 @@ func applyXrayStream(node *ir.Node, stream map[string]any) error {
 		if security == "reality" {
 			node.Security.Opts["public_key"] = firstText(opts, "publicKey", "password")
 			node.Security.Opts["short_id"] = text(opts["shortId"])
+			if value, ok := opts["pqv"]; ok {
+				node.Security.Opts["pqv"] = value
+			}
 		}
 	default:
 		return fmt.Errorf("unsupported Xray security")
 	}
-	return nil
+	return ir.ValidateConnectionFeatures(node)
 }
