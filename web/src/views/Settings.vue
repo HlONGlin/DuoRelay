@@ -78,7 +78,7 @@
           <template v-if="category === 'subscription'">
             <div class="subscription-info"><p>{{ t('更新周期与 User-Agent 在各订阅中设置。', 'Set the update interval and User-Agent for each subscription.') }}</p><router-link to="/subscriptions">{{ t('打开订阅管理', 'Open subscriptions') }}</router-link></div>
           </template>
-          <template v-if="category === 'balance'"><LoadBalanceFields v-model="form.load_balance" /><p class="field-hint">{{ t('保存为负载均衡弹窗的默认值。已有运行实例保持本次启动时的设置，重新启动负载均衡后应用新设置。', 'Save defaults for the load balancing dialog. Running instances retain their current settings until restarted.') }}</p><router-link to="/nodes" class="settings-link">{{ t('前往节点管理，选择多个节点并启动 →', 'Go to nodes to select and start a group →') }}</router-link></template>
+          <template v-if="category === 'balance'"><LoadBalanceFields v-model="form.load_balance" /><p class="field-hint">{{ t('保存为负载均衡节点创建弹窗的默认值；已有节点保留创建时的策略。', 'Save defaults for the load balancing node dialog; existing nodes keep the strategy saved when they were created.') }}</p><router-link to="/nodes" class="settings-link">{{ t('前往节点管理，选择节点并生成负载均衡节点 →', 'Go to nodes to select nodes and create a load balancing node →') }}</router-link></template>
           <template v-if="category === 'appearance'">
             <el-form-item :label="appearance.language === 'en' ? 'Language' : '语言'">
               <el-radio-group :model-value="appearance.language" @update:model-value="appearance.setLanguage($event as 'zh-CN' | 'en')">
@@ -240,6 +240,7 @@ const currentCategory = computed(() => categories.value.find(item => item.id ===
 const form = reactive<AppConfig>({ ...store.config, socks_listeners: (store.config.socks_listeners ?? []).map(listener => ({ ...listener })), load_balance: { ...store.config.load_balance } })
 if (!form.socks_listeners) form.socks_listeners = []
 function supportsSelectedKernel(node: ProxyNode) {
+  if (node.composition) return false
   return form.kernel === 'mihomo' ? Boolean(node.owner & 2) : Boolean(node.owner & 1)
 }
 const availableSOCKSNodes = computed(() => nodes.items.filter(node => {

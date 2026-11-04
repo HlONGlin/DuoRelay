@@ -3,6 +3,8 @@ import { protocolMeta } from './protocols'
 import { readLanguage } from '@/stores/appearance'
 
 export function protocolLabel(protocol: Protocol | string): string {
+	if (protocol === 'proxy-chain') return readLanguage() === 'en' ? 'Proxy chain' : '链式代理'
+	if (protocol === 'load-balance') return readLanguage() === 'en' ? 'Load balancing' : '负载均衡'
   return protocolMeta(protocol)?.label ?? protocol
 }
 
@@ -22,7 +24,8 @@ export function protocolDescription(protocol: Protocol | string): string {
       tor: 'Tor SOCKS endpoint', openconnect: 'AnyConnect-compatible endpoint', shadowsocksr: 'ShadowsocksR proxy',
       mieru: 'Mieru transport proxy', sudoku: 'Sudoku obfuscated proxy', shadowquic: 'ShadowQUIC proxy',
       trusttunnel: 'TrustTunnel proxy', rematch: 'Routing metadata adapter', easytier: 'Embedded overlay network',
-      zerotier: 'ZeroTier network endpoint'
+      zerotier: 'ZeroTier network endpoint',
+      'proxy-chain': 'Ordered chain of proxy nodes', 'load-balance': 'Distributes connections across proxy nodes'
     }
     return descriptions[protocol] ?? 'Custom protocol'
   }
@@ -36,6 +39,8 @@ export function nodeEndpointLabel(node: {
   const host = node.server?.host?.trim()
   const port = node.server?.port
   if (host && port) return `${host}:${port}`
+  if (node.protocol === 'proxy-chain') return readLanguage() === 'en' ? 'Proxy chain' : '链式代理'
+  if (node.protocol === 'load-balance') return readLanguage() === 'en' ? 'Load balancing' : '负载均衡'
   if (node.protocol === 'rematch') return readLanguage() === 'en' ? 'Routing adapter' : '路由适配器'
   return readLanguage() === 'en' ? 'Local overlay network' : '本地覆盖网络'
 }

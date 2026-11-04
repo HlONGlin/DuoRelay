@@ -278,8 +278,18 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	compositionMembers, err := compositionMembers(ctx, tx)
+	if err != nil {
+		return err
+	}
 	for _, node := range nodes {
 		if _, keep := assigned[node.ID]; keep {
+			if err := detachSubscriptionNode(ctx, tx, node, id); err != nil {
+				return err
+			}
+			continue
+		}
+		if _, keep := compositionMembers[node.ID]; keep {
 			if err := detachSubscriptionNode(ctx, tx, node, id); err != nil {
 				return err
 			}
@@ -293,6 +303,35 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+func compositionMembers(ctx context.Context, tx *sql.Tx) (map[string]struct{}, error) {
+	rows, err := tx.QueryContext(ctx, "SELECT ir_json FROM nodes WHERE protocol IN (?,?)", ir.ProtocolProxyChain, ir.ProtocolLoadBalance)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	members := make(map[string]struct{})
+	for rows.Next() {
+		var data string
+		var node ir.Node
+		if err := rows.Scan(&data); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(data), &node); err != nil {
+			return nil, err
+		}
+		if node.Composition == nil {
+			continue
+		}
+		for _, id := range node.Composition.NodeIDs {
+			members[id] = struct{}{}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return members, nil
 }
 
 // assignedSOCKSNodes reads persisted and currently running assignments in the
@@ -330,8 +369,8 @@ func assignedSOCKSNodes(ctx context.Context, tx *sql.Tx) (map[string]struct{}, e
 	return assigned, nil
 }
 
-// detachSubscriptionNode keeps an assigned node usable after it disappears from
-// its subscription or the subscription itself is deleted.
+// detachSubscriptionNode keeps a referenced node usable after it disappears
+// from its subscription or the subscription itself is deleted.
 func detachSubscriptionNode(ctx context.Context, tx *sql.Tx, node *ir.Node, subscriptionID string) error {
 	node.Source = ir.Source{Type: "import"}
 	node.GroupID = ""
@@ -466,9 +505,19 @@ func (m *Manager) Update(ctx context.Context, id string) ([]*ir.Node, error) {
 	if err != nil {
 		return nil, err
 	}
+	compositionMembers, err := compositionMembers(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
 	for oldID, node := range old {
 		if !seen[oldID] {
 			if _, keep := assigned[oldID]; keep {
+				if err := detachSubscriptionNode(ctx, tx, node, id); err != nil {
+					return nil, err
+				}
+				continue
+			}
+			if _, keep := compositionMembers[oldID]; keep {
 				if err := detachSubscriptionNode(ctx, tx, node, id); err != nil {
 					return nil, err
 				}

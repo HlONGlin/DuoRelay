@@ -3,12 +3,14 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import ElementPlus from 'element-plus'
 import ProxyGroupDialog from './ProxyGroupDialog.vue'
-import { applyConfig, previewChain } from '@/api/config'
+import { previewChain } from '@/api/config'
+import { createCompositionNode } from '@/api/nodes'
 import { defaultLoadBalance } from '@/stores/config'
-import type { ConfigurationState, ProxyGroupMode, ProxyNode } from '@/types'
+import type { ProxyGroupMode, ProxyNode } from '@/types'
 import { variant } from '@/stores/variant'
 
-vi.mock('@/api/config', () => ({ applyConfig: vi.fn(), previewChain: vi.fn() }))
+vi.mock('@/api/config', () => ({ previewChain: vi.fn() }))
+vi.mock('@/api/nodes', () => ({ createCompositionNode: vi.fn() }))
 
 const nodes: ProxyNode[] = [
   { id: 'a', name: '入口 A', protocol: 'http', owner: 3, server: { host: 'a.example', port: 443 } },
@@ -31,7 +33,7 @@ describe('multi-node start dialog', () => {
     const option = wrapper.findAllComponents({ name: 'ElOption' }).find(item => item.props('value') === 'naive')!
     expect(option.props('disabled')).toBe(true)
     expect(wrapper.findAll('.group-members li')).toHaveLength(1)
-    expect(applyConfig).not.toHaveBeenCalled()
+    expect(createCompositionNode).not.toHaveBeenCalled()
     variant.value = 'full'
     wrapper.unmount()
   })
@@ -48,28 +50,28 @@ describe('multi-node start dialog', () => {
     return wrapper
   }
 
-  it('submits the edited hop order and closes only after successful start', async () => {
+  it('creates a node from the edited hop order without starting it', async () => {
     const wrapper = await render('chain')
-    const state: ConfigurationState = { id: 'runtime', mode: 'chain', kernel: 'sing-box', node_ids: ['b', 'a'], applied_at: '' }
-    vi.mocked(applyConfig).mockResolvedValue(state)
+    const node: ProxyNode = { id: 'chain-node', name: '链式代理节点', protocol: 'proxy-chain', owner: 1, server: { host: '', port: 0 }, composition: { mode: 'chain', kernel: 'sing-box', node_ids: ['b', 'a'] } }
+    vi.mocked(createCompositionNode).mockResolvedValue(node)
     await wrapper.get('[aria-label="上移 出口 B"]').trigger('click')
     await flushPromises()
     expect(wrapper.findAll('.group-members li')[0].text()).toContain('出口 B入口节点')
-    await wrapper.findAll('button').find(button => button.text() === '启动链式代理')!.trigger('click')
+    await wrapper.findAll('button').find(button => button.text() === '生成链式代理节点')!.trigger('click')
     await flushPromises()
-    expect(applyConfig).toHaveBeenCalledWith({ mode: 'chain', node_ids: ['b', 'a'] })
-    expect(wrapper.emitted('started')?.[0]).toEqual([state])
+    expect(createCompositionNode).toHaveBeenCalledWith({ name: '链式代理节点', mode: 'chain', node_ids: ['b', 'a'] })
+    expect(wrapper.emitted('created')?.[0]).toEqual([node])
     expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([false])
     wrapper.unmount()
   })
 
   it('includes saved balance defaults and keeps the dialog open on failure', async () => {
     const wrapper = await render('load_balance')
-    vi.mocked(applyConfig).mockRejectedValue(new Error('配置校验失败，原配置已保留'))
-    await wrapper.findAll('button').find(button => button.text() === '启动负载均衡')!.trigger('click')
+    vi.mocked(createCompositionNode).mockRejectedValue(new Error('配置校验失败'))
+    await wrapper.findAll('button').find(button => button.text() === '生成负载均衡节点')!.trigger('click')
     await flushPromises()
-    expect(applyConfig).toHaveBeenCalledWith({ mode: 'load_balance', node_ids: ['a', 'b'], load_balance: defaultLoadBalance() })
-    expect(wrapper.find('.el-alert--error').text()).toContain('原配置已保留')
+    expect(createCompositionNode).toHaveBeenCalledWith({ name: '负载均衡节点', mode: 'load_balance', node_ids: ['a', 'b'], load_balance: defaultLoadBalance() })
+    expect(wrapper.find('.el-alert--error').text()).toContain('配置校验失败')
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
     expect(wrapper.emitted('busy')).toEqual([[true], [false]])
     wrapper.unmount()
@@ -78,24 +80,23 @@ describe('multi-node start dialog', () => {
   it('lets fallback members be reordered and submits that priority', async () => {
     const defaults = { ...defaultLoadBalance(), strategy: 'fallback' as const }
     const wrapper = await render('load_balance', ['a', 'b'], nodes, defaults)
-    const state: ConfigurationState = { id: 'fallback', mode: 'load_balance', kernel: 'mihomo', node_ids: ['b', 'a'], applied_at: '', load_balance: defaults }
-    vi.mocked(applyConfig).mockResolvedValue(state)
+    vi.mocked(createCompositionNode).mockResolvedValue({ id: 'fallback', name: '负载均衡节点', protocol: 'load-balance', owner: 2, server: { host: '', port: 0 }, composition: { mode: 'load_balance', kernel: 'mihomo', node_ids: ['b', 'a'], load_balance: defaults } })
     expect(wrapper.text()).toContain('故障切换按下方顺序尝试节点')
     await wrapper.get('[aria-label="上移 出口 B"]').trigger('click')
-    await wrapper.findAll('button').find(button => button.text() === '启动负载均衡')!.trigger('click')
+    await wrapper.findAll('button').find(button => button.text() === '生成负载均衡节点')!.trigger('click')
     await flushPromises()
-    expect(applyConfig).toHaveBeenCalledWith({ mode: 'load_balance', node_ids: ['b', 'a'], load_balance: defaults })
+    expect(createCompositionNode).toHaveBeenCalledWith({ name: '负载均衡节点', mode: 'load_balance', node_ids: ['b', 'a'], load_balance: defaults })
     wrapper.unmount()
   })
 
   it('allows mixed kernels when the backend can bridge the chain', async () => {
     vi.mocked(previewChain).mockResolvedValue({ supported: true, kernel: 'mihomo', cross_kernel: true, udp: false, hops: [], warnings: [] })
     const wrapper = await render('chain', ['a', 'b'], [{ ...nodes[0], owner: 1 }, { ...nodes[1], owner: 2 }])
-    vi.mocked(applyConfig).mockResolvedValue({ id: 'mixed', kernel: 'mihomo', mode: 'chain', node_ids: ['a', 'b'], applied_at: '' })
+    vi.mocked(createCompositionNode).mockResolvedValue({ id: 'mixed', name: '链式代理节点', protocol: 'proxy-chain', owner: 2, server: { host: '', port: 0 }, composition: { mode: 'chain', kernel: 'mihomo', node_ids: ['a', 'b'] } })
     expect(wrapper.text()).toContain('双内核桥接')
-    await wrapper.findAll('button').find(button => button.text() === '启动链式代理')!.trigger('click')
+    await wrapper.findAll('button').find(button => button.text() === '生成链式代理节点')!.trigger('click')
     await flushPromises()
-    expect(applyConfig).toHaveBeenCalledWith({ mode: 'chain', node_ids: ['a', 'b'] })
+    expect(createCompositionNode).toHaveBeenCalledWith({ name: '链式代理节点', mode: 'chain', node_ids: ['a', 'b'] })
     wrapper.unmount()
   })
 
@@ -103,17 +104,17 @@ describe('multi-node start dialog', () => {
     vi.mocked(previewChain).mockResolvedValue({ supported: false, reason: '第 2 跳需要 UDP，入口 HTTP 无法转发 UDP', cross_kernel: false, udp: false, hops: [], warnings: [] })
     const wrapper = await render('chain')
     expect(wrapper.find('.el-alert--warning').text()).toContain('入口 HTTP 无法转发 UDP')
-    expect(wrapper.findAll('button').find(button => button.text() === '启动链式代理')!.attributes('disabled')).toBeDefined()
-    expect(applyConfig).not.toHaveBeenCalled()
+    expect(wrapper.findAll('button').find(button => button.text() === '生成链式代理节点')!.attributes('disabled')).toBeDefined()
+    expect(createCompositionNode).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 
   it('requires at least two members after removing a hop', async () => {
     const wrapper = await render('chain')
     await wrapper.get('[aria-label="移除 出口 B"]').trigger('click')
-    const start = wrapper.findAll('button').find(button => button.text() === '启动链式代理')!
-    expect(start.attributes('disabled')).toBeDefined()
-    expect(applyConfig).not.toHaveBeenCalled()
+    const create = wrapper.findAll('button').find(button => button.text() === '生成链式代理节点')!
+    expect(create.attributes('disabled')).toBeDefined()
+    expect(createCompositionNode).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 })

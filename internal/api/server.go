@@ -225,6 +225,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/subscription-groups", s.groups)
 	s.mux.HandleFunc("GET /api/nodes", s.listNodes)
 	s.mux.HandleFunc("POST /api/nodes", s.createNode)
+	s.mux.HandleFunc("POST /api/nodes/composition", s.createCompositionNode)
 	s.mux.HandleFunc("PUT /api/nodes/{id}", s.editNode)
 	s.mux.HandleFunc("POST /api/nodes/import", s.importNodes)
 	s.mux.HandleFunc("DELETE /api/nodes/{id}", s.deleteNode)
@@ -409,8 +410,12 @@ func (s *Server) listNodes(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if current, currentErr := s.Config.Current(r.Context()); currentErr == nil && current != nil {
-			for _, id := range current.NodeIDs {
-				activeIDs[id] = struct{}{}
+			if current.SelectedNodeID != "" {
+				activeIDs[current.SelectedNodeID] = struct{}{}
+			} else {
+				for _, id := range current.NodeIDs {
+					activeIDs[id] = struct{}{}
+				}
 			}
 			for _, listener := range current.SOCKSListeners {
 				socksIDs[listener.NodeID] = struct{}{}
@@ -434,6 +439,10 @@ func (s *Server) createNode(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	if ir.IsCompositionProtocol(node.Protocol) {
+		fail(w, fmt.Errorf("%w: use the composition node endpoint", store.ErrInvalid))
+		return
+	}
 	node.ID = ""
 	node.Source = ir.Source{Type: "manual"}
 	node.Owner = ir.GetProtocolOwner(node.Protocol)
@@ -446,6 +455,20 @@ func (s *Server) createNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	WriteJSON(w, 201, node)
+}
+
+func (s *Server) createCompositionNode(w http.ResponseWriter, r *http.Request) {
+	var input configuration.CreateCompositionRequest
+	if err := decode(w, r, &input, false); err != nil {
+		fail(w, err)
+		return
+	}
+	node, err := s.Config.CreateCompositionNode(r.Context(), input)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	WriteJSON(w, http.StatusCreated, node)
 }
 
 func (s *Server) editNode(w http.ResponseWriter, r *http.Request) {
@@ -478,9 +501,11 @@ func (s *Server) editNode(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	node.Owner = ir.GetProtocolOwner(node.Protocol)
-	if node.Protocol == ir.ProtocolVLESS && node.Transport.Type == "xhttp" {
-		node.Owner = ir.KernelSetMihomo
+	if !node.IsComposition() {
+		node.Owner = ir.GetProtocolOwner(node.Protocol)
+		if node.Protocol == ir.ProtocolVLESS && node.Transport.Type == "xhttp" {
+			node.Owner = ir.KernelSetMihomo
+		}
 	}
 	if err := s.Store.SaveNode(r.Context(), node); err != nil {
 		fail(w, err)
@@ -601,6 +626,12 @@ func (s *Server) deleteNodeIDs(w http.ResponseWriter, r *http.Request, ids []str
 			}
 		}
 		if current, err := s.Config.Current(r.Context()); err == nil && current != nil {
+			if current.SelectedNodeID != "" {
+				if _, exists := wanted[current.SelectedNodeID]; exists {
+					WriteError(w, http.StatusConflict, &Error{Code: "NODE_ACTIVE", What: "删除运行中的节点前请先停止代理"})
+					return
+				}
+			}
 			for _, id := range current.NodeIDs {
 				if _, exists := wanted[id]; exists {
 					WriteError(w, http.StatusConflict, &Error{Code: "NODE_ACTIVE", What: "删除运行中的节点前请先停止代理"})
@@ -636,6 +667,41 @@ func (s *Server) deleteNodeIDs(w http.ResponseWriter, r *http.Request, ids []str
 			return
 		}
 	}
+	rows, err := tx.QueryContext(r.Context(), "SELECT id,ir_json FROM nodes WHERE protocol IN (?,?)", ir.ProtocolProxyChain, ir.ProtocolLoadBalance)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	for rows.Next() {
+		var compositionID, data string
+		var node ir.Node
+		if err := rows.Scan(&compositionID, &data); err != nil {
+			rows.Close()
+			fail(w, err)
+			return
+		}
+		if err := json.Unmarshal([]byte(data), &node); err != nil {
+			rows.Close()
+			fail(w, err)
+			return
+		}
+		if _, deletingComposition := wanted[compositionID]; deletingComposition || node.Composition == nil {
+			continue
+		}
+		for _, memberID := range node.Composition.NodeIDs {
+			if _, deletingMember := wanted[memberID]; deletingMember {
+				rows.Close()
+				WriteError(w, http.StatusConflict, &Error{Code: "COMPOSITION_NODE_ASSIGNED", What: fmt.Sprintf("节点仍被组合节点 %q 使用，请先删除组合节点", node.Name)})
+				return
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		fail(w, err)
+		return
+	}
+	rows.Close()
 	for id := range wanted {
 		if _, err := tx.ExecContext(r.Context(), "DELETE FROM nodes WHERE id=?", id); err != nil {
 			fail(w, err)
@@ -707,6 +773,15 @@ func (s *Server) testNode(w http.ResponseWriter, r *http.Request) {
 	}
 	if input.TimeoutMS == 0 {
 		input.TimeoutMS = input.Timeout
+	}
+	node, err := s.Store.Node(r.Context(), r.PathValue("id"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if node.IsComposition() {
+		fail(w, fmt.Errorf("%w: composition nodes cannot be tested directly", store.ErrInvalid))
+		return
 	}
 	result, err := s.Speedtest.Test(r.Context(), r.PathValue("id"), speedtest.Options{Type: input.Type, URL: input.URL, TimeoutMS: input.TimeoutMS})
 	if err != nil {

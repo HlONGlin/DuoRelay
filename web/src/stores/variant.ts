@@ -22,6 +22,7 @@ export async function loadVariant() {
 export function nodeUnavailableReason(node: Pick<ProxyNode, 'protocol' | 'owner'>): string {
   if (variant.value === 'unknown') return '无法读取版本能力，请刷新重试'
   if (!isLite.value) return ''
+	if (node.protocol === 'proxy-chain' || node.protocol === 'load-balance') return (node.owner & 2) ? '' : '精简版不支持'
   const protocol = protocolCatalog.find(item => item.id === node.protocol)
   return !(node.owner & 2) || !protocol?.kernels.includes('mihomo') ? '精简版不支持' : ''
 }

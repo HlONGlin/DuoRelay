@@ -4,12 +4,12 @@
 
 ## Node Management
 
-Select nodes and click **Load balancing** or **Proxy chain** at the top of the page. Each opens its own dialog, where nodes may also be added or removed. Selecting nodes alone does not change the running configuration.
+Select nodes and click **Load balancing** or **Proxy chain** at the top of the page. Each opens its own dialog, where nodes may also be added or removed and the composition named. **Create** saves the member order and strategy as a new composition node; it does not start or replace the running proxy. Start the new node separately from the node list.
 
 - **Load balancing:** Select 2–64 nodes supported by mihomo. New connections are distributed using round robin, consistent hashing, sticky sessions, automatic selection (url-test), or fallback. Automatic selection chooses by health-check latency; fallback uses the first healthy node in list order. Set the health-check URL, interval, timeout and on-demand checking in the dialog; **Settings → Load balancing** saves defaults for the next opening. A single connection's bandwidth is not combined across nodes. Mihomo skips members that fail health checks; connection success cannot be guaranteed when no healthy nodes remain.
 - **Proxy chain:** Select 2–8 nodes. The order is local device → first entry hop → intermediate hops → final exit → destination; move nodes up or down to reorder. The system chooses kernels according to actual protocol parameters, preferring a single kernel and bridging sing-box and mihomo when needed; alternating kernels are supported. The dialog shows each hop's kernel and connection transport and the chain's UDP capability, or the failing hop and reason.
 
-After a successful start, the top of the page shows the mode and members, including chain order. Stopping stops the entire group and deselects all members. Configuration is validated before startup; invalid parameters do not stop an existing instance. Startup failure attempts to restore the previous instance.
+After starting a composition node, the top of the page shows its mode and members, including chain order. Stopping stops the entire group and clears the current selection. Configuration is validated before startup; invalid parameters do not stop an existing instance. Startup failure attempts to restore the previous instance. Members referenced by a composition cannot be deleted individually; delete the composition first. If a subscription removes a referenced member, DuoRelay retains it as a regular node so the composition remains usable.
 
 Select rows in the node table, or use the header checkbox to select the current filtered results, then choose **Delete selected**. The batch is deleted in one transaction. If any node is missing, running, or assigned to a saved or active SOCKS5 listener, the entire batch is retained and an error is shown. Stop the proxy or remove the affected listener assignment before trying again.
 

@@ -29,6 +29,8 @@ export type Protocol =
   | 'rematch'
   | 'easytier'
   | 'zerotier'
+  | 'proxy-chain'
+  | 'load-balance'
 
 export interface ApiErrorPayload {
   code: string
@@ -107,6 +109,7 @@ export interface ProxyNode {
   transport?: ProxyTransport
   security?: ProxySecurity
   proto?: Record<string, unknown>
+	composition?: NodeComposition
   extra?: Record<string, unknown>
   source?: NodeSource
   group_id?: string
@@ -118,6 +121,13 @@ export interface ProxyNode {
   last_test_at?: string
   updated_at?: string
   created_at?: string
+}
+
+export interface NodeComposition {
+  mode: ProxyGroupMode
+  kernel: KernelType
+  node_ids: string[]
+  load_balance?: LoadBalanceOptions
 }
 
 export interface Subscription {
@@ -313,6 +323,7 @@ export interface ConfigurationState {
   node_ids: string[]
   socks_listeners?: SOCKSListener[]
   mode: ProxyGroupMode | 'single' | 'select'
+	selected_node_id?: string
   load_balance?: LoadBalanceOptions
   applied_at: string
   chain?: ChainPlan

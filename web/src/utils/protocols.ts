@@ -40,7 +40,9 @@ export const protocolCatalog: ProtocolMeta[] = [
   { id: 'trusttunnel', label: 'TrustTunnel', glyph: 'TT', group: 'mihomo', kernels: ['mihomo'], description: 'TrustTunnel 代理' },
   { id: 'rematch', label: 'Rematch', glyph: 'RM', group: 'mihomo', kernels: ['mihomo'], description: '路由元数据适配器' },
   { id: 'easytier', label: 'EasyTier', glyph: 'ET', group: 'mihomo', kernels: ['mihomo'], description: '内嵌组网覆盖网络' },
-  { id: 'zerotier', label: 'ZeroTier', glyph: 'ZT', group: 'mihomo', kernels: ['mihomo'], description: 'ZeroTier 网络端点' }
+  { id: 'zerotier', label: 'ZeroTier', glyph: 'ZT', group: 'mihomo', kernels: ['mihomo'], description: 'ZeroTier 网络端点' },
+  { id: 'proxy-chain', label: '链式代理', glyph: 'CH', group: 'shared', kernels: ['sing-box', 'mihomo'], description: '按顺序串联多个代理节点' },
+  { id: 'load-balance', label: '负载均衡', glyph: 'LB', group: 'mihomo', kernels: ['mihomo'], description: '在多个代理节点间分配新连接' }
 ]
 
 const byId = new Map<string, ProtocolMeta>(protocolCatalog.map((item) => [item.id, item]))

@@ -232,12 +232,48 @@ func (s *Store) Decrypt(value string) (string, error) {
 }
 
 func (s *Store) SaveNode(ctx context.Context, n *ir.Node) error {
-	if n == nil || strings.TrimSpace(n.Name) == "" || !ir.IsValidProtocol(n.Protocol) {
+	if n == nil || strings.TrimSpace(n.Name) == "" || (!ir.IsValidProtocol(n.Protocol) && !n.IsComposition()) {
 		return fmt.Errorf("%w: invalid node", ErrInvalid)
+	}
+	if n.IsComposition() {
+		if n.Composition == nil || n.Server.Host != "" || n.Server.Port != 0 || len(n.Composition.NodeIDs) < 2 {
+			return fmt.Errorf("%w: invalid composition node", ErrInvalid)
+		}
+		if (n.Protocol == ir.ProtocolProxyChain && n.Composition.Mode != "chain") || (n.Protocol == ir.ProtocolLoadBalance && n.Composition.Mode != "load_balance") {
+			return fmt.Errorf("%w: composition type does not match its mode", ErrInvalid)
+		}
+		limit := 64
+		if n.Composition.Mode == "chain" {
+			limit = 8
+		}
+		if len(n.Composition.NodeIDs) > limit || n.Owner == 0 {
+			return fmt.Errorf("%w: invalid composition node", ErrInvalid)
+		}
+		if n.Composition.Kernel != ir.KernelSingBox && n.Composition.Kernel != ir.KernelMihomo {
+			return fmt.Errorf("%w: invalid composition kernel", ErrInvalid)
+		}
+		if n.Protocol == ir.ProtocolLoadBalance && n.Composition.Kernel != ir.KernelMihomo {
+			return fmt.Errorf("%w: load balancing requires mihomo", ErrInvalid)
+		}
+		if n.Composition.Kernel == ir.KernelSingBox && n.Owner != ir.KernelSetSingBox || n.Composition.Kernel == ir.KernelMihomo && n.Owner != ir.KernelSetMihomo {
+			return fmt.Errorf("%w: composition kernel does not match node ownership", ErrInvalid)
+		}
+		seen := make(map[string]bool, len(n.Composition.NodeIDs))
+		for _, id := range n.Composition.NodeIDs {
+			if strings.TrimSpace(id) == "" || seen[id] {
+				return fmt.Errorf("%w: invalid composition node members", ErrInvalid)
+			}
+			seen[id] = true
+		}
+		if n.Protocol == ir.ProtocolLoadBalance && n.Composition.LoadBalance == nil || n.Protocol == ir.ProtocolProxyChain && n.Composition.LoadBalance != nil {
+			return fmt.Errorf("%w: invalid composition options", ErrInvalid)
+		}
+	} else if n.Composition != nil {
+		return fmt.Errorf("%w: native nodes cannot contain a composition", ErrInvalid)
 	}
 	// Mesh endpoints are identified by network/auth configuration rather than
 	// a single remote socket. They legitimately have no server host or port.
-	virtual := n.Protocol == ir.ProtocolTailscale || n.Protocol == ir.ProtocolEasyTier || n.Protocol == ir.ProtocolZeroTier || n.Protocol == ir.ProtocolRematch
+	virtual := n.IsComposition() || n.Protocol == ir.ProtocolTailscale || n.Protocol == ir.ProtocolEasyTier || n.Protocol == ir.ProtocolZeroTier || n.Protocol == ir.ProtocolRematch
 	if !(virtual && n.Server.Host == "" && n.Server.Port == 0) && (strings.TrimSpace(n.Server.Host) == "" || n.Server.Port < 1 || n.Server.Port > 65535) {
 		return fmt.Errorf("%w: invalid node", ErrInvalid)
 	}

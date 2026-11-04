@@ -246,7 +246,7 @@ func (s *Service) installChain(ctx context.Context, request ApplyRequest, plan *
 	if err := os.MkdirAll(directory, 0700); err != nil {
 		return nil, err
 	}
-	state := &State{ConfigVersion: CurrentConfigVersion, ID: uuid.NewString(), Kernel: plan.Kernel, Mode: "chain", Chain: plan, NodeIDs: append([]string{}, request.NodeIDs...), SOCKSListeners: append([]SOCKSListener{}, socksListeners...), AppliedAt: time.Now().UTC()}
+	state := &State{ConfigVersion: CurrentConfigVersion, ID: uuid.NewString(), Kernel: plan.Kernel, Mode: "chain", SelectedNodeID: request.compositionNodeID, Chain: plan, NodeIDs: append([]string{}, request.NodeIDs...), SOCKSListeners: append([]SOCKSListener{}, socksListeners...), AppliedAt: time.Now().UTC()}
 	state.TransparentMode, state.TransparentPort = settings.TransparentMode, settings.InboundPort
 	state.RuntimeNames = map[string]string{}
 	for _, hop := range plan.Hops {

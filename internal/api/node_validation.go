@@ -12,6 +12,12 @@ func validateEditedNode(n *ir.Node) error {
 	if strings.TrimSpace(n.Name) == "" || len(n.Name) > 256 || strings.ContainsAny(n.Name, "\r\n\x00") {
 		return fmt.Errorf("%w: invalid node name", store.ErrInvalid)
 	}
+	if n.IsComposition() {
+		if n.Composition == nil || strings.TrimSpace(n.Server.Host) != "" || n.Server.Port != 0 {
+			return fmt.Errorf("%w: invalid composition node", store.ErrInvalid)
+		}
+		return nil
+	}
 	if strings.ContainsAny(n.Server.Host, " /\r\n\t\x00") {
 		return fmt.Errorf("%w: invalid server hostname", store.ErrInvalid)
 	}

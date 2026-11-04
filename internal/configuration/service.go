@@ -64,13 +64,21 @@ type Settings struct {
 	RoutingRules         []generator.RoutingRule      `json:"routing_rules"`
 }
 type ApplyRequest struct {
-	Kernel      ir.KernelType                 `json:"kernel,omitempty"`
-	Content     string                        `json:"config,omitempty"`
-	NodeIDs     []string                      `json:"node_ids,omitempty"`
-	Mode        string                        `json:"mode,omitempty"`
+	Kernel            ir.KernelType                 `json:"kernel,omitempty"`
+	Content           string                        `json:"config,omitempty"`
+	NodeIDs           []string                      `json:"node_ids,omitempty"`
+	Mode              string                        `json:"mode,omitempty"`
+	LoadBalance       *generator.LoadBalanceOptions `json:"load_balance,omitempty"`
+	outbound          string
+	chain             *generator.ChainPlan
+	compositionNodeID string
+}
+
+type CreateCompositionRequest struct {
+	Name        string                        `json:"name"`
+	Mode        string                        `json:"mode"`
+	NodeIDs     []string                      `json:"node_ids"`
 	LoadBalance *generator.LoadBalanceOptions `json:"load_balance,omitempty"`
-	outbound    string
-	chain       *generator.ChainPlan
 }
 type State struct {
 	ConfigVersion     int                           `json:"config_version"`
@@ -79,6 +87,7 @@ type State struct {
 	NodeIDs           []string                      `json:"node_ids"`
 	SOCKSListeners    []SOCKSListener               `json:"socks_listeners,omitempty"`
 	Mode              string                        `json:"mode"`
+	SelectedNodeID    string                        `json:"selected_node_id,omitempty"`
 	TransparentMode   transparent.Mode              `json:"transparent_mode,omitempty"`
 	TransparentPort   int                           `json:"transparent_port,omitempty"`
 	LoadBalance       *generator.LoadBalanceOptions `json:"load_balance,omitempty"`
@@ -126,6 +135,103 @@ type Service struct {
 
 func New(s *store.Store, runtime Runtime, directory string) *Service {
 	return &Service{Store: s, Runtime: runtime, Directory: directory, Generators: registeredGenerators()}
+}
+
+func (s *Service) CreateCompositionNode(ctx context.Context, request CreateCompositionRequest) (*ir.Node, error) {
+	name := strings.TrimSpace(request.Name)
+	if name == "" || len(name) > 256 || strings.ContainsAny(name, "\r\n\x00") {
+		return nil, fmt.Errorf("%w: invalid node name", store.ErrInvalid)
+	}
+	if request.Mode != "chain" && request.Mode != "load_balance" {
+		return nil, fmt.Errorf("%w: invalid composition mode", store.ErrInvalid)
+	}
+	limit := 64
+	if request.Mode == "chain" {
+		limit = 8
+	}
+	if len(request.NodeIDs) < 2 || len(request.NodeIDs) > limit {
+		return nil, fmt.Errorf("%w: composition requires 2–%d nodes", store.ErrInvalid, limit)
+	}
+	ids := append([]string(nil), request.NodeIDs...)
+	seen := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		if seen[id] {
+			return nil, fmt.Errorf("%w: duplicate composition node", store.ErrInvalid)
+		}
+		seen[id] = true
+	}
+	if request.Mode == "chain" && request.LoadBalance != nil {
+		return nil, fmt.Errorf("%w: chain nodes do not accept load balancing options", store.ErrInvalid)
+	}
+	nodes := make([]*ir.Node, 0, len(ids))
+	for _, id := range ids {
+		node, err := s.Store.Node(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if node.IsComposition() {
+			return nil, fmt.Errorf("%w: composition nodes cannot be nested", store.ErrInvalid)
+		}
+		if request.Mode == "load_balance" && (!node.CanRunOn(ir.KernelMihomo) || !variant.SupportsProtocol(node.Protocol)) {
+			return nil, fmt.Errorf("%w: node %q cannot run in mihomo load balancing", store.ErrInvalid, node.Name)
+		}
+		nodes = append(nodes, node)
+	}
+
+	kernel := ir.KernelMihomo
+	var loadBalance *generator.LoadBalanceOptions
+	if request.Mode == "load_balance" {
+		options := generator.DefaultLoadBalanceOptions()
+		if request.LoadBalance != nil {
+			options = *request.LoadBalance
+		}
+		if err := options.Validate(); err != nil {
+			return nil, fmt.Errorf("%w: %v", store.ErrInvalid, err)
+		}
+		composition := &generator.Composition{Mode: "load_balance", LoadBalance: &options}
+		generatorOptions := generator.DefaultGenerateOptions()
+		generatorOptions.DefaultOutbound, generatorOptions.Composition = "PROXY", composition
+		gen := s.Generators[ir.KernelMihomo]
+		if gen == nil {
+			return nil, fmt.Errorf("mihomo generator is not configured")
+		}
+		if _, err := gen.Generate(nodes, generatorOptions); err != nil {
+			return nil, fmt.Errorf("%w: invalid load balancing node: %v", store.ErrInvalid, err)
+		}
+		loadBalance = &options
+	} else {
+		plan, err := s.PreviewChain(ctx, ApplyRequest{NodeIDs: ids})
+		if err != nil {
+			return nil, err
+		}
+		if !plan.Supported {
+			return nil, fmt.Errorf("%w: %v", store.ErrInvalid, plan.Reason)
+		}
+		kernel = plan.Kernel
+	}
+
+	protocol, owner := ir.ProtocolProxyChain, ir.KernelSetSingBox
+	if kernel == ir.KernelMihomo {
+		owner = ir.KernelSetMihomo
+	}
+	if request.Mode == "load_balance" {
+		protocol, owner = ir.ProtocolLoadBalance, ir.KernelSetMihomo
+	}
+	node := &ir.Node{
+		Name: name, Protocol: protocol, Owner: owner, Source: ir.Source{Type: "manual"},
+		Composition: &ir.Composition{Mode: request.Mode, Kernel: kernel, NodeIDs: ids, LoadBalance: compositionLoadBalance(loadBalance)},
+	}
+	if err := s.Store.SaveNode(ctx, node); err != nil {
+		return nil, err
+	}
+	return node, nil
+}
+
+func compositionLoadBalance(value *generator.LoadBalanceOptions) *ir.LoadBalanceOptions {
+	if value == nil {
+		return nil
+	}
+	return &ir.LoadBalanceOptions{Strategy: value.Strategy, URL: value.URL, Interval: value.Interval, Timeout: value.Timeout, Lazy: value.Lazy}
 }
 
 func (s *Service) SetTransparent(manager *transparent.Manager) { s.Transparent = manager }
@@ -585,7 +691,7 @@ func (s *Service) applyPrepared(ctx context.Context, request ApplyRequest, setti
 				return nil, err
 			}
 			for _, node := range all {
-				if node.CanRunOn(request.Kernel) && variant.SupportsProtocol(node.Protocol) {
+				if !node.IsComposition() && node.CanRunOn(request.Kernel) && variant.SupportsProtocol(node.Protocol) {
 					nodes = append(nodes, node)
 					nodeIDs = append(nodeIDs, node.ID)
 				}
@@ -603,6 +709,9 @@ func (s *Service) applyPrepared(ctx context.Context, request ApplyRequest, setti
 				node, err := s.Store.Node(ctx, id)
 				if err != nil {
 					return nil, err
+				}
+				if node.IsComposition() {
+					return nil, fmt.Errorf("%w: composition nodes cannot be nested", store.ErrInvalid)
 				}
 				if !variant.SupportsProtocol(node.Protocol) {
 					return nil, fmt.Errorf("%w: 精简版不支持 %s", store.ErrInvalid, node.Protocol)
@@ -757,7 +866,7 @@ func (s *Service) applyPrepared(ctx context.Context, request ApplyRequest, setti
 			mode = "select"
 		}
 	}
-	state := &State{ConfigVersion: CurrentConfigVersion, ID: id, Kernel: request.Kernel, NodeIDs: nodeIDs, SOCKSListeners: append([]SOCKSListener{}, settings.SOCKSListeners...), Mode: mode, TransparentMode: settings.TransparentMode, LoadBalance: request.LoadBalance, AppliedAt: time.Now().UTC(), Path: path, Controller: controller, Secret: secret, SystemProxy: proxySnapshot, SystemProxyTarget: proxyTarget}
+	state := &State{ConfigVersion: CurrentConfigVersion, ID: id, Kernel: request.Kernel, NodeIDs: nodeIDs, SelectedNodeID: request.compositionNodeID, SOCKSListeners: append([]SOCKSListener{}, settings.SOCKSListeners...), Mode: mode, TransparentMode: settings.TransparentMode, LoadBalance: request.LoadBalance, AppliedAt: time.Now().UTC(), Path: path, Controller: controller, Secret: secret, SystemProxy: proxySnapshot, SystemProxyTarget: proxyTarget}
 	state.TransparentPort = settings.InboundPort
 	if runtimeNames != nil {
 		state.RuntimeNames = runtimeNames
@@ -850,6 +959,26 @@ func (s *Service) Activate(ctx context.Context, id string, kernel ir.KernelType)
 	node, err := s.Store.Node(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if node.IsComposition() {
+		if node.Composition == nil || (node.Protocol == ir.ProtocolProxyChain && node.Composition.Mode != "chain") || (node.Protocol == ir.ProtocolLoadBalance && node.Composition.Mode != "load_balance") {
+			return nil, fmt.Errorf("%w: invalid composition node", store.ErrInvalid)
+		}
+		if node.Composition.Mode == "load_balance" && node.Composition.LoadBalance == nil {
+			return nil, fmt.Errorf("%w: composition node is missing load balancing options", store.ErrInvalid)
+		}
+		if node.Composition.Mode == "chain" && node.Composition.LoadBalance != nil {
+			return nil, fmt.Errorf("%w: chain node contains invalid load balancing options", store.ErrInvalid)
+		}
+		if node.Composition.Kernel == "" || !variant.SupportsKernel(string(node.Composition.Kernel)) {
+			return nil, fmt.Errorf("%w: composition node uses an unsupported kernel", store.ErrInvalid)
+		}
+		request := ApplyRequest{Kernel: node.Composition.Kernel, Mode: node.Composition.Mode, NodeIDs: append([]string(nil), node.Composition.NodeIDs...), compositionNodeID: node.ID}
+		if node.Composition.LoadBalance != nil {
+			lb := generator.LoadBalanceOptions(*node.Composition.LoadBalance)
+			request.LoadBalance = &lb
+		}
+		return s.Apply(ctx, request)
 	}
 	if kernel == "" {
 		settings, err := s.Settings(ctx)

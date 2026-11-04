@@ -1,5 +1,26 @@
 import { request } from './client'
-import type { ProxyNode } from '@/types'
+import type { LoadBalanceOptions, ProxyGroupMode, ProxyNode } from '@/types'
+
+export interface CreateNodeInput {
+  name: string
+  protocol: string
+  server: { host: string; port: number }
+  transport: { type: string; path?: string; host?: string; opts?: Record<string, unknown> }
+  security: { type: string; sni?: string; alpn?: string[]; fingerprint?: string; opts?: Record<string, unknown> }
+  proto: Record<string, unknown>
+  extra?: Record<string, unknown>
+  group_id?: string
+  tags?: string[]
+  favorite?: boolean
+}
+
+export function createNode(data: CreateNodeInput): Promise<ProxyNode> {
+  return request<ProxyNode>({ url: '/nodes', method: 'post', data })
+}
+
+export function createCompositionNode(data: { name: string; mode: ProxyGroupMode; node_ids: string[]; load_balance?: LoadBalanceOptions }): Promise<ProxyNode> {
+  return request<ProxyNode>({ url: '/nodes/composition', method: 'post', data })
+}
 
 export interface NodeQuery {
   protocol?: string

@@ -1,6 +1,6 @@
 package ir
 
-// Protocol constants - 28 protocols total
+// Native protocol constants - 28 protocols total
 const (
 	// Shared by both kernels (16)
 	ProtocolShadowsocks = "shadowsocks"
@@ -35,6 +35,10 @@ const (
 	ProtocolRematch      = "rematch"
 	ProtocolEasyTier     = "easytier"
 	ProtocolZeroTier     = "zerotier"
+
+	// Composition nodes are stored by DuoRelay and expanded before generation.
+	ProtocolProxyChain  = "proxy-chain"
+	ProtocolLoadBalance = "load-balance"
 )
 
 // ProtocolOwnership maps protocols to their supporting kernels
@@ -86,6 +90,10 @@ func GetProtocolOwner(protocol string) KernelSet {
 func IsValidProtocol(protocol string) bool {
 	_, ok := ProtocolOwnership[protocol]
 	return ok
+}
+
+func IsCompositionProtocol(protocol string) bool {
+	return protocol == ProtocolProxyChain || protocol == ProtocolLoadBalance
 }
 
 // GetAllProtocols returns all supported protocols
