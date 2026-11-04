@@ -67,7 +67,8 @@ export function delayType(delay?: number): 'success' | 'warning' | 'danger' | 'i
 }
 
 export function formatBytes(bytes?: number): string {
-  if (!bytes || bytes <= 0) return '0 B'
+  if (bytes == null || !Number.isFinite(bytes)) return '—'
+  if (bytes <= 0) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
   let value = bytes
   let unit = 0

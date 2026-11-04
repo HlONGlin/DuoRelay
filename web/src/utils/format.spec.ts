@@ -27,6 +27,8 @@ describe('format helpers', () => {
   })
 
   it('formats byte sizes', () => {
+    expect(formatBytes(undefined)).toBe('—')
+    expect(formatBytes(Number.NaN)).toBe('—')
     expect(formatBytes(0)).toBe('0 B')
     expect(formatBytes(512)).toBe('512 B')
     expect(formatBytes(2048)).toBe('2.0 KB')

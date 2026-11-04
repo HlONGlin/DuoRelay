@@ -167,6 +167,50 @@ func TestSubscriptionAPI(t *testing.T) {
 	call(t, s, "POST", "/api/subscriptions", `{} {}`, 400)
 }
 
+func TestConnectionsAPIUsesPanelFieldNames(t *testing.T) {
+	s := apiForTest(t)
+	kernelAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/connections" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"downloadTotal":77268195,"uploadTotal":5799311,"memory":4096,"connections":[{"id":"conn-1","upload":12,"download":34,"start":"1970-01-01T00:00:01Z","metadata":{"host":"example.com"}}]}`)
+	}))
+	defer kernelAPI.Close()
+
+	if err := s.Store.SaveState(context.Background(), "current_config", &configuration.State{
+		ConfigVersion: configuration.CurrentConfigVersion,
+		Kernel:        ir.KernelMihomo,
+		Controller:    kernelAPI.URL,
+		Secret:        "test-secret",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	data := call(t, s, http.MethodGet, "/api/kernel/connections", "", http.StatusOK)
+	var got struct {
+		DownloadTotal  int64                 `json:"download_total"`
+		UploadTotal    int64                 `json:"upload_total"`
+		Memory         int64                 `json:"memory"`
+		Connections    []clashapi.Connection `json:"connections"`
+		LegacyDownload json.RawMessage       `json:"downloadTotal"`
+		LegacyUpload   json.RawMessage       `json:"uploadTotal"`
+	}
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.DownloadTotal != 77268195 || got.UploadTotal != 5799311 {
+		t.Fatalf("unexpected cumulative totals: %#v", got)
+	}
+	if got.Memory != 4096 || len(got.Connections) != 1 || got.Connections[0].ID != "conn-1" {
+		t.Fatalf("unexpected connection payload: %#v", got)
+	}
+	if len(got.LegacyDownload) != 0 || len(got.LegacyUpload) != 0 {
+		t.Fatalf("legacy camelCase fields leaked into panel response: %s", data)
+	}
+}
+
 func TestNodeSpeedtestAndTaskAPI(t *testing.T) {
 	s := apiForTest(t)
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))

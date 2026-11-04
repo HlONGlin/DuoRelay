@@ -47,6 +47,17 @@ type KernelReader interface {
 type logSubscriber interface {
 	SubscribeLogs(string) (<-chan kernel.LogEntry, func(), error)
 }
+
+// connectionsResponse is the DuoRelay API contract for kernel connection
+// statistics. Clash-compatible kernels use camelCase for the cumulative
+// counters, while the panel API uses the project's snake_case convention.
+type connectionsResponse struct {
+	DownloadTotal int64                 `json:"download_total"`
+	UploadTotal   int64                 `json:"upload_total"`
+	Connections   []clashapi.Connection `json:"connections"`
+	Memory        int64                 `json:"memory,omitempty"`
+}
+
 type Server struct {
 	Store         *store.Store
 	Subscriptions *subscription.Manager
@@ -1250,7 +1261,12 @@ func (s *Server) connections(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, 502, &Error{Code: "KERNEL_UNAVAILABLE", What: "Kernel control API is unavailable"})
 		return
 	}
-	WriteJSON(w, 200, values)
+	WriteJSON(w, 200, connectionsResponse{
+		DownloadTotal: values.DownloadTotal,
+		UploadTotal:   values.UploadTotal,
+		Connections:   values.Connections,
+		Memory:        values.Memory,
+	})
 }
 
 func (s *Server) traffic(w http.ResponseWriter, r *http.Request) {
