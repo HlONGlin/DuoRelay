@@ -58,6 +58,13 @@ if [[ "$WITH_KERNELS" == 1 ]]; then
     cp -a "$KERNELS_DIR/$name" "$STAGING/kernels/$name"
     chmod 0755 "$STAGING/kernels/$name"
   done
+  if [[ "$VARIANT" == full ]]; then
+    if [[ ! -f "$KERNELS_DIR/libcronet.so" ]]; then
+      echo "missing $KERNELS_DIR/libcronet.so; download full kernels first or pass --without-kernels" >&2
+      exit 1
+    fi
+    cp -a "$KERNELS_DIR/libcronet.so" "$STAGING/kernels/libcronet.so"
+  fi
 fi
 
 cp -a "$ROOT/deploy" "$STAGING/deploy"

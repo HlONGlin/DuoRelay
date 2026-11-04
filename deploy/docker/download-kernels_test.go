@@ -19,14 +19,14 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestDownloadVariants(t *testing.T) {
-	for _, tc := range []struct{ variant, arch string }{{"full", "amd64"}, {"lite", "amd64"}, {"lite", "arm64"}} {
+	for _, tc := range []struct{ variant, arch string }{{"full", "amd64"}, {"full", "arm64"}, {"lite", "amd64"}, {"lite", "arm64"}} {
 		t.Run(tc.variant+"/"+tc.arch, func(t *testing.T) {
 			t.Chdir(t.TempDir())
 			data := []byte("temporary kernel fixture")
 			hash := fmt.Sprintf("%x", sha256.Sum256(data))
 			lock := fmt.Sprintf("mihomo:\n  version: '1'\n  sha256:\n    linux-%s: '%s'\n", tc.arch, hash)
 			if tc.variant == "full" {
-				lock += fmt.Sprintf("singbox:\n  version: '1'\n  sha256:\n    linux-amd64: '%s'\ncronet:\n  linux-amd64:\n    url: 'https://fixture.invalid/libcronet.so'\n    sha256: '%s'\n", hash, hash)
+				lock += fmt.Sprintf("singbox:\n  version: '1'\n  sha256:\n    linux-%s: '%s'\ncronet:\n  linux-%s:\n    url: 'https://fixture.invalid/libcronet.so'\n    sha256: '%s'\n", tc.arch, hash, tc.arch, hash)
 			}
 			if err := os.WriteFile("kernels.lock", []byte(lock), 0600); err != nil {
 				t.Fatal(err)
@@ -87,7 +87,7 @@ func TestDownloadRejectsInvalidTargetOrMissingPin(t *testing.T) {
 	if err := os.WriteFile("kernels.lock", []byte("mihomo:\n  version: '1'\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	for _, tc := range []struct{ arch, variant string }{{"amd64", "invalid"}, {"arm64", "full"}, {"386", "lite"}, {"amd64", "lite"}} {
+	for _, tc := range []struct{ arch, variant string }{{"amd64", "invalid"}, {"386", "lite"}, {"amd64", "lite"}, {"arm64", "full"}} {
 		if err := download(tc.arch, "out", tc.variant); err == nil {
 			t.Fatalf("accepted unsupported or unpinned target: %+v", tc)
 		}

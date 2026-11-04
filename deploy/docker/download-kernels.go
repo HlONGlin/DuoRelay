@@ -32,6 +32,10 @@ type lockFile struct {
 			URL    string `yaml:"url"`
 			SHA256 string `yaml:"sha256"`
 		} `yaml:"linux-amd64"`
+		LinuxARM64 struct {
+			URL    string `yaml:"url"`
+			SHA256 string `yaml:"sha256"`
+		} `yaml:"linux-arm64"`
 	} `yaml:"cronet"`
 }
 
@@ -50,8 +54,8 @@ func download(arch, out, variant string) error {
 	if variant != "full" && variant != "lite" {
 		return fmt.Errorf("unknown variant %q: use full or lite", variant)
 	}
-	if out == "" || (arch != "amd64" && !(variant == "lite" && arch == "arm64")) {
-		return fmt.Errorf("unsupported target %s/linux/%s: full supports amd64; lite supports amd64 and arm64; output directory is required", variant, arch)
+	if out == "" || (arch != "amd64" && arch != "arm64") {
+		return fmt.Errorf("unsupported target %s/linux/%s: full and lite support amd64 and arm64; output directory is required", variant, arch)
 	}
 	data, err := os.ReadFile("kernels.lock")
 	if err != nil {
@@ -63,6 +67,9 @@ func download(arch, out, variant string) error {
 	}
 	key := "linux-" + arch
 	cronet := lock.Cronet.LinuxAMD64
+	if arch == "arm64" {
+		cronet = lock.Cronet.LinuxARM64
+	}
 	if lock.Mihomo.Version == "" || len(lock.Mihomo.SHA256[key]) != 64 || (variant == "full" && (lock.Singbox.Version == "" || len(lock.Singbox.SHA256[key]) != 64 || cronet.URL == "" || len(cronet.SHA256) != 64)) {
 		return fmt.Errorf("incomplete kernel lock for %s", key)
 	}

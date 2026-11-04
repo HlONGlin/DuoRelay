@@ -7,6 +7,7 @@ singbox:
   sha256:
     windows-amd64: "8f30682ee198855440d2a7fe070d5d3653793b2d01bb8c85eea88f93bbe7c8b9"
     linux-amd64: "1264361b5f8868c8768f7555d3e77e20118bf503c41ac08bb290a0d99056aa3a"
+    linux-arm64: "d953af885f11d6b547c21a3c0ffe70796963afc802fab959d548311002b4908a"
 
 mihomo:
   version: "1.19.33"
@@ -26,4 +27,8 @@ cronet:
   linux-amd64:
     url: "https://raw.githubusercontent.com/SagerNet/cronet-go/c10c03c318db6d47bec8705c8290bad34bc32b64/lib/linux_amd64/libcronet.so"
     sha256: "23109c55b08829bb1a68682a61a64852b1bbf243753b153cbd8f6e4ea2c05294"
+    filename: "libcronet.so"
+  linux-arm64:
+    url: "https://raw.githubusercontent.com/SagerNet/cronet-go/c10c03c318db6d47bec8705c8290bad34bc32b64/lib/linux_arm64/libcronet.so"
+    sha256: "3c1fcfcb56261a4b318ffb6d2227b9726782edb5a894e74db2b534406db62498"
     filename: "libcronet.so"
