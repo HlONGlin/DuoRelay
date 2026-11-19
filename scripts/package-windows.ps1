@@ -2,15 +2,22 @@
 param(
     [string]$Version = "dev",
     [string]$OutputDirectory = "dist",
-    [switch]$Lite
+    [switch]$Lite,
+    [ValidateSet("full", "lite", "mihomo", "singbox")]
+    [string]$Variant = "full"
 )
 
 $ErrorActionPreference = "Stop"
+if ($Lite) { $Variant = "lite" }
+if ($Version -cnotmatch "^[a-zA-Z0-9][a-zA-Z0-9._+-]*$") { throw "Invalid version: $Version" }
 $root = Split-Path -Parent $PSScriptRoot
 $staging = Join-Path $root (Join-Path $OutputDirectory "duorelay-windows-amd64-$Version")
 $archive = Join-Path $root (Join-Path $OutputDirectory "duorelay-windows-amd64-$Version.zip")
-if ($Lite) {
+if ($Variant -eq "lite") {
     $staging = Join-Path $root (Join-Path $OutputDirectory "duorelay-lite-$Version-amd64")
+    $archive = "$staging.zip"
+} elseif ($Variant -in @("mihomo", "singbox")) {
+    $staging = Join-Path $root (Join-Path $OutputDirectory "duorelay-$Variant-windows-amd64-$Version")
     $archive = "$staging.zip"
 }
 $outputRoot = [IO.Path]::GetFullPath((Join-Path $root $OutputDirectory)).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
@@ -40,7 +47,7 @@ try {
     $binary = Join-Path $staging "duorelay.exe"
     $ldflags = "-X main.Version=$Version -X main.Commit=$commit -X main.BuildTime=$buildTime"
     $buildArgs = @("build", "-trimpath", "-ldflags", $ldflags, "-o", $binary)
-    if ($Lite) { $buildArgs += @("-tags", "lite") }
+    if ($Variant -ne "full") { $buildArgs += @("-tags", $Variant) }
     $previousGOOS, $previousGOARCH, $previousCGO = $env:GOOS, $env:GOARCH, $env:CGO_ENABLED
     try {
         $env:GOOS = "windows"; $env:GOARCH = "amd64"; $env:CGO_ENABLED = "0"
@@ -51,24 +58,35 @@ try {
     }
 
     $kernelNames = @("sing-box.exe", "mihomo.exe", "libcronet.dll")
-    if ($Lite) { $kernelNames = @("mihomo.exe") }
+    if ($Variant -in @("lite", "mihomo")) { $kernelNames = @("mihomo.exe") }
+    if ($Variant -eq "singbox") { $kernelNames = @("sing-box.exe", "libcronet.dll") }
     foreach ($name in $kernelNames) {
         $source = Join-Path $root (Join-Path "kernels" $name)
         if (-not (Test-Path $source)) { throw "Missing kernel dependency: $source" }
         Copy-Item -LiteralPath $source -Destination (Join-Path $staging (Join-Path "kernels" $name))
     }
-    foreach ($name in @("README.md", "LICENSE", "kernels.lock")) {
+    foreach ($name in @("README.md", "LICENSE")) {
         $source = Join-Path $root $name
         if (Test-Path $source) { Copy-Item -LiteralPath $source -Destination (Join-Path $staging $name) }
     }
-    @{
+    Copy-Item -LiteralPath (Join-Path $root "docs/single-kernel.md") -Destination $staging
+    $sections = if ($Variant -eq "singbox") { @("singbox", "cronet") } else { @("mihomo") }
+    $section = ""
+    $lockLines = Get-Content -LiteralPath (Join-Path $root "kernels.lock") | Where-Object {
+        if ($_ -match '^([a-zA-Z0-9]+):') { $section = $Matches[1] }
+        $Variant -eq "full" -or !$section -or $section -in $sections
+    }
+    $utf8 = [Text.UTF8Encoding]::new($false)
+    [IO.File]::WriteAllLines((Join-Path $staging "kernels.lock"), [string[]]$lockLines, $utf8)
+    $buildInfo = @{
         version = $Version
-        variant = $(if ($Lite) { "lite" } else { "full" })
+        variant = $Variant
         commit = $commit
         build_time = $buildTime
         platform = "windows/amd64"
         generated_at = (Get-Date).ToUniversalTime().ToString("o")
-    } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $staging "build-info.json") -Encoding utf8
+    } | ConvertTo-Json
+    [IO.File]::WriteAllText((Join-Path $staging "build-info.json"), $buildInfo, $utf8)
 
     Compress-Archive -Path (Join-Path $staging "*") -DestinationPath $archive -CompressionLevel Optimal
     Write-Host "Created $archive"

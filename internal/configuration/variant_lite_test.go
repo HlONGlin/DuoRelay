@@ -41,7 +41,7 @@ func TestLiteGeneratorsAndSavedFullPreference(t *testing.T) {
 		if err := s.Store.SaveNode(ctx, n); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.Activate(ctx, n.ID, ""); !errors.Is(err, store.ErrInvalid) || !strings.Contains(err.Error(), "精简版不支持") {
+		if _, err := s.Activate(ctx, n.ID, ""); !errors.Is(err, store.ErrInvalid) || !strings.Contains(err.Error(), protocol) {
 			t.Fatalf("unsupported activation: %v", err)
 		}
 		got, err := s.Store.Node(ctx, n.ID)

@@ -12,7 +12,7 @@ import (
 )
 
 func TestApplyComposedNodes(t *testing.T) {
-	if variant.Name == "lite" {
+	if !variant.Enabled() {
 		t.Skip("full-only sing-box / cross-kernel assertions")
 	}
 	s, runtime := testService(t)
@@ -57,7 +57,7 @@ func TestApplyComposedNodes(t *testing.T) {
 		}
 	}
 	reversed := []string{ids[1], ids[0]}
-	state, err = s.Apply(ctx, ApplyRequest{NodeIDs: reversed, Mode: "chain"})
+	state, err = s.Apply(ctx, ApplyRequest{NodeIDs: reversed, Mode: "chain", Kernel: ir.KernelSingBox})
 	if err != nil {
 		t.Fatal(err)
 	}

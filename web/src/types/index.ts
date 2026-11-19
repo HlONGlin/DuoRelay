@@ -266,6 +266,7 @@ export interface AppConfig {
   kernel: KernelType
   inbound_host: string
   inbound_port: number
+  controller_port?: number
   mixed_port: number
   socks_only: boolean
   socks_port: number
@@ -314,7 +315,7 @@ export interface LoadBalanceOptions {
 export interface ApplyConfigRequest {
   kernel?: KernelType
   node_ids: string[]
-  mode: ProxyGroupMode
+  mode: ProxyGroupMode | 'manual'
   load_balance?: LoadBalanceOptions
 }
 export interface ConfigurationState {
@@ -322,7 +323,7 @@ export interface ConfigurationState {
   kernel: KernelType
   node_ids: string[]
   socks_listeners?: SOCKSListener[]
-  mode: ProxyGroupMode | 'single' | 'select'
+  mode: ProxyGroupMode | 'single' | 'select' | 'manual'
 	selected_node_id?: string
   load_balance?: LoadBalanceOptions
   applied_at: string

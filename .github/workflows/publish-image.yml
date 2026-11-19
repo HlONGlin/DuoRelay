@@ -8,11 +8,13 @@ on:
         required: true
         type: string
       variant:
-        description: Build variant (lite requires a release containing lite support)
+        description: Build variant supported by the selected tag
         required: true
-        default: full
+        default: mihomo
         type: choice
         options:
+          - mihomo
+          - singbox
           - full
           - lite
 
@@ -44,15 +46,15 @@ jobs:
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
           REPOSITORY: ${{ github.repository }}
-          VARIANT: ${{ inputs.variant || 'full' }}
+          VARIANT: ${{ inputs.variant || 'mihomo' }}
         run: |
           image="ghcr.io/${REPOSITORY,,}"
           suffix=""
           case "$VARIANT" in
             full) ;;
-            lite)
-              test -f internal/variant/lite.go && grep -q '^ARG DUORELAY_VARIANT' Dockerfile || { echo "This release has no lite Docker target" >&2; exit 1; }
-              suffix="-lite"
+            lite|mihomo|singbox)
+              test -f "internal/variant/$VARIANT.go"
+              suffix="-$VARIANT"
               ;;
             *) echo "Invalid variant" >&2; exit 1 ;;
           esac
@@ -66,14 +68,18 @@ jobs:
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
           REPOSITORY: ${{ github.repository }}
-          VARIANT: ${{ inputs.variant || 'full' }}
+          VARIANT: ${{ inputs.variant || 'mihomo' }}
         run: |
           suffix=""
-          [ "$VARIANT" = lite ] && suffix="-lite"
+          [ "$VARIANT" = full ] || suffix="-$VARIANT"
           image="ghcr.io/${REPOSITORY,,}:$RELEASE_TAG$suffix"
           docker pull --platform linux/amd64 "$image"
-          docker run --rm --entrypoint /opt/duorelay/kernels/mihomo "$image" -v
-          if [ "$VARIANT" = full ]; then
+          if [ "$VARIANT" != singbox ]; then
+            docker run --rm --entrypoint /opt/duorelay/kernels/mihomo "$image" -v
+          else
+            docker run --rm --entrypoint /bin/sh "$image" -ec 'test ! -e /opt/duorelay/kernels/mihomo'
+          fi
+          if [ "$VARIANT" = full ] || [ "$VARIANT" = singbox ]; then
             docker run --rm --entrypoint /opt/duorelay/kernels/sing-box "$image" version
           else
             docker run --rm --entrypoint /bin/sh "$image" -ec 'test ! -e /opt/duorelay/kernels/sing-box; test ! -e /opt/duorelay/kernels/libcronet.so'

@@ -30,17 +30,14 @@ describe('settings workflows', () => {
     localStorage.removeItem('duorelay-theme')
     localStorage.removeItem('duorelay-language')
   })
-  it('shows lite build details and disables sing-box preference', async () => {
-    variant.value = 'lite'
+  it.each([['mihomo', 'mihomo'], ['singbox', 'sing-box']] as const)('hides the kernel switch in %s', async (edition, kernel) => {
+    variant.value = edition
     const wrapper = await render()
     await wrapper.findAll('.category-nav button').find(button => button.text() === '内核')!.trigger('click')
-    const singbox = wrapper.findAllComponents({ name: 'ElRadioButton' }).find(item => item.props('value') === 'sing-box')!
-    expect(singbox.props('disabled')).toBe(true)
-    expect(wrapper.text()).toContain('精简版不支持')
+    expect(wrapper.findAllComponents({ name: 'ElRadioButton' }).some(item => ['mihomo', 'sing-box'].includes(item.props('value')))).toBe(false)
     await wrapper.findAll('.category-nav button').find(button => button.text() === '关于')!.trigger('click')
-    expect(wrapper.text()).toContain('lite（精简版 · mihomo 单核）')
+    expect(wrapper.text()).toContain(`${edition} · ${kernel}`)
     expect(wrapper.find('.save-bar').exists()).toBe(false)
-    variant.value = 'full'
     wrapper.unmount()
   })
 

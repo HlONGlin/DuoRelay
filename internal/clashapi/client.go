@@ -1,6 +1,7 @@
 package clashapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -38,6 +39,9 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body io.Rea
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	if c.secret != "" {
 		req.Header.Set("Authorization", "Bearer "+c.secret)
 	}
@@ -139,5 +143,21 @@ func (c *Client) TestDelay(ctx context.Context, proxyName string, testURL string
 // Close closes the HTTP client
 func (c *Client) Close() error {
 	c.httpClient.CloseIdleConnections()
+	return nil
+}
+
+func (c *Client) SelectProxy(ctx context.Context, group, name string) error {
+	body, err := json.Marshal(map[string]string{"name": name})
+	if err != nil {
+		return err
+	}
+	resp, err := c.doRequest(ctx, http.MethodPut, "/proxies/"+url.PathEscape(group), bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("select proxy: unexpected status %d", resp.StatusCode)
+	}
 	return nil
 }

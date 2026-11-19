@@ -79,11 +79,11 @@ func (s *Service) PreviewChain(ctx context.Context, request ApplyRequest) (*gene
 // Narrow the protocol ownership by the actual node parameters. For example,
 // an OpenVPN static-key profile can use sing-box even when mihomo is preferred.
 func (s *Service) planChain(nodes []*ir.Node, preferred ir.KernelType, force bool) (*generator.ChainPlan, error) {
-	if variant.Name == "lite" {
-		if force && preferred != ir.KernelMihomo {
-			return nil, fmt.Errorf("精简版不支持 sing-box")
+	if !variant.Enabled() {
+		if force && !variant.SupportsKernel(string(preferred)) {
+			return nil, fmt.Errorf("当前版本不支持 %s", preferred)
 		}
-		preferred, force = ir.KernelMihomo, true
+		preferred, force = ir.KernelType(variant.DefaultKernel), true
 		for _, n := range nodes {
 			if !variant.SupportsProtocol(string(n.Protocol)) {
 				return nil, fmt.Errorf("精简版不支持 %s", n.Protocol)
@@ -174,7 +174,7 @@ func (s *Service) startState(state *State) error {
 			return err
 		}
 	}
-	if variant.Name == "lite" && (!variant.SupportsKernel(string(state.Kernel)) || len(state.Auxiliary) > 0) {
+	if !variant.SupportsKernel(string(state.Kernel)) || (!variant.Enabled() && len(state.Auxiliary) > 0) {
 		return fmt.Errorf("精简版不支持已保存的双核配置；数据保留，请重新选择 mihomo 节点")
 	}
 	if runtime, ok := s.Runtime.(modeRuntime); ok {
@@ -193,7 +193,15 @@ func (s *Service) startState(state *State) error {
 			return err
 		}
 	}
-	return s.start(state.Kernel, state.Path)
+	if err := s.start(state.Kernel, state.Path); err != nil {
+		return err
+	}
+	if state.Mode == "manual" && state.SelectedNodeID != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return s.selectManual(ctx, state, state.SelectedNodeID)
+	}
+	return nil
 }
 
 // Older states did not persist the applied redirect/TPROXY port. Read the
@@ -262,7 +270,11 @@ func (s *Service) installChain(ctx context.Context, request ApplyRequest, plan *
 		}
 	}()
 	for _, config := range configs {
-		content, controller, secret, err := withController(config.content, config.kernel, settings.AllowLAN && config.kernel == plan.Kernel)
+		controllerPort := 0
+		if config.kernel == plan.Kernel {
+			controllerPort = settings.ControllerPort
+		}
+		content, controller, secret, err := withController(config.content, config.kernel, settings.AllowLAN && config.kernel == plan.Kernel, controllerPort)
 		if err != nil {
 			return nil, err
 		}
@@ -317,7 +329,7 @@ func (s *Service) installChain(ctx context.Context, request ApplyRequest, plan *
 		stopErr := s.Runtime.StopAll()
 		cleanupErr := s.cleanupTransparent()
 		var restoreErr error
-		if previous != nil {
+		if previous != nil && variant.SupportsKernel(string(previous.Kernel)) && (variant.Enabled() || len(previous.Auxiliary) == 0) {
 			restoreErr = s.startState(previous)
 		}
 		if previous != nil && previous.SystemProxyTarget != "" {
@@ -342,7 +354,8 @@ func (s *Service) installChain(ctx context.Context, request ApplyRequest, plan *
 	}
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	if err := s.Store.SaveState(persistCtx, "current_config", state); err != nil {
+	settings.Kernel = state.Kernel
+	if err := s.Store.SaveConfiguration(persistCtx, settings, state); err != nil {
 		return nil, rollback(err)
 	}
 	retained = true
@@ -350,13 +363,27 @@ func (s *Service) installChain(ctx context.Context, request ApplyRequest, plan *
 	for _, auxiliary := range state.Auxiliary {
 		pathsToKeep = append(pathsToKeep, auxiliary.Path)
 	}
-	removeReplacedConfig(previous, pathsToKeep...)
+	s.pruneReplacedConfig(previous, pathsToKeep...)
 	return state, nil
 }
 
-const configHistoryLimit = 10
+const configHistoryLimit = 5
+const configHistoryMaxAge = 7 * 24 * time.Hour
 
-func removeReplacedConfig(previous *State, current ...string) {
+func (s *Service) recoveryConfigPaths() []string {
+	var backup State
+	if s.Store.State(context.Background(), "migration_backup", &backup) != nil {
+		return nil
+	}
+	paths := []string{backup.Path}
+	for _, config := range backup.Auxiliary {
+		paths = append(paths, config.Path)
+	}
+	return paths
+}
+
+func (s *Service) pruneReplacedConfig(previous *State, current ...string) {
+	current = append(current, s.recoveryConfigPaths()...)
 	directories := map[string]struct{}{}
 	addDirectory := func(path string) {
 		if path != "" {
@@ -384,7 +411,7 @@ func pruneConfigHistory(directory string, current ...string) {
 	}
 	keep := map[string]struct{}{}
 	for _, path := range current {
-		if path != "" {
+		if path != "" && filepath.Clean(filepath.Dir(path)) == filepath.Clean(directory) {
 			keep[filepath.Base(path)] = struct{}{}
 		}
 	}
@@ -408,11 +435,16 @@ func pruneConfigHistory(directory string, current ...string) {
 		}
 	}
 	sort.SliceStable(files, func(i, j int) bool { return files[i].date.After(files[j].date) })
-	for index, file := range files {
-		if index < configHistoryLimit {
+	history := map[string]bool{}
+	cutoff := time.Now().Add(-configHistoryMaxAge)
+	for _, file := range files {
+		if _, active := keep[file.name]; active {
 			continue
 		}
-		if _, explicitlyKept := keep[file.name]; explicitlyKept {
+		id := strings.TrimSuffix(file.name, filepath.Ext(file.name))
+		id = strings.TrimSuffix(strings.TrimSuffix(id, "-sing-box"), "-mihomo")
+		if !file.date.Before(cutoff) && (history[id] || len(history) < configHistoryLimit) {
+			history[id] = true
 			continue
 		}
 		_ = os.Remove(filepath.Join(directory, file.name))
@@ -421,12 +453,16 @@ func pruneConfigHistory(directory string, current ...string) {
 
 // PruneConfigHistory is also called on startup; current files always survive.
 func (s *Service) PruneConfigHistory(state *State) {
-	var keep []string
+	keep := s.recoveryConfigPaths()
 	if state != nil {
 		keep = append(keep, state.Path)
 		for _, aux := range state.Auxiliary {
 			keep = append(keep, aux.Path)
 		}
 	}
-	pruneConfigHistory(s.Directory, keep...)
+	directory := s.Directory
+	if directory == "" {
+		directory = filepath.Join("data", "configs")
+	}
+	pruneConfigHistory(directory, keep...)
 }

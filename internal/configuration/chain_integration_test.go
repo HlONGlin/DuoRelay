@@ -26,7 +26,7 @@ import (
 // Opt-in: this starts real kernels, but only uses temporary configurations,
 // ephemeral loopback ports and deterministic local proxy/target servers.
 func TestRealChainTraffic(t *testing.T) {
-	if variant.Name == "lite" {
+	if !variant.SupportsKernel("sing-box") {
 		t.Skip("full-only sing-box / cross-kernel assertions")
 	}
 	if testing.Short() || os.Getenv("DUORELAY_CHAIN_INTEGRATION") != "1" {

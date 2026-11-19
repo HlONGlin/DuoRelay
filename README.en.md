@@ -2,12 +2,19 @@
 
 [简体中文](README.md) | English
 
-DuoRelay is a web-based proxy management panel built around sing-box and mihomo. The repository provides **duorelay** (full, dual kernel) and **duorelay-lite** (mihomo only), sharing the same version, panel and data format. Lite retains node and subscription management, load balancing, native chains, routing editors, transparent proxy options, kernel validation and rollback. It supports the 24 protocol and endpoint capabilities available through mihomo; ShadowTLS, Naive, Tor and OpenConnect require the full build. See the [lite guide](docs/lite.en.md) and [acceptance report](docs/lite-acceptance.en.md) for details.
+DuoRelay manages proxy nodes, subscriptions and routing through a web panel. Choose a `duorelay-mihomo-*` or `duorelay-singbox-*` release archive for your platform.
+
+| Edition | Use it for |
+| --- | --- |
+| mihomo | Clash ecosystem, Mieru, VLESS XHTTP, load balancing and manual groups |
+| sing-box | Naive, ShadowTLS, Tor, OpenConnect and native sing-box routing or chains |
+
+Both editions support Linux amd64 and arm64 and Windows amd64. The previous `duorelay-lite` edition continues as `duorelay-mihomo`. Existing nodes and subscriptions carry over. See the [upgrade notes](docs/single-kernel.md) for configuration migration and the legacy dual-kernel build.
 
 ```bash
-make build-lite
-bash scripts/package-linux.sh 0.3.0 amd64 --lite
-# Windows: powershell -File scripts/package-windows.ps1 -Version 0.3.0 -Lite
+make build-mihomo
+make build-singbox
+make package-linux-all VERSION=0.3.2
 ```
 
 ![Go](https://img.shields.io/badge/Go-1.27+-00ADD8?logo=go&logoColor=white)
@@ -36,7 +43,7 @@ The screenshot comes from a temporary demonstration instance. Further measuremen
 | Kernels | Generate sing-box and mihomo configurations and manage kernel processes, subject to kernel and protocol capabilities. |
 | Web management | Create an administrator on first access; manage nodes, subscriptions, kernels, connections and logs. |
 | Nodes and subscriptions | Import common share links and subscription formats; test latency, delete selected nodes in batches, and use load balancing or proxy chains. |
-| Software updates | Check GitHub releases matching the full/lite build and platform under **Settings → About**. One-click updates require a writable install directory; use the deployment guide for protected Linux systemd installs. |
+| Software updates | Check GitHub releases matching the installed edition and platform under **Settings → About**. One-click updates require a writable install directory; use the deployment guide for protected Linux systemd installs. |
 | Routing | Edit structured rules as a list or text, import and export them, and validate individual lines. |
 | Configuration safety | Validate with the relevant kernel before applying; retain or restore the previous state on failure. |
 | Monitoring | Inspect kernel logs, connections and sampled traffic history. |
@@ -88,21 +95,21 @@ The script handles initial installation only and exits if an existing system ins
 
 ### Build from source
 
-The following Linux example requires the Go version declared in `go.mod`, Node.js/npm, `make`, Git and the appropriate kernels. The kernel download script records digests but does not validate them against pre-pinned hashes; see [Linux deployment](docs/linux-deployment.en.md).
+The following Linux example requires the Go version declared in `go.mod`, Node.js/npm, `make`, Git and the appropriate kernels. The kernel download script checks the hashes in `kernels.lock`; see [Linux deployment](docs/linux-deployment.en.md).
 
 ```bash
 git clone https://github.com/HlONGlin/DuoRelay.git
 cd DuoRelay
-./scripts/download-kernels.sh
+./scripts/download-kernels.sh --variant mihomo
 make build
-./build/duorelay -kernels ./kernels
+./build/duorelay-mihomo -kernels ./kernels
 ```
 
 Open `http://127.0.0.1:8080/` and create an administrator on first access. If applying a configuration fails, inspect the panel error and kernel logs.
 
 ## Deployment and management
 
-See the [Linux deployment guide](docs/linux-deployment.en.md), [Windows deployment guide](docs/windows-deployment.en.md), and [development guide](docs/DEVELOPMENT.en.md). Run `./build/duorelay -h` for all options.
+See the [Linux deployment guide](docs/linux-deployment.en.md), [Windows deployment guide](docs/windows-deployment.en.md), and [development guide](docs/DEVELOPMENT.en.md). Run `./build/duorelay-mihomo -h` for all options.
 
 | Option | Default | Purpose |
 |---|---|---|

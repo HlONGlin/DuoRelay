@@ -8,6 +8,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 KERNELS_DIR="$PROJECT_ROOT/kernels"
 LOCK_FILE="$PROJECT_ROOT/kernels.lock"
+VARIANT=full
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --variant) VARIANT="${2:?missing variant}"; shift 2 ;;
+    *) echo "unknown option: $1" >&2; exit 1 ;;
+  esac
+done
+case "$VARIANT" in full|lite|mihomo|singbox) ;; *) echo "unknown variant: $VARIANT" >&2; exit 1 ;; esac
 
 # Default versions (can be overridden by kernels.lock)
 SINGBOX_VERSION="${SINGBOX_VERSION:-1.14.4}"
@@ -33,6 +41,15 @@ case "$OS" in
 esac
 
 echo "Detected: $OS/$ARCH"
+if [[ "$OS" == linux ]]; then
+    temp_kernels="$(mktemp -d)"
+    trap 'rm -rf -- "$temp_kernels"' EXIT
+    cd "$PROJECT_ROOT"
+    go run ./deploy/docker/download-kernels.go -arch "$ARCH" -variant "$VARIANT" -out "$temp_kernels"
+    mkdir -p "$KERNELS_DIR"
+    cp -a "$temp_kernels/". "$KERNELS_DIR/"
+    exit 0
+fi
 
 # Create kernels directory
 mkdir -p "$KERNELS_DIR"
@@ -51,7 +68,7 @@ download_singbox() {
         local binary="sing-box"
     fi
 
-    curl -L -o "$archive" "$url"
+    curl --fail -L -o "$archive" "$url"
 
     echo "Extracting sing-box..."
     if [ "$OS" = "windows" ]; then
@@ -86,7 +103,7 @@ download_mihomo() {
         local binary="mihomo"
     fi
 
-    curl -L -o "$archive" "$url"
+    curl --fail -L -o "$archive" "$url"
 
     echo "Extracting mihomo..."
     if [ "$OS" = "windows" ]; then
@@ -109,69 +126,27 @@ download_mihomo() {
     echo "mihomo installed: $("$KERNELS_DIR/$binary" -v | head -n 1)"
 }
 
-# Read versions from lock file if exists
-if [ -f "$LOCK_FILE" ]; then
-    echo "Reading versions from kernels.lock..."
-    # Simple parsing - in real implementation, use proper YAML/JSON parser
-    # For now, just use defaults
-fi
-
-# Download kernels
-download_singbox
-download_mihomo
-
-# Generate SHA256 checksums
-echo ""
-echo "Generating SHA256 checksums..."
-
-if [ "$OS" = "windows" ]; then
-    SINGBOX_BINARY="sing-box.exe"
-    MIHOMO_BINARY="mihomo.exe"
-else
-    SINGBOX_BINARY="sing-box"
-    MIHOMO_BINARY="mihomo"
-fi
-
-SINGBOX_SHA256=$(sha256sum "$KERNELS_DIR/$SINGBOX_BINARY" | awk '{print $1}')
-MIHOMO_SHA256=$(sha256sum "$KERNELS_DIR/$MIHOMO_BINARY" | awk '{print $1}')
-
-echo "  sing-box: $SINGBOX_SHA256"
-echo "  mihomo:   $MIHOMO_SHA256"
-
-# Preserve additional pinned dependencies when refreshing kernel checksums.
-CRONET_LOCK=""
-if [ -f "$LOCK_FILE" ]; then
-    CRONET_LOCK=$(sed -n '/^cronet:/,$p' "$LOCK_FILE")
-fi
-
-# Generate lock file
-cat > "$LOCK_FILE" << EOF
-# DuoRelay Kernel Lock File
-# Generated at $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-
-singbox:
-  version: "$SINGBOX_VERSION"
-  url_template: "https://github.com/SagerNet/sing-box/releases/download/v{version}/sing-box-{version}-{os}-{arch}.{ext}"
-  sha256:
-    ${OS}-${ARCH}: "$SINGBOX_SHA256"
-
-mihomo:
-  version: "$MIHOMO_VERSION"
-  url_template: "https://github.com/MetaCubeX/mihomo/releases/download/v{version}/mihomo-{os}-{arch}-v{version}.{ext}"
-  sha256:
-    ${OS}-${ARCH}: "$MIHOMO_SHA256"
-EOF
-
-if [ -n "$CRONET_LOCK" ]; then
-    printf '\n%s\n' "$CRONET_LOCK" >> "$LOCK_FILE"
-fi
-if [ "$OS" = "windows" ] && [ "$ARCH" = "amd64" ]; then
+lock_value() {
+    awk -v section="$1" -v key="$2" '
+      /^[[:alnum:]]+:/ { selected=($1 == section ":") }
+      selected && $1 == key ":" { gsub(/"/, "", $2); print $2; exit }
+    ' "$LOCK_FILE"
+}
+verify_kernel() {
+    local expected actual
+    expected="$(lock_value "$1" "$OS-$ARCH")"
+    actual="$(sha256sum "$KERNELS_DIR/$2" | cut -d ' ' -f1)"
+    [[ -n "$expected" && "$actual" == "$expected" ]] || { echo "Missing or mismatched checksum for $2" >&2; exit 1; }
+}
+[[ "$OS/$ARCH" == windows/amd64 ]] || { echo "No pinned kernels for $OS/$ARCH" >&2; exit 1; }
+if [[ "$VARIANT" == full || "$VARIANT" == singbox ]]; then
+    SINGBOX_VERSION="$(lock_value singbox version)"
+    download_singbox
+    verify_kernel singbox sing-box.exe
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$SCRIPT_DIR/install-cronet-windows.ps1"
 fi
-
-echo ""
-echo "✅ Kernels downloaded successfully!"
-echo "   sing-box: $KERNELS_DIR/$SINGBOX_BINARY"
-echo "   mihomo:   $KERNELS_DIR/$MIHOMO_BINARY"
-echo ""
-echo "Lock file updated: $LOCK_FILE"
+if [[ "$VARIANT" != singbox ]]; then
+    MIHOMO_VERSION="$(lock_value mihomo version)"
+    download_mihomo
+    verify_kernel mihomo mihomo.exe
+fi

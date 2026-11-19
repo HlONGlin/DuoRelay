@@ -38,6 +38,7 @@ type GenerateOptions struct {
 	SOCKSListeners  []SOCKSListener
 	ExtraNodes      []*ir.Node
 	Composition     *Composition
+	ManualSelector  bool
 
 	// DNS config
 	DNSServers   []string

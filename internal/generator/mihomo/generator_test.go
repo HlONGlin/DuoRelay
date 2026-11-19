@@ -556,9 +556,15 @@ func TestGenerateVLESSPassesKernelCheck(t *testing.T) {
 	if _, err := os.Stat(binary); err != nil {
 		t.Skip("mihomo binary not available")
 	}
-	generated, err := NewGenerator().Generate([]*ir.Node{ir.ExampleVLESSNodeWS()}, nil)
+	node := ir.ExampleVLESSNodeWS()
+	const encryption = "mlkem768x25519plus.native.0rtt.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE"
+	node.Proto["encryption"] = encryption
+	generated, err := NewGenerator().Generate([]*ir.Node{node}, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !strings.Contains(string(generated), "encryption: "+encryption) || node.CanRunOn(ir.KernelSingBox) {
+		t.Fatal("VLESS encryption was dropped or incorrectly assigned to sing-box")
 	}
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(configPath, generated, 0o644); err != nil {

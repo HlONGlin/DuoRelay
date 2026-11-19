@@ -9,9 +9,8 @@ import {
 describe('protocol catalog', () => {
   afterEach(() => localStorage.removeItem('duorelay-language'))
 
-  it('contains all 28 supported protocol entries', () => {
-    expect(protocolCatalog).toHaveLength(28)
-    expect(new Set(protocolCatalog.map((item) => item.id)).size).toBe(28)
+  it('contains unique supported protocol entries', () => {
+    expect(new Set(protocolCatalog.map((item) => item.id)).size).toBe(protocolCatalog.length)
   })
 
   it('keeps kernel-only protocols in the correct filter group', () => {

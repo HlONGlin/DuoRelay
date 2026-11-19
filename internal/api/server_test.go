@@ -321,7 +321,7 @@ func TestNodeImportAPIAcceptsV2RayNAndModernLinks(t *testing.T) {
 }
 
 func TestConfigAndLogAPI(t *testing.T) {
-	if variant.Name == "lite" {
+	if !variant.SupportsKernel("sing-box") {
 		t.Skip("full-only sing-box / cross-kernel assertions")
 	}
 	s := apiForTest(t)
@@ -453,7 +453,7 @@ func TestClassifyLogLevelTreatsInfoOnStderrAsInfo(t *testing.T) {
 }
 
 func TestTrafficAPIUsesDeterministicClashMock(t *testing.T) {
-	if variant.Name == "lite" {
+	if !variant.SupportsKernel("sing-box") {
 		t.Skip("full-only sing-box / cross-kernel assertions")
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -661,7 +661,7 @@ func TestTrafficAPIWithoutAppliedConfigReturnsUnavailable(t *testing.T) {
 }
 
 func TestChainPreviewAPI(t *testing.T) {
-	if variant.Name == "lite" {
+	if !variant.Enabled() {
 		t.Skip("full-only sing-box / cross-kernel assertions")
 	}
 	s := apiForTest(t)

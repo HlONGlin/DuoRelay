@@ -1,4 +1,4 @@
-name: Validate full and lite
+name: Validate DuoRelay variants
 
 on:
   push:
@@ -50,7 +50,9 @@ jobs:
         run: |
           go build -o /tmp/duorelay-full ./cmd/duorelay
           go build -tags lite -o /tmp/duorelay-lite ./cmd/duorelay
-          python3 scripts/acceptance-api.py --full /tmp/duorelay-full --lite /tmp/duorelay-lite --kernels kernels --work /tmp/duorelay-acceptance
+          go build -tags mihomo -o /tmp/duorelay-mihomo ./cmd/duorelay
+          go build -tags singbox -o /tmp/duorelay-singbox ./cmd/duorelay
+          python3 scripts/acceptance-api.py --full /tmp/duorelay-full --lite /tmp/duorelay-lite --mihomo /tmp/duorelay-mihomo --singbox /tmp/duorelay-singbox --kernels kernels --work /tmp/duorelay-acceptance
       - name: Cross compile desktop targets
         env:
           CGO_ENABLED: '0'
@@ -66,3 +68,32 @@ jobs:
           name: linux-acceptance-results
           path: /tmp/duorelay-acceptance
           if-no-files-found: ignore
+
+  single-kernel:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [mihomo, singbox]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --prefix web --no-audit --no-fund
+      - name: Build and test the distribution
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          bash scripts/download-kernels.sh --variant "$VARIANT"
+          DUORELAY_REQUIRE_KERNELS=1 go test -tags "$VARIANT" ./...
+          go vet -tags "$VARIANT" ./...
+          bash scripts/package-linux.sh dev amd64 --variant "$VARIANT"
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags "$VARIANT" -o /tmp/duorelay.exe ./cmd/duorelay
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.variant }}
+          path: dist/*.tar.gz

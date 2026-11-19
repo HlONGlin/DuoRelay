@@ -23,7 +23,23 @@ package-windows-lite:
 	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows.ps1 -Version $(VERSION) -Lite
 
 # Build the binary
-build: web-build
+TAGS ?=
+
+.PHONY: check-variant build-mihomo build-singbox build-legacy package-linux-mihomo package-linux-singbox package-linux-all package-windows-mihomo package-windows-singbox
+check-variant:
+	@if [ "$$(echo '$(TAGS)' | tr ', ' '\n' | grep -xcE 'mihomo|singbox|lite' || true)" -gt 1 ]; then echo 'mihomo, singbox and lite tags are mutually exclusive' >&2; exit 1; fi
+
+build: build-mihomo
+
+build-mihomo: check-variant web-build
+	@mkdir -p $(BUILD_DIR)
+	go build -tags "mihomo $(TAGS)" $(LDFLAGS) -o $(BUILD_DIR)/duorelay-mihomo ./cmd/duorelay
+
+build-singbox: check-variant web-build
+	@mkdir -p $(BUILD_DIR)
+	go build -tags "singbox $(TAGS)" $(LDFLAGS) -o $(BUILD_DIR)/duorelay-singbox ./cmd/duorelay
+
+build-legacy: web-build
 	@echo "Building $(BINARY_NAME)..."
 	@mkdir -p $(BUILD_DIR)
 	go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/duorelay
@@ -95,8 +111,17 @@ package-windows:
 	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows.ps1 -Version $(VERSION)
 
 # Package a Linux release for the current architecture (or pass ARCH=arm64).
-package-linux:
-	bash scripts/package-linux.sh $(VERSION) $(if $(ARCH),$(ARCH),$$(uname -m))
+package-linux: package-linux-mihomo
+
+package-linux-mihomo package-linux-singbox: package-linux-%:
+	bash scripts/package-linux.sh $(VERSION) $(if $(ARCH),$(ARCH),$$(uname -m)) --variant $*
+
+package-linux-all:
+	$(MAKE) package-linux-mihomo
+	$(MAKE) package-linux-singbox
+
+package-windows-mihomo package-windows-singbox: package-windows-%:
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows.ps1 -Version $(VERSION) -Variant $*
 
 acceptance-linux:
 	bash scripts/acceptance-linux.sh
@@ -114,7 +139,7 @@ web-dev:
 
 # Run the application
 run: build
-	./$(BUILD_DIR)/$(BINARY_NAME)
+	./$(BUILD_DIR)/duorelay-mihomo
 
 # Show help
 help:

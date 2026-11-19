@@ -59,8 +59,26 @@ if [[ "$BACKUP" == 1 && -f "$DATA_DIR/duorelay.db" ]]; then
   "$PREFIX/duorelay" --db "$DATA_DIR/duorelay.db" --backup "$DATA_DIR/backups/$(date -u +%Y%m%dT%H%M%SZ)"
 fi
 
+backup_executable() {
+  local binary="$PREFIX/duorelay" line label=unknown commit=unknown backup
+  [[ -x "$binary" ]] || return 0
+  line="$("$binary" --version 2>&1 || true)"
+  local version_pattern='Version: ([a-zA-Z0-9._+-]+) \(commit ([a-zA-Z0-9._+-]+),'
+  if [[ "$line" =~ $version_pattern ]]; then
+    label="${BASH_REMATCH[1]}"
+    commit="${BASH_REMATCH[2]}"
+  fi
+  backup="$binary.bak-$label-$commit"
+  if [[ -e "$backup" ]]; then
+    cmp -s "$binary" "$backup" && return 0
+    backup="$backup-$(sha256sum "$binary" | cut -c1-12)"
+  fi
+  install_atomic "$binary" "$backup"
+}
+
 if [[ "$USER_UNIT" == 1 ]]; then
   mkdir -p "$PREFIX" "$DATA_DIR"
+  backup_executable
   install_atomic "$PACKAGE_DIR/duorelay" "$PREFIX/duorelay"
   [[ -d "$PACKAGE_DIR/web" ]] && cp -a "$PACKAGE_DIR/web" "$PREFIX/"
   install_kernels
@@ -86,6 +104,7 @@ getent group "$SERVICE_USER" >/dev/null || groupadd --system "$SERVICE_USER"
 id "$SERVICE_USER" >/dev/null 2>&1 || useradd --system --gid "$SERVICE_USER" --home-dir "$DATA_DIR" --shell "$NOLOGIN" "$SERVICE_USER"
 install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0750 "$DATA_DIR" "$DATA_DIR/configs"
 install -d -m 0755 "$PREFIX" "$PREFIX/kernels"
+backup_executable
 install_atomic "$PACKAGE_DIR/duorelay" "$PREFIX/duorelay"
 [[ -d "$PACKAGE_DIR/web" ]] && cp -a "$PACKAGE_DIR/web" "$PREFIX/"
 install_kernels

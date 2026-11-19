@@ -42,7 +42,7 @@ func (r *chainRuntime) start(k, path string) error {
 }
 
 func TestCrossKernelLifecycle(t *testing.T) {
-	if variant.Name == "lite" {
+	if !variant.Enabled() {
 		t.Skip("full-only sing-box / cross-kernel assertions")
 	}
 	s, _ := testService(t)

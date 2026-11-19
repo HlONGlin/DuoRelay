@@ -1,5 +1,14 @@
 package variant
 
+import (
+	"runtime"
+
+	"github.com/holi/duorelay/internal/ir"
+)
+
+func Enabled() bool    { return len(Kernels()) > 1 }
+func Platform() string { return runtime.GOOS + "/" + runtime.GOARCH }
+
 func SupportsKernel(name string) bool {
 	for _, kernel := range Kernels() {
 		if name == kernel {
@@ -10,12 +19,13 @@ func SupportsKernel(name string) bool {
 }
 
 func SupportsProtocol(protocol string) bool {
-	if Name != "lite" {
-		return true
-	}
 	switch protocol {
-	case "shadowtls", "naive", "tor", "openconnect":
-		return false
+	case ir.ProtocolProxyChain:
+		return true
+	case ir.ProtocolLoadBalance:
+		return SupportsKernel("mihomo")
 	}
-	return true
+	owner := ir.GetProtocolOwner(protocol)
+	return (SupportsKernel("mihomo") && owner&ir.KernelSetMihomo != 0) ||
+		(SupportsKernel("sing-box") && owner&ir.KernelSetSingBox != 0)
 }

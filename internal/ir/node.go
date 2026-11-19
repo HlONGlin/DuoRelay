@@ -98,12 +98,21 @@ type Source struct {
 	URL            string `json:"url,omitempty"`
 }
 
+// RequiresMihomo reports VLESS options the sing-box generator cannot represent.
+func (n *Node) RequiresMihomo() bool {
+	if n == nil || n.Protocol != ProtocolVLESS {
+		return false
+	}
+	encryption, _ := n.Proto["encryption"].(string)
+	return n.Transport.Type == "xhttp" || (encryption != "" && encryption != "none")
+}
+
 // CanRunOn checks if this node can run on the specified kernel
 func (n *Node) CanRunOn(kernel KernelType) bool {
 	if n == nil {
 		return false
 	}
-	if n.Protocol == ProtocolVLESS && n.Transport.Type == "xhttp" && kernel == KernelSingBox {
+	if kernel == KernelSingBox && n.RequiresMihomo() {
 		return false
 	}
 	switch kernel {
@@ -118,10 +127,7 @@ func (n *Node) CanRunOn(kernel KernelType) bool {
 
 // PreferredKernel returns the preferred kernel for this node
 func (n *Node) PreferredKernel() KernelType {
-	if n.Owner == KernelSetBoth {
-		return KernelSingBox // Default to sing-box for shared protocols
-	}
-	if n.Owner&KernelSetSingBox != 0 {
+	if n.CanRunOn(KernelSingBox) {
 		return KernelSingBox
 	}
 	return KernelMihomo

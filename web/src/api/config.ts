@@ -6,11 +6,11 @@ export function getConfig(): Promise<AppConfig> {
 }
 
 export function updateConfig(config: AppConfig): Promise<AppConfig> {
-  return request<AppConfig>({ url: '/config', method: 'put', data: config })
+  return request<AppConfig>({ url: '/config', method: 'put', data: config, timeout: 120000 })
 }
 
 export function applyConfig(config?: ApplyConfigRequest): Promise<ConfigurationState> {
-  return request<ConfigurationState>({ url: '/config/apply', method: 'post', data: config, timeout: 60000 })
+  return request<ConfigurationState>({ url: '/config/apply', method: 'post', data: config, timeout: 120000 })
 }
 
 export function getCurrentConfig(): Promise<ConfigurationState> {

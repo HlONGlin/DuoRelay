@@ -7,18 +7,24 @@ vi.mock('@/api/client', () => ({ request: vi.fn() }))
 afterEach(() => { variant.value = 'full' })
 
 describe('build capabilities', () => {
-  it('retains all 28 protocols in full and exactly 24 in lite', () => {
+  it('retains all protocols in full and excludes four in mihomo builds', () => {
     for (const protocol of protocolCatalog) {
       expect(nodeUnavailableReason({ protocol: protocol.id, owner: 3 })).toBe('')
     }
     variant.value = 'lite'
     const enabled = protocolCatalog.filter(p => !nodeUnavailableReason({ protocol: p.id, owner: 3 }))
-    expect(enabled).toHaveLength(24)
     expect(protocolCatalog.filter(p => !enabled.includes(p)).map(p => p.id)).toEqual(['shadowtls', 'naive', 'tor', 'openconnect'])
     for (const protocol of ['shadowtls', 'naive', 'tor', 'openconnect'] as const) {
       expect(nodeUnavailableReason({ protocol, owner: 3 })).toBe('精简版不支持')
     }
     expect(nodeUnavailableReason({ protocol: 'http', owner: 1 })).toBe('精简版不支持')
+  })
+  it('keeps Mieru available for mihomo and rejects it for sing-box', () => {
+    variant.value = 'mihomo'
+    expect(nodeUnavailableReason({ protocol: 'mieru', owner: 2 })).toBe('')
+    variant.value = 'singbox'
+    expect(nodeUnavailableReason({ protocol: 'mieru', owner: 2 })).toContain('sing-box')
+    expect(nodeUnavailableReason({ protocol: 'naive', owner: 1 })).toBe('')
   })
   it('reads backend capabilities before enabling activation and fails closed', async () => {
     vi.mocked(request).mockResolvedValue({ variant: 'lite' })

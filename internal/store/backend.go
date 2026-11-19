@@ -280,7 +280,7 @@ func (s *Store) SaveNode(ctx context.Context, n *ir.Node) error {
 	if n.ID == "" {
 		n.ID = uuid.NewString()
 	}
-	if n.Protocol == ir.ProtocolVLESS && n.Transport.Type == "xhttp" {
+	if n.RequiresMihomo() {
 		n.Owner = ir.KernelSetMihomo
 	}
 	if n.CreatedAt.IsZero() {
@@ -353,6 +353,9 @@ func (s *Store) Node(ctx context.Context, id string) (*ir.Node, error) {
 	if err := json.Unmarshal([]byte(data), &node); err != nil {
 		return nil, err
 	}
+	if node.RequiresMihomo() {
+		node.Owner = ir.KernelSetMihomo
+	}
 	return &node, nil
 }
 
@@ -416,6 +419,9 @@ func (s *Store) NodesQuery(ctx context.Context, filter NodeListQuery) ([]*ir.Nod
 		if err := json.Unmarshal([]byte(data), &node); err != nil {
 			return nil, err
 		}
+		if node.RequiresMihomo() {
+			node.Owner = ir.KernelSetMihomo
+		}
 		nodes = append(nodes, &node)
 	}
 	return nodes, rows.Err()
@@ -434,6 +440,44 @@ func (s *Store) SaveState(ctx context.Context, key string, value any) error {
 	}
 	_, err = s.db.ExecContext(ctx, `INSERT INTO backend_state(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, string(data))
 	return err
+}
+
+func (s *Store) SaveConfiguration(ctx context.Context, settings, current any) error {
+	settingsData, err := json.Marshal(settings)
+	if err != nil {
+		return err
+	}
+	currentData, err := json.Marshal(current)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO backend_state(key,value) VALUES('settings',?),('current_config',?)
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value`, string(settingsData), string(currentData))
+	return err
+}
+
+// SuspendConfiguration keeps an incompatible configuration for recovery
+// and clears it from the active slot in the same transaction.
+func (s *Store) SuspendConfiguration(ctx context.Context, settings any) error {
+	settingsData, err := json.Marshal(settings)
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	_, err = tx.ExecContext(ctx, `INSERT INTO backend_state(key,value) VALUES
+        ('settings',?), ('migration_backup',(SELECT value FROM backend_state WHERE key='current_config'))
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value`, string(settingsData))
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM backend_state WHERE key='current_config'"); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) DeleteState(ctx context.Context, key string) error {

@@ -58,7 +58,7 @@ const t = (zh: string, en: string) => appearance.language === 'en' ? en : zh
 function unavailableLabel(node: ProxyNode) {
   const reason = nodeUnavailableReason(node)
   return reason && appearance.language === 'en'
-    ? (variant.value === 'unknown' ? 'Unable to read build capabilities; refresh and try again' : 'Not supported in lite')
+    ? (variant.value === 'unknown' ? 'Unable to read build capabilities; refresh and try again' : reason === '精简版不支持' ? 'Not supported in lite' : `Unsupported by ${variant.value}`)
     : reason
 }
 

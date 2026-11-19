@@ -1,10 +1,11 @@
-//go:build !lite
+//go:build !lite && !mihomo
 
 package kernel
 
 import (
 	"context"
 	"fmt"
+	"github.com/holi/duorelay/internal/variant"
 	"path/filepath"
 )
 
@@ -25,12 +26,16 @@ func (m *Manager) setProcess(name string, p *Process) {
 	}
 }
 func (m *Manager) statusSnapshot(status func(*Process) map[string]any) map[string]any {
-	return map[string]any{"mode": m.mode, "singbox": status(m.singboxProc), "mihomo": status(m.mihomoProc)}
+	result := map[string]any{"mode": m.mode, "singbox": status(m.singboxProc)}
+	if variant.SupportsKernel("mihomo") {
+		result["mihomo"] = status(m.mihomoProc)
+	}
+	return result
 }
 
 // SetMode retains sing-box when switching from coexistence to single mode.
 func (m *Manager) SetMode(mode RunMode) error {
-	if mode != ModeSingleSwitch && mode != ModeCoexist {
+	if mode != ModeSingleSwitch && (mode != ModeCoexist || !variant.Enabled()) {
 		return fmt.Errorf("unknown run mode %q", mode)
 	}
 	m.opMu.Lock()
@@ -51,9 +56,14 @@ func (m *Manager) SetMode(mode RunMode) error {
 }
 
 func (m *Manager) StartSingBox(configPath string) error { return m.start("sing-box", configPath) }
-func (m *Manager) StartMihomo(configPath string) error  { return m.start("mihomo", configPath) }
-func (m *Manager) StopSingBox() error                   { return m.stop("sing-box") }
-func (m *Manager) StopMihomo() error                    { return m.stop("mihomo") }
+func (m *Manager) StartMihomo(configPath string) error {
+	if !variant.SupportsKernel("mihomo") {
+		return fmt.Errorf("mihomo is unavailable in this build")
+	}
+	return m.start("mihomo", configPath)
+}
+func (m *Manager) StopSingBox() error { return m.stop("sing-box") }
+func (m *Manager) StopMihomo() error  { return m.stop("mihomo") }
 
 func (m *Manager) process(name string) *Process {
 	if name == "sing-box" {

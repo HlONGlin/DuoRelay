@@ -100,14 +100,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--full", type=Path, required=True)
     parser.add_argument("--lite", type=Path, required=True)
+    parser.add_argument("--mihomo", type=Path)
+    parser.add_argument("--singbox", type=Path)
     parser.add_argument("--kernels", type=Path, required=True)
     parser.add_argument("--geodata", type=Path, help="optional directory of real mihomo Geo files")
     parser.add_argument("--work", type=Path, help="new directory for logs/results; otherwise use /tmp")
     args = parser.parse_args()
     if os.name != "posix" or not Path("/proc/sys/kernel/ostype").read_text().startswith("Linux"):
         raise SystemExit("Run this fixture on Linux")
-    for name in ("full", "lite", "kernels"):
-        setattr(args, name, getattr(args, name).resolve())
+    for name in ("full", "lite", "mihomo", "singbox", "kernels"):
+        if getattr(args, name):
+            setattr(args, name, getattr(args, name).resolve())
     if args.work:
         work = args.work.resolve()
         work.mkdir(parents=True, exist_ok=False)
@@ -198,7 +201,12 @@ def main():
         for server in (origin, dns):
             threading.Thread(target=server.serve_forever, daemon=True).start()
             servers.append(server)
-        for variant, binary, kernels in (("full", args.full, ("sing-box", "mihomo")), ("lite", args.lite, ("mihomo",))):
+        editions = [("full", args.full, ("sing-box", "mihomo")), ("lite", args.lite, ("mihomo",))]
+        if args.mihomo:
+            editions.append(("mihomo", args.mihomo, ("mihomo",)))
+        if args.singbox:
+            editions.append(("singbox", args.singbox, ("sing-box",)))
+        for variant, binary, kernels in editions:
             directory = work / variant
             directory.mkdir()
             database, configs = directory / "duorelay.db", directory / "configs"
@@ -238,6 +246,49 @@ def main():
                 result = subprocess.run(["curl", "--noproxy", "", "--silent", "--show-error", "--fail", "--max-time", "12", "--proxy", f"http://127.0.0.1:{proxy_port}", f"http://{variant}-{kernel}.duorelay.invalid:{origin.server_address[1]}/dns"], capture_output=True, text=True)
                 assert result.returncode == 0 and result.stdout == "resolved-by-fixture-dns" and dns.queries > previous_queries, (result.stdout, result.stderr, dns.queries)
                 passed(variant + ": " + kernel + " resolves a fresh domain through configured DNS")
+            if variant in ("mihomo", "singbox"):
+                info = api("GET", "/api/version")
+                assert info["variant"] == variant and info["kernels"] == list(kernels)
+                for flag in ("-version", "--version", "version"):
+                    assert "Version:" in subprocess.check_output([str(binary), flag], text=True)
+                ids = [node["id"] for node in nodes]
+                settings.update(routing_mode="global", default_outbound="PROXY", socks_listeners=[])
+                api("PUT", "/api/config", settings)
+                state = api("POST", "/api/config/apply", {"mode": "manual", "node_ids": ids})
+                proxy_port = settings["inbound_port"] if kernels[0] == "sing-box" else settings["mixed_port"]
+                traffic(proxy_port, "node-A")
+                api("POST", "/api/nodes/" + ids[1] + "/activate")
+                after = api("GET", "/api/config/current")
+                assert after["id"] == state["id"] and after["selected_node_id"] == ids[1]
+                traffic(proxy_port, "node-B")
+                settings.update(allow_lan=True, inbound_port=free_port(), mixed_port=free_port())
+                api("PUT", "/api/config", settings)
+                after = api("GET", "/api/config/current")
+                assert after["id"] != state["id"] and after["selected_node_id"] == ids[1]
+                proxy_port = settings["inbound_port"] if kernels[0] == "sing-box" else settings["mixed_port"]
+                traffic(proxy_port, "node-B")
+                assert "00000000:" + format(proxy_port, "04X") in Path("/proc/net/tcp").read_text() or "0" * 32 + ":" + format(proxy_port, "04X") in Path("/proc/net/tcp6").read_text()
+                settings.update(allow_lan=False)
+                api("PUT", "/api/config", settings)
+                passed(variant + ": real manual group switching and LAN listener reapply")
+                if args.mihomo and args.singbox:
+                    new_binary, new_kernel = (args.singbox, "sing-box") if variant == "mihomo" else (args.mihomo, "mihomo")
+                    stop()
+                    start(new_binary, database, configs, variant + "-cross-kernel")
+                    api("POST", "/api/auth/login", {"username": "admin", "password": "fixture-password-2026"})
+                    after = api("GET", "/api/config/current")
+                    assert after["kernel"] == api("GET", "/api/config")["kernel"] == new_kernel
+                    assert after["node_ids"] == ids and after["selected_node_id"] == ids[1]
+                    new_port = settings["inbound_port"] if new_kernel == "sing-box" else settings["mixed_port"]
+                    traffic(new_port, "node-B")
+                    stop()
+                    start(binary, database, configs, variant + "-migrated-back")
+                    api("POST", "/api/auth/login", {"username": "admin", "password": "fixture-password-2026"})
+                    assert api("GET", "/api/config/current")["kernel"] == kernels[0]
+                    passed(variant + ": compatible configuration migration preserves the active selection")
+                settings.update(routing_mode="blacklist", default_outbound="DIRECT", socks_listeners=[{"port": port, "node_id": node["id"]} for port, node in zip(ports, nodes)])
+                api("PUT", "/api/config", settings)
+                api("POST", "/api/config/apply", {"node_ids": ids})
             # Rejected permission preflight must leave the running kernel intact.
             invalid = dict(settings, transparent_mode="invalid")
             api("PUT", "/api/config", invalid, 400)

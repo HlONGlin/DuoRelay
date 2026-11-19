@@ -16,12 +16,19 @@
 
 ---
 
-同库提供 **duorelay（full 双核）** 与 **duorelay-lite（mihomo 单核）**，共用版本号、完整面板和数据格式。lite 保留节点、订阅、负载均衡、原生链式、路由双模式编辑、透明代理、真核校验和失败回滚；支持 mihomo 的 24 项协议/端点能力，禁用 ShadowTLS、Naive、Tor、OpenConnect。协议对照、Geo 下载、构建与数据迁移见 [精简版说明](docs/lite.md)，实测结果见 [lite 验收报告](docs/lite-acceptance.md)。
+从发行页按系统和架构选择 `duorelay-mihomo-*` 或 `duorelay-singbox-*`。两个版本使用同一面板和数据格式，各自仅携带对应内核。
+
+| 版本 | 适用场景 |
+| --- | --- |
+| mihomo 版 | Clash 生态，支持 Mieru、VLESS XHTTP、负载均衡和手动分组 |
+| sing-box 版 | 使用 Naive、ShadowTLS、Tor、OpenConnect 等协议，或需要 sing-box 的路由和链式代理 |
+
+Linux 支持 amd64 和 arm64，Windows 支持 amd64。旧 `duorelay-lite` 用户可以升级到 mihomo 版。双核用户可继续使用过渡版，切换到单内核版时，面板会尝试用保存的节点重新生成运行配置。不兼容的节点和订阅仍保存在数据库中。关于无法自动迁移的情况，见 [单内核发行与升级](docs/single-kernel.md)。
 
 ```bash
-make build-lite
-bash scripts/package-linux.sh 0.3.0 amd64 --lite
-# Windows: powershell -File scripts/package-windows.ps1 -Version 0.3.0 -Lite
+make build-mihomo
+make build-singbox
+make package-linux-all VERSION=0.3.2
 ```
 
 > 基于 sing-box 与 mihomo 的双内核代理管理面板，使用 Web 界面管理节点、订阅、路由和内核运行状态。
@@ -76,7 +83,7 @@ bash scripts/package-linux.sh 0.3.0 amd64 --lite
 | 双内核 | 生成 sing-box、mihomo 配置并管理内核进程；实际能力受内核和协议限制 |
 | Web 管理 | 首次访问创建管理员；管理节点、订阅、内核、连接和日志 |
 | 节点与订阅 | 导入常见分享链接和订阅格式，支持测速、勾选后批量删除、负载均衡及链式代理 |
-| 软件更新 | 在“设置 → 关于”检查匹配 full/lite 与平台的 GitHub 正式版；可写安装目录支持一键更新，受保护的 Linux systemd 安装按部署文档升级 |
+| 软件更新 | 在“设置 → 关于”检查匹配当前发行版与平台的 GitHub 正式版；可写安装目录支持一键更新，受保护的 Linux systemd 安装按部署文档升级 |
 | 路由规则 | 通过列表或文本编辑结构化规则，支持导入、导出和逐行校验 |
 | 配置安全 | 应用前调用对应内核校验；失败时保留或恢复先前运行状态 |
 | 运行观测 | 展示内核日志、连接信息和流量采样历史 |
@@ -128,18 +135,18 @@ curl -fsSL https://raw.githubusercontent.com/HlONGlin/DuoRelay/master/scripts/bo
 
 ### 从源码运行
 
-以下示例在 Linux 构建运行，需要满足 `go.mod` 声明的 Go 版本、Node.js/npm、`make` 和 Git；运行代理功能还需要对应内核。内核下载脚本会生成摘要记录，但不校验预先锁定的散列值，详见 [Linux 部署](docs/linux-deployment.md)。
+以下示例在 Linux 构建运行，需要满足 `go.mod` 声明的 Go 版本、Node.js/npm、`make` 和 Git；运行代理功能还需要对应内核。内核下载脚本会校验 `kernels.lock` 中锁定的散列值，详见 [Linux 部署](docs/linux-deployment.md)。
 
 ```bash
 git clone https://github.com/HlONGlin/DuoRelay.git
 cd DuoRelay
 
 # 准备内核，构建嵌入前端的面板
-./scripts/download-kernels.sh
+./scripts/download-kernels.sh --variant mihomo
 make build
 
 # 默认监听本机 127.0.0.1:8080
-./build/duorelay -kernels ./kernels
+./build/duorelay-mihomo -kernels ./kernels
 ```
 
 浏览器访问 `http://127.0.0.1:8080/`，首次访问时按页面提示创建管理员。内核配置应用失败时，请在面板查看具体错误和内核日志。
@@ -153,7 +160,7 @@ make build
 | 源码开发、测试与目录结构 | [开发指南](docs/DEVELOPMENT.md) |
 | 透明代理权限、日志清理、备份、重置密码与 HTTPS | [运维指南](docs/operations.md) |
 
-程序常用参数如下，完整参数可通过 `./build/duorelay -h` 查看。
+程序常用参数如下，完整参数可通过 `./build/duorelay-mihomo -h` 查看。
 
 | 参数 | 默认值 | 用途 |
 |------|--------|------|

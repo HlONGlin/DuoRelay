@@ -1,7 +1,6 @@
 <template>
   <div class="page-stack node-list">
-    <div class="page-heading"><h1>{{ t('节点管理', 'Nodes') }} <span class="heading-count mono">{{ nodes.items.length }}</span></h1><div class="actions"><el-button :disabled="nodes.items.length < 2 || mutationBusy || kernel.busy" @click="openGroup('chain')">{{ t('链式代理', 'Proxy chain') }}</el-button><el-button :disabled="nodes.items.length < 2 || mutationBusy || kernel.busy" @click="openGroup('load_balance')">{{ t('负载均衡', 'Load balancing') }}</el-button><el-button :loading="nodes.loading" @click="refresh"><UiIcon name="refresh" :size="16" />{{ t('刷新', 'Refresh') }}</el-button><el-button type="primary" @click="createVisible = true"><UiIcon name="plus" :size="16" />{{ t('创建节点', 'Create node') }}</el-button><el-button @click="importVisible = true"><UiIcon name="plus" :size="16" />{{ t('导入节点', 'Import nodes') }}</el-button></div></div>
-    <el-alert v-if="isLite" :title="t('精简版不支持 ShadowTLS、Naive、Tor、OpenConnect；这些节点会保留，可切换完整版使用。', 'Lite does not support ShadowTLS, Naive, Tor or OpenConnect. These nodes are retained for use with the full version.')" type="info" :closable="false" />
+    <div class="page-heading"><h1>{{ t('节点管理', 'Nodes') }} <span class="heading-count mono">{{ nodes.items.length }}</span></h1><div class="actions"><el-button :disabled="nodes.items.length < 2 || mutationBusy || kernel.busy" @click="openGroup('chain')">{{ t('链式代理', 'Proxy chain') }}</el-button><el-button v-if="hasMihomo" :disabled="nodes.items.length < 2 || mutationBusy || kernel.busy" @click="openGroup('load_balance')">{{ t('负载均衡', 'Load balancing') }}</el-button><el-button :loading="nodes.loading" @click="refresh"><UiIcon name="refresh" :size="16" />{{ t('刷新', 'Refresh') }}</el-button><el-button type="primary" @click="createVisible = true"><UiIcon name="plus" :size="16" />{{ t('创建节点', 'Create node') }}</el-button><el-button @click="importVisible = true"><UiIcon name="plus" :size="16" />{{ t('导入节点', 'Import nodes') }}</el-button></div></div>
     <el-alert v-if="nodes.error" :title="nodes.error" type="error" show-icon :closable="false" />
     <el-alert v-if="importReport?.skipped?.length" type="warning" :closable="false" :title="t('部分节点已跳过，其余节点已导入', 'Some entries were skipped; usable nodes were imported')"><ul><li v-for="skip in importReport.skipped" :key="skip.line">{{ t('第 ', 'Entry ') }}{{ skip.line }}: {{ skip.reason }}</li></ul></el-alert>
     <div class="active-banner">
@@ -24,6 +23,7 @@
       </div>
       <div class="batch-bar">
         <span class="muted type-p-caption">{{ appearance.language === 'en' ? (selected.size ? `${selected.size} selected` : `${sorted.length} matching nodes`) : (selected.size ? '已勾选 ' + selected.size + ' 个' : '匹配 ' + sorted.length + ' 个节点') }}</span>
+        <el-button v-if="manualIDs.length >= 2" size="small" :loading="manualBusy" :disabled="mutationBusy || kernel.busy" @click="startManual">{{ t('启动手动分组', 'Start manual group') }}</el-button>
         <el-button v-if="selected.size" size="small" text @click="selected.clear()">{{ t('取消勾选', 'Clear selection') }}</el-button>
         <el-button v-if="selected.size" size="small" type="danger" plain :disabled="deletingBatch || batchRunning || selectedProtected" :title="selectedProtected ? t('请先停止运行中的节点或移除 SOCKS5 端口绑定', 'Stop active nodes or remove SOCKS5 bindings first') : undefined" @click="handleRemoveSelected">{{ t('删除勾选', 'Delete selected') }}</el-button>
         <span v-if="selectedProtected" class="batch-warning">{{ t('包含运行中或已绑定 SOCKS5 的节点', 'Includes active or SOCKS5-bound nodes') }}</span>
@@ -39,14 +39,14 @@
           <thead><tr><th><input type="checkbox" :aria-label="t('勾选全部筛选结果', 'Select all matching nodes')" :checked="allSelected" :indeterminate="someSelected && !allSelected" @change="toggleAll" /></th><th><button type="button" class="sort-button" @click="toggleSort('name')">{{ t('节点名称', 'Node name') }} <span>{{ sortIndicator('name') }}</span></button></th><th>{{ t('协议', 'Protocol') }}</th><th>{{ t('支持内核', 'Kernels') }}</th><th>{{ t('服务器', 'Server') }}</th><th class="numeric"><button type="button" class="sort-button" @click="toggleSort('delay')">{{ t('延迟', 'Latency') }} <span>{{ sortIndicator('delay') }}</span></button></th><th class="row-actions-head">{{ t('操作', 'Actions') }}</th></tr></thead>
           <tbody>
             <tr v-if="startIndex" aria-hidden="true" class="spacer-row" :style="{ height: startIndex * rowHeight + 'px' }"><td colspan="7" /></tr>
-            <tr v-for="(node, index) in visibleNodes" :key="node.id" class="node-row" :class="{ 'is-active': node.status === 'active', 'is-failed': (node.last_delay_ms ?? 0) < 0 }" :aria-rowindex="startIndex + index + 2">
+            <tr v-for="(node, index) in visibleNodes" :key="node.id" class="node-row" :class="{ 'is-active': node.status === 'active' && (activeState?.mode !== 'manual' || activeState.selected_node_id === node.id), 'is-unavailable': Boolean(nodeUnavailableReason(node)), 'is-failed': (node.last_delay_ms ?? 0) < 0 }" :aria-rowindex="startIndex + index + 2">
               <td><input type="checkbox" :disabled="Boolean(nodeUnavailableReason(node))" :title="unavailableLabel(node)" :checked="selected.has(node.id)" :aria-label="t('勾选 ', 'Select ') + node.name" @change="toggleSelected(node.id)" /></td>
               <td><div class="node-name" :title="node.name"><span v-if="node.status === 'active'" class="status-dot running" /><span>{{ node.name }}</span><span v-if="node.status === 'active'" class="active-label">{{ t('使用中', 'Active') }}</span><span v-else-if="node.status === 'socks'" class="active-label">SOCKS5</span></div></td>
               <td><span class="neutral-badge" :title="protocolDescription(node.protocol)">{{ protocolLabel(node.protocol) }}</span></td>
               <td class="kernel-cell">{{ ownerLabel(node.owner) }}</td>
               <td class="endpoint mono" :title="nodeEndpointLabel(node)">{{ nodeEndpointLabel(node) }}</td>
               <td class="numeric"><span v-if="testing.has(node.id)" class="muted type-p-caption">{{ t('测试中…', 'Testing…') }}</span><DelayBadge v-else :delay="node.last_delay_ms" /></td>
-              <td><div class="row-actions"><el-button v-if="node.status !== 'active'" class="activate-button" size="small" :loading="activatingId === node.id" :disabled="mutationBusy || kernel.busy || Boolean(nodeUnavailableReason(node))" :title="unavailableLabel(node)" @click="handleActivate(node)">{{ unavailableLabel(node) || t('选择并启动', 'Select and start') }}</el-button><el-button v-else size="small" :loading="kernel.busy" :disabled="mutationBusy" @click="handleStopCurrent">{{ activeMemberCount > 1 ? t('停止组合', 'Stop group') : t('取消选择', 'Deselect') }}</el-button><el-button size="small" text :disabled="Boolean(node.composition) || testing.has(node.id) || batchRunning || groupBusy" @click="handleTest(node)">{{ t('测速', 'Test') }}</el-button><el-button size="small" text :disabled="mutationBusy" @click="openEdit(node)">{{ t('编辑', 'Edit') }}</el-button><el-button size="small" text :disabled="node.status === 'active' || node.status === 'socks' || testing.has(node.id) || batchRunning || mutationBusy" :title="node.status === 'socks' ? t('先移除 SOCKS5 端口绑定', 'Remove SOCKS5 port bindings first') : undefined" @click="handleRemove(node)">{{ t('删除', 'Delete') }}</el-button></div></td>
+              <td><div class="row-actions"><el-button v-if="node.status !== 'active' || (activeState?.mode === 'manual' && node.id !== activeState.selected_node_id)" class="activate-button" size="small" :loading="activatingId === node.id" :disabled="mutationBusy || kernel.busy || Boolean(nodeUnavailableReason(node))" :title="unavailableLabel(node)" @click="handleActivate(node)">{{ unavailableLabel(node) || (activeState?.mode === 'manual' && activeState.node_ids.includes(node.id) ? t('切换到此节点', 'Switch to this node') : t('选择并启动', 'Select and start')) }}</el-button><el-button v-else size="small" :loading="kernel.busy" :disabled="mutationBusy" @click="handleStopCurrent">{{ activeMemberCount > 1 ? t('停止组合', 'Stop group') : t('取消选择', 'Deselect') }}</el-button><el-button size="small" text :disabled="Boolean(node.composition) || testing.has(node.id) || batchRunning || groupBusy" @click="handleTest(node)">{{ t('测速', 'Test') }}</el-button><el-button size="small" text :disabled="mutationBusy" @click="openEdit(node)">{{ t('编辑', 'Edit') }}</el-button><el-button size="small" text :disabled="node.status === 'active' || node.status === 'socks' || testing.has(node.id) || batchRunning || mutationBusy" :title="node.status === 'socks' ? t('先移除 SOCKS5 端口绑定', 'Remove SOCKS5 port bindings first') : undefined" @click="handleRemove(node)">{{ t('删除', 'Delete') }}</el-button></div></td>
             </tr>
             <tr v-if="endIndex < sorted.length" aria-hidden="true" class="spacer-row" :style="{ height: (sorted.length - endIndex) * rowHeight + 'px' }"><td colspan="7" /></tr>
           </tbody>
@@ -76,12 +76,12 @@ import UiIcon from '@/components/UiIcon.vue'
 import ProxyGroupDialog from '@/components/ProxyGroupDialog.vue'
 import NodeCreateDialog from '@/components/NodeCreateDialog.vue'
 import NodeEditDialog from '@/components/NodeEditDialog.vue'
-import { getCurrentConfig, getProxyGroupStatus } from '@/api/config'
+import { applyConfig, getCurrentConfig, getProxyGroupStatus } from '@/api/config'
 import type { ImportNodesResult } from '@/api/nodes'
 import { useConfigStore } from '@/stores/config'
 import { useNodesStore } from '@/stores/nodes'
 import { useKernelStore } from '@/stores/kernel'
-import { isLite, nodeUnavailableReason, variant } from '@/stores/variant'
+import { hasMihomo, nodeUnavailableReason, variant } from '@/stores/variant'
 import { useAppearanceStore } from '@/stores/appearance'
 import { useSubscriptionsStore } from '@/stores/subscriptions'
 import { nodeEndpointLabel, ownerLabel, protocolDescription, protocolLabel } from '@/utils/format'
@@ -93,7 +93,7 @@ const appearance = useAppearanceStore()
 const t = (zh: string, en: string) => appearance.language === 'en' ? en : zh
 function unavailableLabel(node: ProxyNode) {
   const reason = nodeUnavailableReason(node)
-  return reason && appearance.language === 'en' ? (variant.value === 'unknown' ? 'Unable to read build capabilities; refresh and try again' : 'Not supported in lite') : reason
+  return reason && appearance.language === 'en' ? (variant.value === 'unknown' ? 'Unable to read build capabilities; refresh and try again' : reason === '精简版不支持' ? 'Not supported in lite' : `Unsupported by ${variant.value}`) : reason
 }
 const kernel = useKernelStore()
 const subscriptions = useSubscriptionsStore()
@@ -115,10 +115,21 @@ function openEdit(node: ProxyNode) { editingNode.value = node; editVisible.value
 const mutationBusy = computed(() => Boolean(activatingId.value) || groupBusy.value || deletingBatch.value)
 const activeNames = computed(() => (activeState.value?.node_ids ?? nodes.activeNodes.map(node => node.id)).map(id => nodes.items.find(node => node.id === id)?.name ?? t('节点已移除', 'Node removed')))
 const activeMemberCount = computed(() => activeState.value?.node_ids?.length ?? nodes.activeNodes.length)
-const activeSummary = computed(() => !nodes.activeNodes.length ? t('未选择节点', 'No node selected') : activeState.value?.mode === 'load_balance' ? `${t('负载均衡', 'Load balancing')} · ${activeMemberCount.value} ${t('个节点', 'nodes')}` : activeState.value?.mode === 'chain' ? `${t('链式代理', 'Proxy chain')} · ${activeMemberCount.value} ${t('跳', 'hops')}` : t('当前节点：', 'Current node: ') + nodes.activeNodes.map(node => node.name).join(appearance.language === 'en' ? ', ' : '、'))
+const activeSummary = computed(() => !nodes.activeNodes.length ? t('未选择节点', 'No node selected') : activeState.value?.mode === 'load_balance' ? `${t('负载均衡', 'Load balancing')} · ${activeMemberCount.value} ${t('个节点', 'nodes')}` : activeState.value?.mode === 'chain' ? `${t('链式代理', 'Proxy chain')} · ${activeMemberCount.value} ${t('跳', 'hops')}` : activeState.value?.mode === 'manual' ? `${t('手动分组', 'Manual group')} · ${nodes.items.find(node => node.id === activeState.value?.selected_node_id)?.name ?? ''}` : t('当前节点：', 'Current node: ') + nodes.activeNodes.map(node => node.name).join(appearance.language === 'en' ? ', ' : '、'))
 const balanceStrategyLabel = computed(() => ({ 'round-robin': t('轮询', 'Round robin'), 'consistent-hashing': t('一致性哈希', 'Consistent hashing'), 'sticky-sessions': t('会话保持', 'Sticky sessions'), 'url-test': t('自动选优', 'Automatic selection'), fallback: t('故障切换', 'Fallback') })[activeState.value?.load_balance?.strategy ?? 'round-robin'])
 const testing = ref(new Set<string>())
 const selected = ref(new Set<string>())
+const manualBusy = ref(false)
+const manualIDs = computed(() => nodes.items.filter(node => selected.value.has(node.id) && !node.composition && !nodeUnavailableReason(node)).map(node => node.id))
+async function startManual() {
+  manualBusy.value = true
+  try {
+    await applyConfig({ mode: 'manual', node_ids: manualIDs.value })
+    await refresh()
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : t('启动失败', 'Could not start the group'))
+  } finally { manualBusy.value = false }
+}
 const density = ref('compact')
 const isTouch = ref(false)
 const rowHeight = computed(() => density.value === 'compact' && !isTouch.value ? 36 : 44)
@@ -284,6 +295,7 @@ onBeforeUnmount(() => { disposed = true; cancelBatch.value = true; observer?.dis
 </script>
 
 <style scoped>
+.is-unavailable td:not(:last-child) { opacity: .55; }
 .heading-count { color: var(--ink-subtle); font-size: var(--typography-p-body-font-size); font-weight: 400; margin-left: 8px; }
 .active-banner { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 0 16px; border-bottom: 1px solid var(--hairline); }
 .active-banner-content { display: flex; align-items: center; gap: 12px; min-width: 0; }

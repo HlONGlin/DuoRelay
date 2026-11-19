@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/holi/duorelay/internal/variant"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,6 +14,9 @@ import (
 )
 
 func TestProxyGroupStatusReturnsCurrentAndHealth(t *testing.T) {
+	if !variant.SupportsKernel("mihomo") {
+		t.Skip("requires mihomo")
+	}
 	control := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/proxies" {
 			http.NotFound(w, r)

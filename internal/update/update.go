@@ -436,7 +436,13 @@ func selectAsset(assets []githubAsset, variantName, goos, goarch, tag string) (g
 		return githubAsset{}, false
 	}
 	var want string
-	if variantName == "lite" {
+	if variantName == "mihomo" || variantName == "singbox" {
+		ext := ".tar.gz"
+		if goos == "windows" {
+			ext = ".zip"
+		}
+		want = fmt.Sprintf("duorelay-%s-%s-%s-%s%s", variantName, goos, arch, version, ext)
+	} else if variantName == "lite" {
 		if goos == "windows" {
 			want = fmt.Sprintf("duorelay-lite-%s-%s.zip", version, arch)
 		} else {

@@ -37,7 +37,7 @@
             <el-form-item label="Fake-IP"><el-switch v-model="form.dns_fake_ip" /><div class="field-hint">{{ t('使用虚拟 IP 映射域名，需配合对应内核的 DNS 配置。', 'Map domains to virtual IP addresses; requires appropriate kernel DNS configuration.') }}</div></el-form-item>
           </template>
           <template v-if="category === 'kernel'">
-            <el-form-item :label="t('首选内核', 'Preferred kernel')"><el-radio-group v-model="form.kernel"><el-radio-button value="sing-box" :disabled="isLite">sing-box{{ isLite ? t('（精简版不支持）', ' (unavailable in lite)') : '' }}</el-radio-button><el-radio-button value="mihomo">mihomo</el-radio-button></el-radio-group><div class="field-hint">{{ t('节点仅支持另一内核时，会按协议能力选择。', 'When a node supports only the other kernel, its protocol capabilities determine the choice.') }}</div></el-form-item>
+            <el-form-item v-if="canSwitchKernel" :label="t('内核', 'Kernel')"><el-radio-group v-model="form.kernel"><el-radio-button v-for="engine in kernels" :key="engine" :value="engine">{{ engine }}</el-radio-button></el-radio-group><div class="field-hint">{{ t('节点仅支持另一内核时，会按协议能力选择。', 'When a node supports only the other kernel, its protocol capabilities determine the choice.') }}</div></el-form-item>
             <el-divider />
             <el-form-item :label="t('透明代理模式', 'Transparent proxy mode')">
               <el-select v-model="form.transparent_mode" @change="changeTransparentMode">
@@ -51,6 +51,8 @@
             <el-form-item :label="t('TUN 全流量接管', 'TUN system traffic capture')"><el-switch v-model="form.enable_tun" :disabled="!transparentModes.find((mode) => mode.mode === 'tun')?.supported" :aria-label="t('TUN 全流量接管', 'TUN system traffic capture')" @change="changeTun" /><div class="field-hint">{{ t('接管 IPv4/IPv6 系统流量并劫持 TCP/UDP DNS；启用严格路由防止流量回落直连。需要管理员或 NET_ADMIN 权限及可用的 TUN 设备。路由规则仍决定哪些流量直连。', 'Captures IPv4/IPv6 system traffic and intercepts TCP/UDP DNS; strict routing prevents fallback to direct connections. Requires administrator or NET_ADMIN privileges and a TUN device. Routing rules still determine direct traffic.') }}</div></el-form-item>
             <el-form-item :label="t('TUN 网络栈', 'TUN network stack')"><el-select v-model="form.tun_stack" :disabled="!form.enable_tun"><el-option v-for="stack in ['system', 'gvisor', 'mixed']" :key="stack" :value="stack" :label="stack" /></el-select></el-form-item>
             <el-divider />
+            <el-alert v-if="form.enable_tun" :title="t('TUN 严格路由已启用。代理节点不可达时，经过代理的系统流量可能中断。', 'TUN strict routing is enabled. System traffic routed through the proxy may stop if the selected node is unreachable.')" type="warning" :closable="false" />
+            <el-form-item :label="t('本地控制器端口', 'Local controller port')"><el-input-number v-model="form.controller_port" :min="0" :max="65535" /><div class="field-hint">{{ t('设为 0 自动分配端口。', 'Set to 0 to assign a port automatically.') }}</div></el-form-item>
             <el-form-item :label="t('系统代理', 'System proxy')"><el-switch v-model="form.system_proxy" :disabled="!form.system_proxy_supported" /><div class="field-hint">{{ form.system_proxy_supported ? t('将系统代理指向本地入口，退出或启动失败时恢复原设置。只接管遵循系统代理设置的应用；要接管设备的全部流量，请启用 TUN。', 'Points the system proxy to the local inbound and restores settings on exit or startup failure. Only applications using system proxy settings are affected; enable TUN for all device traffic.') : t('当前环境不支持系统代理接管；Windows 或带 GNOME D-Bus 会话的 Linux 可用。要接管设备的全部流量，请启用 TUN。', 'System proxy is unavailable in this environment. It is available on Windows or Linux with a GNOME D-Bus session. Enable TUN for all device traffic.') }}</div></el-form-item>
             <router-link to="/kernel" class="settings-link">{{ t('查看运行状态与日志 →', 'View status and logs →') }}</router-link>
           </template>
@@ -95,8 +97,8 @@
             </div>
           </template>
           <template v-if="category === 'about'">
-            <p>DuoRelay {{ buildInfo.version || 'dev' }} · {{ variant }}{{ isLite ? t('（精简版 · mihomo 单核）', ' (lite · mihomo only)') : t('（完整版 · 双核）', ' (full · dual kernel)') }}</p>
-            <p class="field-hint">{{ t('构建', 'Build') }} {{ buildInfo.commit || 'unknown' }}</p>
+            <p>DuoRelay {{ buildInfo.version || 'dev' }} · {{ variant }} · {{ kernels.join(' / ') }}</p>
+            <p class="field-hint">{{ t('构建', 'Build') }} {{ buildInfo.platform }} · {{ buildInfo.commit || 'unknown' }}</p>
             <el-divider />
             <div class="update-panel">
               <div class="update-heading"><div><h3>{{ t('软件更新', 'Software updates') }}</h3><p class="field-hint">{{ updateInfo ? t('当前版本：', 'Current version: ') + updateInfo.current_version : t('检查 GitHub 上适用于当前平台和版本的正式发布。', 'Check GitHub for a stable release matching this platform and build variant.') }}</p></div><el-button :loading="updateLoading" :disabled="updateApplying" @click="checkForUpdates">{{ updateLoading ? t('检查中…', 'Checking…') : t('检查更新', 'Check for updates') }}</el-button></div>
@@ -138,7 +140,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { defaultConfig, useConfigStore } from '@/stores/config'
 import { useNodesStore } from '@/stores/nodes'
-import { isLite, nodeUnavailableReason, variant } from '@/stores/variant'
+import { canSwitchKernel, hasMihomo, isLite, kernels, nodeUnavailableReason, variant } from '@/stores/variant'
 import { ApiError, request } from '@/api/client'
 import { useAppearanceStore } from '@/stores/appearance'
 import UiIcon from '@/components/UiIcon.vue'
@@ -151,8 +153,8 @@ const store = useConfigStore()
 const nodes = useNodesStore()
 const appearance = useAppearanceStore()
 const t = (zh: string, en: string) => appearance.language === 'en' ? en : zh
-const buildInfo = ref<{ version?: string; commit?: string }>({})
-void request<{ version?: string; commit?: string }>({ url: '/build' }).then(info => { buildInfo.value = info ?? {} }).catch(() => {})
+const buildInfo = ref<{ version?: string; commit?: string; platform?: string }>({})
+void request<{ version?: string; commit?: string; platform?: string }>({ url: '/version' }).then(info => { buildInfo.value = info ?? {} }).catch(() => {})
 const updateLoading = ref(false)
 const updateApplying = ref(false)
 const updateInfo = ref<UpdateInfo | null>(null)
@@ -215,7 +217,7 @@ async function applyUpdate() {
 }
 onBeforeUnmount(() => { if (updatePollTimer) window.clearInterval(updatePollTimer) })
 const category = ref('general')
-const categories = computed(() => appearance.language === 'en' ? [
+const categories = computed(() => (appearance.language === 'en' ? [
   { id: 'general', title: 'General', icon: 'settings', description: 'Listen address, ports and DNS' },
   { id: 'kernel', title: 'Kernel', icon: 'terminal', description: 'Kernel preference and TUN' },
   { id: 'routing', title: 'Routing', icon: 'nodes', description: 'Traffic routing and rules' },
@@ -233,7 +235,7 @@ const categories = computed(() => appearance.language === 'en' ? [
   { id: 'appearance', title: '外观', icon: 'sun', description: '浅色与深色主题' },
   { id: 'about', title: '关于', icon: 'grid', description: '版本与构建变体' },
   { id: 'advanced', title: '高级', icon: 'grid', description: '日志与配置恢复' }
-])
+]).filter(item => hasMihomo.value || item.id !== 'balance'))
 const currentCategory = computed(() => categories.value.find(item => item.id === category.value)!)
 
 
@@ -359,7 +361,7 @@ function chinaRules(): RoutingForm[] {
 }
 
 function syncFromStore(config: AppConfig) {
-  Object.assign(form, config, { ...(isLite.value ? { kernel: 'mihomo' } : {}), socks_listeners: (config.socks_listeners ?? []).map(listener => ({ ...listener })), routing_mode: config.routing_mode || 'bypass_mainland', load_balance: { ...config.load_balance } })
+  Object.assign(form, config, { controller_port: config.controller_port ?? 0, ...(kernels.value.length === 1 ? { kernel: kernels.value[0] } : {}), socks_listeners: (config.socks_listeners ?? []).map(listener => ({ ...listener })), routing_mode: config.routing_mode || 'bypass_mainland', load_balance: { ...config.load_balance } })
   dnsText.value = config.dns_servers.join('\n')
   routingForms.value = (config.routing_rules ?? []).map((rule) => ({
     id: rule.id,

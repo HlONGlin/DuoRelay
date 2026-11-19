@@ -21,7 +21,7 @@ import (
 // Two real encrypted SS servers plus an echo destination exercise native UDP
 // through both bridge directions. No network outside loopback is contacted.
 func TestRealChainUDP(t *testing.T) {
-	if variant.Name == "lite" {
+	if !variant.SupportsKernel("sing-box") {
 		t.Skip("full-only sing-box / cross-kernel assertions")
 	}
 	if testing.Short() || os.Getenv("DUORELAY_CHAIN_INTEGRATION") != "1" {

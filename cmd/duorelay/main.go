@@ -36,6 +36,13 @@ var (
 )
 
 func main() {
+	if len(os.Args) == 2 {
+		switch os.Args[1] {
+		case "-version", "--version", "version":
+			fmt.Printf("Version: %s (commit %s, built %s)\n", Version, Commit, BuildTime)
+			return
+		}
+	}
 	if len(os.Args) == 3 && os.Args[1] == "--apply-update" {
 		if err := update.RunHelper(os.Args[2]); err != nil {
 			fmt.Fprintf(os.Stderr, "Update failed: %v\n", err)
@@ -43,7 +50,7 @@ func main() {
 		}
 		return
 	}
-	fmt.Println("DuoRelay - Dual-Core Universal Proxy Panel")
+	fmt.Println("DuoRelay - " + variant.Name)
 	fmt.Printf("Version: %s (commit %s, built %s)\n", Version, Commit, BuildTime)
 
 	if err := run(); err != nil {
@@ -175,7 +182,7 @@ func run() (runErr error) {
 	handler := api.NewServer(database, subs, speed, config, runtime)
 	handler.Context = ctx
 	handler.CookieSecure = *cookieSecure
-	handler.BuildInfo = map[string]string{"version": Version, "commit": Commit, "build_time": BuildTime, "variant": variant.Name}
+	handler.BuildInfo = map[string]string{"version": Version, "commit": Commit, "build_time": BuildTime, "variant": variant.Name, "platform": variant.Platform()}
 	handler.Updates = updates
 	handler.Updates.Restart = cancel
 	server := &http.Server{Addr: *listen, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 60 * time.Second}

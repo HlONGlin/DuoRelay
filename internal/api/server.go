@@ -79,7 +79,7 @@ func NewServer(s *store.Store, subs *subscription.Manager, speed *speedtest.Engi
 	return server
 }
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	protected := strings.HasPrefix(r.URL.Path, "/api/") && !strings.HasPrefix(r.URL.Path, "/api/auth/")
+	protected := strings.HasPrefix(r.URL.Path, "/api/") && !strings.HasPrefix(r.URL.Path, "/api/auth/") && r.URL.Path != "/api/version"
 	protected = protected || r.URL.Path == "/ws/logs"
 	if protected && s.Auth != nil {
 		status, err := s.Auth.Status(r.Context(), r)
@@ -203,6 +203,14 @@ func (s *Server) authLogout(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusOK, map[string]bool{"authenticated": false})
 }
 func (s *Server) routes() {
+	s.mux.HandleFunc("GET /api/version", func(w http.ResponseWriter, r *http.Request) {
+		info := make(map[string]any, len(s.BuildInfo)+4)
+		for key, value := range s.BuildInfo {
+			info[key] = value
+		}
+		info["variant"], info["kernels"], info["default_kernel"], info["platform"] = variant.Name, variant.Kernels(), variant.DefaultKernel, variant.Platform()
+		WriteJSON(w, http.StatusOK, info)
+	})
 	s.mux.HandleFunc("GET /api/build", func(w http.ResponseWriter, r *http.Request) {
 		WriteJSON(w, 200, s.BuildInfo)
 	})
@@ -210,7 +218,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/update/status", s.updateStatus)
 	s.mux.HandleFunc("POST /api/update/apply", s.applyUpdate)
 	s.mux.HandleFunc("GET /api/auth/variant", func(w http.ResponseWriter, r *http.Request) {
-		WriteJSON(w, 200, map[string]any{"variant": variant.Name, "kernels": variant.Kernels()})
+		WriteJSON(w, 200, map[string]any{"variant": variant.Name, "kernels": variant.Kernels(), "default_kernel": variant.DefaultKernel})
 	})
 	s.mux.HandleFunc("GET /api/auth/status", s.authStatus)
 	s.mux.HandleFunc("POST /api/auth/register", s.authRegister)
@@ -503,7 +511,7 @@ func (s *Server) editNode(w http.ResponseWriter, r *http.Request) {
 	}
 	if !node.IsComposition() {
 		node.Owner = ir.GetProtocolOwner(node.Protocol)
-		if node.Protocol == ir.ProtocolVLESS && node.Transport.Type == "xhttp" {
+		if node.RequiresMihomo() {
 			node.Owner = ir.KernelSetMihomo
 		}
 	}
@@ -848,7 +856,12 @@ func (s *Server) saveSettings(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	WriteJSON(w, 200, value)
+	saved, err := s.Config.Settings(r.Context())
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	WriteJSON(w, 200, saved)
 }
 
 func (s *Server) exportRouting(w http.ResponseWriter, r *http.Request) {

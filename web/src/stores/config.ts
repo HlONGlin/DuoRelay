@@ -14,6 +14,7 @@ export function defaultConfig(): AppConfig {
     inbound_host: '127.0.0.1',
     inbound_port: 1080,
     mixed_port: 7890,
+    controller_port: 0,
     socks_only: false,
     socks_port: 10808,
     socks_listeners: [],

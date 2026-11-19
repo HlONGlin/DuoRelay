@@ -75,7 +75,7 @@ func TestSettingsReportsSystemProxyCapability(t *testing.T) {
 }
 
 func TestResumeRestartsPersistedConfiguration(t *testing.T) {
-	if variant.Name == "lite" {
+	if !variant.SupportsKernel("sing-box") {
 		t.Skip("full-only sing-box / cross-kernel assertions")
 	}
 	s, runtime := testService(t)
@@ -97,7 +97,7 @@ func TestResumeRestartsPersistedConfiguration(t *testing.T) {
 }
 
 func TestShutdownKeepsPersistedConfigurationForResume(t *testing.T) {
-	if variant.Name == "lite" {
+	if !variant.SupportsKernel("sing-box") {
 		t.Skip("full-only sing-box / cross-kernel assertions")
 	}
 	s, runtime := testService(t)
@@ -119,7 +119,7 @@ func TestShutdownKeepsPersistedConfigurationForResume(t *testing.T) {
 }
 
 func TestApplyValidationAndRollback(t *testing.T) {
-	if variant.Name == "lite" {
+	if !variant.SupportsKernel("sing-box") {
 		t.Skip("full-only sing-box / cross-kernel assertions")
 	}
 	s, runtime := testService(t)
@@ -155,7 +155,7 @@ func TestApplyValidationAndRollback(t *testing.T) {
 }
 
 func TestActivationAndSettings(t *testing.T) {
-	if variant.Name == "lite" {
+	if !variant.SupportsKernel("sing-box") {
 		t.Skip("full-only sing-box / cross-kernel assertions")
 	}
 	s, _ := testService(t)
@@ -208,7 +208,7 @@ func TestActivationAndSettings(t *testing.T) {
 }
 
 func TestActivationRespectsPreferredKernel(t *testing.T) {
-	if variant.Name == "lite" {
+	if !variant.Enabled() {
 		t.Skip("full-only sing-box / cross-kernel assertions")
 	}
 	for _, tc := range []struct {
@@ -248,7 +248,7 @@ func TestActivationRespectsPreferredKernel(t *testing.T) {
 }
 
 func TestStopClearsCurrentConfiguration(t *testing.T) {
-	if variant.Name == "lite" {
+	if !variant.SupportsKernel("sing-box") {
 		t.Skip("full-only sing-box / cross-kernel assertions")
 	}
 	s, runtime := testService(t)
@@ -335,7 +335,7 @@ func TestLegacyRemoteDefaultsMigrateToStaticRules(t *testing.T) {
 }
 
 func TestLegacySettingsAndStateVersionMigrate(t *testing.T) {
-	if variant.Name == "lite" {
+	if !variant.SupportsKernel("sing-box") {
 		t.Skip("full-only sing-box / cross-kernel assertions")
 	}
 	s, _ := testService(t)
@@ -368,7 +368,7 @@ func TestLegacySettingsAndStateVersionMigrate(t *testing.T) {
 }
 
 func TestHTTPProbeMembership(t *testing.T) {
-	if variant.Name == "lite" {
+	if !variant.SupportsKernel("sing-box") {
 		t.Skip("full-only sing-box / cross-kernel assertions")
 	}
 	s, _ := testService(t)
@@ -393,7 +393,7 @@ func TestHTTPProbeMembership(t *testing.T) {
 }
 
 func TestRealConfigurationApply(t *testing.T) {
-	if variant.Name == "lite" {
+	if !variant.SupportsKernel("sing-box") {
 		t.Skip("full-only sing-box / cross-kernel assertions")
 	}
 	if os.Getenv("DUORELAY_BACKEND_KERNEL_INTEGRATION") != "1" {

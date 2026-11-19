@@ -1,4 +1,4 @@
-//go:build !lite
+//go:build !lite && !mihomo
 
 package singbox
 
@@ -93,7 +93,7 @@ func (g *Generator) Generate(nodes []*ir.Node, opts *generator.GenerateOptions) 
 		}
 		last := validNodes[len(validNodes)-1].Name
 		outbounds = append(outbounds, map[string]any{"type": "selector", "tag": "PROXY", "outbounds": []string{last}, "default": last})
-	} else if usesProxyOutbound(opts) {
+	} else if opts.ManualSelector || usesProxyOutbound(opts) {
 		proxyOutbounds := make([]string, 0, len(outbounds))
 		for _, outbound := range outbounds {
 			tag, _ := outbound["tag"].(string)

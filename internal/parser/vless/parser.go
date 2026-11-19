@@ -36,13 +36,11 @@ func (p Parser) Parse(input string) (any, error) {
 	if err := parser.SetTransport(n, q); err != nil {
 		return nil, err
 	}
-	if n.Transport.Type == "xhttp" {
-		// XHTTP is currently rendered by mihomo only; keep the node importable
-		// while preventing a sing-box config that cannot represent it.
-		n.Owner = ir.KernelSetMihomo
-	}
 	parser.SetTLS(n, q)
 	n.Proto["uuid"], n.Proto["encryption"], n.Proto["flow"] = uuid, first(q.Get("encryption"), "none"), q.Get("flow")
+	if n.RequiresMihomo() {
+		n.Owner = ir.KernelSetMihomo
+	}
 	if n.Security.Type == "reality" {
 		n.Security.Opts["public_key"], n.Security.Opts["short_id"] = q.Get("pbk"), q.Get("sid")
 	}

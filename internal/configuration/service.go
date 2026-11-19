@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -40,6 +41,7 @@ type Settings struct {
 	Kernel               ir.KernelType                `json:"kernel"`
 	InboundHost          string                       `json:"inbound_host"`
 	InboundPort          int                          `json:"inbound_port"`
+	ControllerPort       int                          `json:"controller_port,omitempty"`
 	MixedPort            int                          `json:"mixed_port"`
 	SOCKSOnly            bool                         `json:"socks_only"`
 	SOCKSPort            int                          `json:"socks_port"`
@@ -81,6 +83,7 @@ type CreateCompositionRequest struct {
 	LoadBalance *generator.LoadBalanceOptions `json:"load_balance,omitempty"`
 }
 type State struct {
+	Raw               bool                          `json:"raw,omitempty"`
 	ConfigVersion     int                           `json:"config_version"`
 	ID                string                        `json:"id"`
 	Kernel            ir.KernelType                 `json:"kernel"`
@@ -141,6 +144,9 @@ func (s *Service) CreateCompositionNode(ctx context.Context, request CreateCompo
 	name := strings.TrimSpace(request.Name)
 	if name == "" || len(name) > 256 || strings.ContainsAny(name, "\r\n\x00") {
 		return nil, fmt.Errorf("%w: invalid node name", store.ErrInvalid)
+	}
+	if request.Mode == "load_balance" && !variant.SupportsKernel("mihomo") {
+		return nil, fmt.Errorf("%w: load balancing requires mihomo", store.ErrInvalid)
 	}
 	if request.Mode != "chain" && request.Mode != "load_balance" {
 		return nil, fmt.Errorf("%w: invalid composition mode", store.ErrInvalid)
@@ -273,6 +279,12 @@ func sameRoutingRules(left, right []generator.RoutingRule) bool {
 }
 
 func (s *Service) Settings(ctx context.Context) (Settings, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.settings(ctx)
+}
+
+func (s *Service) settings(ctx context.Context) (Settings, error) {
 	value := defaults()
 	err := s.Store.State(ctx, "settings", &value)
 	if errors.Is(err, store.ErrNotFound) {
@@ -289,9 +301,6 @@ func (s *Service) Settings(ctx context.Context) (Settings, error) {
 	}
 	if value.ConfigVersion == 0 {
 		value.ConfigVersion = CurrentConfigVersion
-		if saveErr := s.Store.SaveState(ctx, "settings", value); saveErr != nil {
-			return value, saveErr
-		}
 	}
 	if len(value.RoutingRules) == 0 {
 		value.RoutingRules = defaultRoutingRules()
@@ -350,12 +359,14 @@ func (s *Service) Settings(ctx context.Context) (Settings, error) {
 			}
 		}
 	}
-	if variant.Name == "lite" {
-		value.Kernel = ir.KernelMihomo
+	if !variant.SupportsKernel(string(value.Kernel)) {
+		value.Kernel = ir.KernelType(variant.DefaultKernel)
 	}
 	return value, err
 }
 func (s *Service) SaveSettings(ctx context.Context, value Settings) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if value.DNSBootstrap == "" {
 		value.DNSBootstrap = defaults().DNSBootstrap
 	}
@@ -437,6 +448,9 @@ func (s *Service) SaveSettings(ctx context.Context, value Settings) error {
 	if !variant.SupportsKernel(string(value.Kernel)) {
 		return fmt.Errorf("%w: invalid kernel", store.ErrInvalid)
 	}
+	if value.ControllerPort < 0 || value.ControllerPort > 65535 {
+		return fmt.Errorf("%w: invalid controller port", store.ErrInvalid)
+	}
 	if value.SystemProxy && !systemproxy.Supported() {
 		return fmt.Errorf("%w: 当前系统不支持系统代理；Linux 请确认 gsettings 与 GNOME D-Bus 会话可用，服务器环境请使用 TUN", store.ErrInvalid)
 	}
@@ -477,6 +491,18 @@ func (s *Service) SaveSettings(ctx context.Context, value Settings) error {
 	if err := s.preflightTransparent(value); err != nil {
 		return fmt.Errorf("%w: %v", store.ErrInvalid, err)
 	}
+	previous, err := s.settings(ctx)
+	if err != nil {
+		return err
+	}
+	current, err := s.Current(ctx)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return err
+	}
+	if current != nil && current.Path != "" && (current.Kernel != value.Kernel || previous.AllowLAN != value.AllowLAN || previous.MixedPort != value.MixedPort || previous.InboundPort != value.InboundPort || previous.ControllerPort != value.ControllerPort) {
+		_, err := s.reapply(ctx, current, value, false)
+		return err
+	}
 	return s.Store.SaveState(ctx, "settings", value)
 }
 
@@ -501,9 +527,6 @@ func (s *Service) Current(ctx context.Context) (*State, error) {
 	}
 	if state.ConfigVersion == 0 {
 		state.ConfigVersion = CurrentConfigVersion
-		if err := s.Store.SaveState(ctx, "current_config", state); err != nil {
-			return nil, err
-		}
 	}
 	return &state, nil
 }
@@ -517,22 +540,59 @@ func (s *Service) Resume(ctx context.Context) error {
 	var state State
 	if err := s.Store.State(ctx, "current_config", &state); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			return nil
+			settings, err := s.settings(ctx)
+			if err != nil {
+				return err
+			}
+			s.PruneConfigHistory(nil)
+			return s.Store.SaveState(ctx, "settings", settings)
 		}
 		return err
 	}
 	if s.Runtime == nil {
 		return fmt.Errorf("kernel runtime is not configured")
 	}
-	if variant.Name == "lite" && (!variant.SupportsKernel(string(state.Kernel)) || len(state.Auxiliary) > 0) {
-		return fmt.Errorf("精简版不支持已保存的双核配置；数据保留，请重新选择 mihomo 节点")
+	settings, err := s.settings(ctx)
+	if err != nil {
+		return err
 	}
 	s.PruneConfigHistory(&state)
+	if !variant.SupportsKernel(string(state.Kernel)) || (!variant.Enabled() && len(state.Auxiliary) > 0) {
+		settings.Kernel = ir.KernelType(variant.DefaultKernel)
+		slog.Warn("regenerating configuration for this build", "from", state.Kernel, "to", settings.Kernel)
+		if _, err := s.reapply(ctx, &state, settings, true); err != nil {
+			if errors.Is(err, store.ErrInvalid) || errors.Is(err, store.ErrNotFound) {
+				// Keep the recipe and files without representing them as active.
+				if suspendErr := s.Store.SuspendConfiguration(ctx, settings); suspendErr != nil {
+					err = errors.Join(err, suspendErr)
+				}
+			}
+			return fmt.Errorf("migrate configuration to %s: %w", settings.Kernel, err)
+		}
+		return nil
+	}
+	var stored Settings
+	if err := s.Store.State(ctx, "settings", &stored); err != nil && !errors.Is(err, store.ErrNotFound) {
+		return err
+	}
+	if stored.Kernel != state.Kernel {
+		slog.Warn("synchronizing stored kernel with active configuration", "stored", stored.Kernel, "active", state.Kernel)
+		settings.Kernel = state.Kernel
+		if err := s.Store.SaveConfiguration(ctx, settings, &state); err != nil {
+			return err
+		}
+	}
 	if err := s.startState(&state); err != nil {
 		_ = s.Runtime.StopAll()
 		_ = s.cleanupTransparent()
 		if state.SystemProxy != nil {
 			_ = systemproxy.Restore(*state.SystemProxy)
+		}
+		if errors.Is(err, kernel.ErrControllerNotReady) && settings.ControllerPort == 0 && !state.Raw && len(state.NodeIDs) > 0 {
+			slog.Warn("rebuilding persisted configuration with a new controller port", "kernel", state.Kernel)
+			settings.Kernel = state.Kernel
+			_, retryErr := s.reapply(ctx, &state, settings, false)
+			return retryErr
 		}
 		return fmt.Errorf("%w: resume: %v", ErrApply, err)
 	}
@@ -615,7 +675,7 @@ func (s *Service) Stop(ctx context.Context) error {
 	return nil
 }
 func (s *Service) start(kernel ir.KernelType, path string) error {
-	if variant.Name == "lite" && !variant.SupportsKernel(string(kernel)) {
+	if !variant.SupportsKernel(string(kernel)) {
 		return fmt.Errorf("精简版不支持内核 %s", kernel)
 	}
 	if kernel == ir.KernelSingBox {
@@ -627,7 +687,7 @@ func (s *Service) start(kernel ir.KernelType, path string) error {
 func (s *Service) Apply(ctx context.Context, request ApplyRequest) (*State, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	settings, err := s.Settings(ctx)
+	settings, err := s.settings(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -644,7 +704,7 @@ func (s *Service) applyPrepared(ctx context.Context, request ApplyRequest, setti
 	var err error
 	if request.Kernel == "" {
 		request.Kernel = settings.Kernel
-		if request.Mode == "load_balance" {
+		if request.Mode == "load_balance" && variant.SupportsKernel("mihomo") {
 			request.Kernel = ir.KernelMihomo
 		}
 	}
@@ -658,12 +718,19 @@ func (s *Service) applyPrepared(ctx context.Context, request ApplyRequest, setti
 		return nil, fmt.Errorf("%w: provide config or node_ids", store.ErrInvalid)
 	}
 	var composition *generator.Composition
-	if request.Mode != "" {
-		if request.Content != "" || len(request.NodeIDs) < 2 || len(request.NodeIDs) > 64 || (request.Mode != "load_balance" && !(variant.Name == "lite" && request.Mode == "chain")) {
+	if request.Mode == "manual" {
+		if request.Content != "" || request.LoadBalance != nil || len(request.NodeIDs) < 2 {
+			return nil, fmt.Errorf("%w: manual mode requires at least two nodes", store.ErrInvalid)
+		}
+	} else if request.Mode != "" {
+		if request.Content != "" || len(request.NodeIDs) < 2 || len(request.NodeIDs) > 64 || (request.Mode != "load_balance" && !(variant.DefaultKernel == "mihomo" && request.Mode == "chain")) {
 			return nil, fmt.Errorf("%w: 多节点启动需指定方式并选择 2–64 个节点", store.ErrInvalid)
 		}
 		composition = &generator.Composition{Mode: request.Mode}
 		if request.Mode == "load_balance" {
+			if request.Kernel != ir.KernelMihomo {
+				return nil, fmt.Errorf("%w: load balancing requires mihomo", store.ErrInvalid)
+			}
 			lb := settings.LoadBalance
 			if request.LoadBalance != nil {
 				lb = *request.LoadBalance
@@ -700,7 +767,7 @@ func (s *Service) applyPrepared(ctx context.Context, request ApplyRequest, setti
 			seen := map[string]bool{}
 			for _, id := range request.NodeIDs {
 				if seen[id] {
-					if composition != nil {
+					if composition != nil || request.Mode == "manual" {
 						return nil, fmt.Errorf("%w: 请勿重复选择同一个节点", store.ErrInvalid)
 					}
 					continue
@@ -714,7 +781,7 @@ func (s *Service) applyPrepared(ctx context.Context, request ApplyRequest, setti
 					return nil, fmt.Errorf("%w: composition nodes cannot be nested", store.ErrInvalid)
 				}
 				if !variant.SupportsProtocol(node.Protocol) {
-					return nil, fmt.Errorf("%w: 精简版不支持 %s", store.ErrInvalid, node.Protocol)
+					return nil, fmt.Errorf("%w: %s does not support protocol %s", store.ErrInvalid, variant.Name, node.Protocol)
 				}
 				if !node.CanRunOn(request.Kernel) {
 					return nil, fmt.Errorf("%w: 节点 %q 不支持内核 %s", store.ErrInvalid, node.Name, request.Kernel)
@@ -742,11 +809,12 @@ func (s *Service) applyPrepared(ctx context.Context, request ApplyRequest, setti
 			}
 		}
 		defaultOutbound, routingRules := effectiveRouting(settings, request.outbound)
-		if composition != nil && settings.RoutingMode != "blacklist" {
+		if (composition != nil || request.Mode == "manual") && settings.RoutingMode != "blacklist" {
 			defaultOutbound = "PROXY"
 		}
 		options := &generator.GenerateOptions{InboundHost: settings.InboundHost, InboundPort: settings.InboundPort, MixedPort: settings.MixedPort, SystemProxy: settings.SystemProxy, DNSServers: settings.DNSServers, DNSFakeIP: settings.DNSFakeIP, EnableTUN: settings.EnableTUN, TransparentMode: string(settings.TransparentMode), RedirectPort: settings.InboundPort, TProxyPort: settings.InboundPort + 1, TUNStack: settings.TUNStack, LogLevel: settings.LogLevel, DefaultOutbound: defaultOutbound, RoutingRules: routingRules, ExtraNodes: extraNodes, SOCKSListeners: socksListeners}
 		options.SOCKSOnly, options.SOCKSPort, options.Composition = settings.SOCKSOnly, settings.SOCKSPort, composition
+		options.ManualSelector = request.Mode == "manual"
 		options.DNSBootstrap, options.DNSDetour = settings.DNSBootstrap, settings.DNSDetour
 		if settings.AllowLAN {
 			options.InboundHost = "0.0.0.0"
@@ -760,7 +828,8 @@ func (s *Service) applyPrepared(ctx context.Context, request ApplyRequest, setti
 			return nil, fmt.Errorf("%w: %v", store.ErrInvalid, err)
 		}
 	}
-	content, controller, secret, err := withController(content, request.Kernel, settings.AllowLAN)
+	controllerInput := content
+	content, controller, secret, err := withController(content, request.Kernel, settings.AllowLAN, settings.ControllerPort)
 	if err != nil {
 		return nil, err
 	}
@@ -829,7 +898,7 @@ func (s *Service) applyPrepared(ctx context.Context, request ApplyRequest, setti
 		stopErr := s.Runtime.StopAll()
 		cleanupErr := s.cleanupTransparent()
 		var restoreErr error
-		if previous != nil {
+		if previous != nil && variant.SupportsKernel(string(previous.Kernel)) && (variant.Enabled() || len(previous.Auxiliary) == 0) {
 			restoreErr = s.startState(previous)
 		}
 		if previous != nil && previous.SystemProxy != nil && previous.SystemProxyTarget != "" {
@@ -848,7 +917,23 @@ func (s *Service) applyPrepared(ctx context.Context, request ApplyRequest, setti
 		}
 	}
 	if err := s.start(request.Kernel, path); err != nil {
-		return nil, rollback(err)
+		if request.Content != "" || settings.ControllerPort != 0 || !errors.Is(err, kernel.ErrControllerNotReady) {
+			return nil, rollback(err)
+		}
+		slog.Warn("retrying kernel with a new controller port", "kernel", request.Kernel, "error", err)
+		if stopErr := s.Runtime.StopAll(); stopErr != nil {
+			return nil, rollback(errors.Join(err, stopErr))
+		}
+		content, controller, secret, err = withController(controllerInput, request.Kernel, settings.AllowLAN)
+		if err != nil {
+			return nil, rollback(err)
+		}
+		if err := os.WriteFile(path, content, 0600); err != nil {
+			return nil, rollback(err)
+		}
+		if err := s.start(request.Kernel, path); err != nil {
+			return nil, rollback(err)
+		}
 	}
 	if settings.SystemProxy {
 		if err := setSystemProxyTarget(proxyTarget); err != nil {
@@ -866,7 +951,7 @@ func (s *Service) applyPrepared(ctx context.Context, request ApplyRequest, setti
 			mode = "select"
 		}
 	}
-	state := &State{ConfigVersion: CurrentConfigVersion, ID: id, Kernel: request.Kernel, NodeIDs: nodeIDs, SelectedNodeID: request.compositionNodeID, SOCKSListeners: append([]SOCKSListener{}, settings.SOCKSListeners...), Mode: mode, TransparentMode: settings.TransparentMode, LoadBalance: request.LoadBalance, AppliedAt: time.Now().UTC(), Path: path, Controller: controller, Secret: secret, SystemProxy: proxySnapshot, SystemProxyTarget: proxyTarget}
+	state := &State{Raw: request.Content != "", ConfigVersion: CurrentConfigVersion, ID: id, Kernel: request.Kernel, NodeIDs: nodeIDs, SelectedNodeID: request.compositionNodeID, SOCKSListeners: append([]SOCKSListener{}, settings.SOCKSListeners...), Mode: mode, TransparentMode: settings.TransparentMode, LoadBalance: request.LoadBalance, AppliedAt: time.Now().UTC(), Path: path, Controller: controller, Secret: secret, SystemProxy: proxySnapshot, SystemProxyTarget: proxyTarget}
 	state.TransparentPort = settings.InboundPort
 	if runtimeNames != nil {
 		state.RuntimeNames = runtimeNames
@@ -875,11 +960,21 @@ func (s *Service) applyPrepared(ctx context.Context, request ApplyRequest, setti
 	// Finish the durable state update even if the HTTP client disconnected.
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	if err := s.Store.SaveState(persistCtx, "current_config", state); err != nil {
+	if state.Mode == "manual" {
+		state.SelectedNodeID = nodeIDs[0]
+		if request.compositionNodeID != "" {
+			state.SelectedNodeID = request.compositionNodeID
+		}
+		if err := s.selectManual(persistCtx, state, state.SelectedNodeID); err != nil {
+			return nil, rollback(err)
+		}
+	}
+	settings.Kernel = state.Kernel
+	if err := s.Store.SaveConfiguration(persistCtx, settings, state); err != nil {
 		return nil, rollback(err)
 	}
 	retained = true
-	removeReplacedConfig(previous, path)
+	s.pruneReplacedConfig(previous, path)
 	return state, nil
 }
 
@@ -980,6 +1075,9 @@ func (s *Service) Activate(ctx context.Context, id string, kernel ir.KernelType)
 		}
 		return s.Apply(ctx, request)
 	}
+	if state, err := s.ActivateManual(ctx, id, kernel); err != nil || state != nil {
+		return state, err
+	}
 	if kernel == "" {
 		settings, err := s.Settings(ctx)
 		if err != nil {
@@ -990,8 +1088,8 @@ func (s *Service) Activate(ctx context.Context, id string, kernel ir.KernelType)
 			kernel = node.PreferredKernel()
 		}
 	}
-	if variant.Name == "lite" && (!variant.SupportsProtocol(node.Protocol) || !variant.SupportsKernel(string(kernel))) {
-		return nil, fmt.Errorf("%w: 精简版不支持该协议或内核", store.ErrInvalid)
+	if !variant.SupportsProtocol(node.Protocol) || !variant.SupportsKernel(string(kernel)) {
+		return nil, fmt.Errorf("%w: %s does not support protocol %s on %s", store.ErrInvalid, variant.Name, node.Protocol, kernel)
 	}
 	if !node.CanRunOn(kernel) {
 		return nil, fmt.Errorf("%w: incompatible kernel", store.ErrInvalid)
@@ -999,7 +1097,7 @@ func (s *Service) Activate(ctx context.Context, id string, kernel ir.KernelType)
 	return s.Apply(ctx, ApplyRequest{Kernel: kernel, NodeIDs: []string{id}, outbound: node.Name})
 }
 
-func withController(content []byte, kernel ir.KernelType, allowLAN bool) ([]byte, string, string, error) {
+func withController(content []byte, kernel ir.KernelType, allowLAN bool, ports ...int) ([]byte, string, string, error) {
 	root := map[string]any{}
 	var err error
 	if kernel == ir.KernelSingBox {
@@ -1012,7 +1110,10 @@ func withController(content []byte, kernel ir.KernelType, allowLAN bool) ([]byte
 	}
 	container := root
 	addressKey := "external-controller"
-	defaultAddress := "127.0.0.1:0"
+	portOverride := 0
+	if len(ports) > 0 {
+		portOverride = ports[0]
+	}
 	if kernel == ir.KernelSingBox {
 		addressKey = "external_controller"
 		experimental, _ := root["experimental"].(map[string]any)
@@ -1029,8 +1130,12 @@ func withController(content []byte, kernel ir.KernelType, allowLAN bool) ([]byte
 		root["allow-lan"] = allowLAN
 	}
 	address, _ := container[addressKey].(string)
+	if portOverride != 0 {
+		address = net.JoinHostPort("127.0.0.1", strconv.Itoa(portOverride))
+		container[addressKey] = address
+	}
 	if address == "" {
-		listener, listenErr := net.Listen("tcp4", defaultAddress)
+		listener, listenErr := net.Listen("tcp4", "127.0.0.1:0")
 		if listenErr != nil {
 			return nil, "", "", listenErr
 		}

@@ -19,7 +19,7 @@ ARG DUORELAY_VARIANT=full
 RUN go run ./deploy/docker/download-kernels.go -arch "$TARGETARCH" -variant "$DUORELAY_VARIANT" -out /out/kernels
 RUN case "$DUORELAY_VARIANT" in \
       full) tags="" ;; \
-      lite) tags="lite" ;; \
+      lite|mihomo|singbox) tags="$DUORELAY_VARIANT" ;; \
       *) echo "Unknown variant: $DUORELAY_VARIANT" >&2; exit 1 ;; \
     esac \
     && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -tags "$tags" -o /out/duorelay ./cmd/duorelay

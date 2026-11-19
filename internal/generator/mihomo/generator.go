@@ -68,6 +68,10 @@ func (g *Generator) Generate(nodes []*ir.Node, opts *generator.GenerateOptions) 
 		return nil, err
 	}
 	proxyGroups := g.generateProxyGroups(validNodes)
+	if opts.ManualSelector && len(proxyGroups) > 0 {
+		group := proxyGroups[0]
+		group["proxies"] = group["proxies"].([]string)[1:]
+	}
 	if c := opts.Composition; c != nil {
 		names := make([]string, len(validNodes))
 		for i, node := range validNodes {
@@ -1027,6 +1031,9 @@ func (g *Generator) convertVLESS(node *ir.Node) map[string]any {
 	}
 	if uuid, ok := node.Proto["uuid"].(string); ok && uuid != "" {
 		proxy["uuid"] = uuid
+	}
+	if encryption, ok := node.Proto["encryption"].(string); ok && encryption != "" && encryption != "none" {
+		proxy["encryption"] = encryption
 	}
 	if flow, ok := node.Proto["flow"].(string); ok && flow != "" {
 		proxy["flow"] = flow

@@ -141,7 +141,7 @@ func TestMihomoTUNEnvironmentDetection(t *testing.T) {
 }
 
 func TestWithEnvironmentReplacesExistingValue(t *testing.T) {
-	if variant.Name == "lite" {
+	if !variant.SupportsKernel("sing-box") {
 		t.Skip("full-only sing-box / cross-kernel assertions")
 	}
 	got := withEnvironment([]string{"PATH=/bin", "SKIP_SYSTEM_IPV6_CHECK=0", "OTHER=x"}, "SKIP_SYSTEM_IPV6_CHECK", "1")
@@ -245,7 +245,7 @@ func eventually(t *testing.T, condition func() bool) {
 }
 
 func TestSubscribeLogsReceivesAndCloses(t *testing.T) {
-	if variant.Name == "lite" {
+	if !variant.SupportsKernel("sing-box") {
 		t.Skip("full-only sing-box / cross-kernel assertions")
 	}
 	m := testManager(t)
@@ -326,7 +326,7 @@ func TestManagerLifecycle(t *testing.T) {
 }
 
 func TestManagerModesAndInvalidReplacement(t *testing.T) {
-	if variant.Name == "lite" {
+	if !variant.Enabled() {
 		t.Skip("full-only sing-box / cross-kernel assertions")
 	}
 	m := testManager(t)
@@ -397,7 +397,7 @@ func TestManagerCrashRecovery(t *testing.T) {
 }
 
 func TestManagerExternalKillRecovery(t *testing.T) {
-	if variant.Name == "lite" {
+	if !variant.SupportsKernel("sing-box") {
 		t.Skip("full-only sing-box / cross-kernel assertions")
 	}
 	m := testManager(t)
@@ -420,7 +420,7 @@ func TestManagerExternalKillRecovery(t *testing.T) {
 }
 
 func TestManagerCleanUnexpectedExitRecovery(t *testing.T) {
-	if variant.Name == "lite" {
+	if !variant.SupportsKernel("sing-box") {
 		t.Skip("full-only sing-box / cross-kernel assertions")
 	}
 	m := testManager(t)
@@ -436,7 +436,7 @@ func TestManagerCleanUnexpectedExitRecovery(t *testing.T) {
 }
 
 func TestManagerStopDuringBackoff(t *testing.T) {
-	if variant.Name == "lite" {
+	if !variant.SupportsKernel("sing-box") {
 		t.Skip("full-only sing-box / cross-kernel assertions")
 	}
 	m := testManager(t)
@@ -458,6 +458,9 @@ func TestManagerStopDuringBackoff(t *testing.T) {
 }
 
 func TestManagerRestartBudget(t *testing.T) {
+	if !variant.SupportsKernel("mihomo") {
+		t.Skip("requires mihomo")
+	}
 	m := testManager(t)
 	m.restartPolicy = func() *RestartPolicy {
 		p := NewRestartPolicy()
@@ -482,7 +485,7 @@ func TestManagerRestartBudget(t *testing.T) {
 }
 
 func TestManagerRestartLaunchFailure(t *testing.T) {
-	if variant.Name == "lite" {
+	if !variant.SupportsKernel("sing-box") {
 		t.Skip("full-only sing-box / cross-kernel assertions")
 	}
 	m := testManager(t)
@@ -511,7 +514,7 @@ func TestManagerRestartLaunchFailure(t *testing.T) {
 }
 
 func TestManagerValidationAndHealthFailure(t *testing.T) {
-	if variant.Name == "lite" {
+	if !variant.Enabled() {
 		t.Skip("full-only sing-box / cross-kernel assertions")
 	}
 	t.Run("missing binary", func(t *testing.T) {
@@ -559,7 +562,7 @@ func TestManagerValidationAndHealthFailure(t *testing.T) {
 }
 
 func TestManagerConcurrentObservation(t *testing.T) {
-	if variant.Name == "lite" {
+	if !variant.SupportsKernel("sing-box") {
 		t.Skip("full-only sing-box / cross-kernel assertions")
 	}
 	m := testManager(t)

@@ -3,6 +3,7 @@ package configuration
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/holi/duorelay/internal/ir"
 	"github.com/holi/duorelay/internal/kernel"
+	"github.com/holi/duorelay/internal/store"
 	"github.com/holi/duorelay/internal/transparent"
 	"github.com/holi/duorelay/internal/variant"
 )
@@ -157,5 +159,104 @@ func TestIssueControllerPortDoesNotConflict(t *testing.T) {
 		if root["experimental"].(map[string]any)["clash_api"].(map[string]any)["external_controller"] != address {
 			t.Fatal("explicit controller address ignored")
 		}
+	}
+}
+
+func TestIncompatibleRawConfigurationIsPreservedForRecovery(t *testing.T) {
+	if variant.Enabled() {
+		t.Skip("requires a single kernel build")
+	}
+	s, runtime := testService(t)
+	ctx := context.Background()
+	oldKernel := ir.KernelMihomo
+	if variant.DefaultKernel == "mihomo" {
+		oldKernel = ir.KernelSingBox
+	}
+	path := filepath.Join(s.Directory, uuid.NewString()+".json")
+	if err := os.WriteFile(path, []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-2 * configHistoryMaxAge)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
+	}
+	settings := defaults()
+	settings.Kernel = oldKernel
+	state := State{Kernel: oldKernel, Path: path, Raw: true}
+	if err := s.Store.SaveConfiguration(ctx, settings, state); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Resume(ctx); !errors.Is(err, store.ErrInvalid) {
+		t.Fatalf("unexpected migration result: %v", err)
+	}
+	if runtime.starts != 0 {
+		t.Fatal("attempted to launch incompatible file")
+	}
+	if _, err := s.Current(ctx); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("incompatible config still active: %v", err)
+	}
+	if err := s.Resume(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var backup State
+	if err := s.Store.State(ctx, "migration_backup", &backup); err != nil || backup.Path != path {
+		t.Fatalf("recovery state lost: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Store.State(ctx, "settings", &settings); err != nil || string(settings.Kernel) != variant.DefaultKernel {
+		t.Fatalf("settings not migrated: %s %v", settings.Kernel, err)
+	}
+}
+
+type unreadyControllerRuntime struct {
+	*fakeRuntime
+	failures int
+	configs  []string
+}
+
+func (r *unreadyControllerRuntime) StartSingBox(path string) error { return r.start(path) }
+func (r *unreadyControllerRuntime) StartMihomo(path string) error  { return r.start(path) }
+func (r *unreadyControllerRuntime) start(path string) error {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	r.configs = append(r.configs, string(content))
+	if r.failures > 0 {
+		r.failures--
+		return kernel.ErrControllerNotReady
+	}
+	return r.fakeRuntime.StartSingBox(path)
+}
+
+func TestControllerRetryCommitsOnlyWorkingConfiguration(t *testing.T) {
+	s, base := testService(t)
+	runtime := &unreadyControllerRuntime{fakeRuntime: base, failures: 1}
+	s.Runtime = runtime
+	ctx := context.Background()
+	node := &ir.Node{Name: "working", Protocol: ir.ProtocolHTTP, Owner: ir.KernelSetBoth, Server: ir.Server{Host: "127.0.0.1", Port: 30001}}
+	if err := s.Store.SaveNode(ctx, node); err != nil {
+		t.Fatal(err)
+	}
+	state, err := s.Apply(ctx, ApplyRequest{NodeIDs: []string{node.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runtime.configs) != 2 || runtime.configs[0] == runtime.configs[1] {
+		t.Fatal("expected one retry with a fresh controller")
+	}
+	var settings Settings
+	if err := s.Store.State(ctx, "settings", &settings); err != nil || settings.Kernel != state.Kernel {
+		t.Fatal("kernel preference and active state diverged", err)
+	}
+	runtime.failures = 2
+	if _, err := s.Apply(ctx, ApplyRequest{NodeIDs: []string{node.ID}}); !errors.Is(err, ErrApply) {
+		t.Fatalf("unexpected second apply result: %v", err)
+	}
+	current, err := s.Current(ctx)
+	if err != nil || current.ID != state.ID || base.current != state.Path {
+		t.Fatal("failed retry disrupted the active configuration", err)
 	}
 }

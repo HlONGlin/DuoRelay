@@ -427,6 +427,8 @@ func readController(name, config string) (string, string, error) {
 	return "http://" + net.JoinHostPort(host, port), secret, nil
 }
 
+var ErrControllerNotReady = errors.New("kernel controller not ready")
+
 func (m *Manager) waitHealthy(p *Process, a *attempt) error {
 	if p.controller == "" {
 		select {
@@ -467,7 +469,7 @@ func (m *Manager) waitHealthy(p *Process, a *attempt) error {
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return fmt.Errorf("health check: %w (last probe: %v)", ctx.Err(), lastErr)
+			return fmt.Errorf("%w at %s: %w (last probe: %v)", ErrControllerNotReady, p.controller, ctx.Err(), lastErr)
 		case <-a.done:
 			timer.Stop()
 			return m.startupExitError(p, a)

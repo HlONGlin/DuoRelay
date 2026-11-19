@@ -14,7 +14,7 @@ import (
 )
 
 func TestRoutingRulesPersistAndGenerate(t *testing.T) {
-	if variant.Name == "lite" {
+	if !variant.SupportsKernel("sing-box") {
 		t.Skip("full-only sing-box / cross-kernel assertions")
 	}
 	service, _ := testService(t)
