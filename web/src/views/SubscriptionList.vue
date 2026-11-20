@@ -43,7 +43,9 @@
         :subscription="item"
         :node-count="nodes.error ? undefined : nodeCounts.get(item.id) ?? 0"
         :updating="subscriptions.updatingId === item.id"
+        :changing-schedule="changingSchedules.has(item.id)"
         @refresh="handleRefresh"
+        @toggle-schedule="toggleSchedule"
         @edit="openEdit"
         @remove="handleRemove"
       />
@@ -186,6 +188,20 @@ async function submitForm() {
     ElMessage.error(err instanceof Error ? err.message : t('保存订阅失败', 'Failed to save subscription'))
   } finally {
     submitting.value = false
+  }
+}
+
+const changingSchedules = ref(new Set<string>())
+
+async function toggleSchedule(subscription: Subscription) {
+  if (changingSchedules.value.has(subscription.id)) return
+  changingSchedules.value.add(subscription.id)
+  try {
+    await subscriptions.setPaused(subscription.id, !subscription.disabled)
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : t('无法更改自动更新状态', 'Unable to change automatic update status'))
+  } finally {
+    changingSchedules.value.delete(subscription.id)
   }
 }
 

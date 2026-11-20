@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { localize } from './appearance'
 import { ref } from 'vue'
-import { getAuthStatus, login as loginRequest, logout as logoutRequest, register as registerRequest, type AuthStatus } from '@/api/auth'
+import { changePassword as changePasswordRequest, getAuthStatus, login as loginRequest, logout as logoutRequest, register as registerRequest, type AuthStatus } from '@/api/auth'
 
 export const useAuthStore = defineStore('auth', () => {
   const status = ref<AuthStatus>({ configured: false, authenticated: false })
@@ -37,5 +37,10 @@ export const useAuthStore = defineStore('auth', () => {
     status.value = { configured: true, authenticated: false }
   }
 
-  return { status, loading, error, fetchStatus, login, register, logout }
+  async function changePassword(currentPassword: string, newPassword: string) {
+    await changePasswordRequest(currentPassword, newPassword)
+    status.value = { configured: true, authenticated: false }
+  }
+
+  return { status, loading, error, fetchStatus, login, register, logout, changePassword }
 })

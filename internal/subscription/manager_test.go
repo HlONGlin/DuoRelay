@@ -234,7 +234,8 @@ func TestUpdateDiffFailureAndCRUD(t *testing.T) {
 	if list, err := m.List(ctx, "other"); err != nil || len(list) != 0 {
 		t.Fatal("group filter failed")
 	}
-	input := &Subscription{Name: "renamed", URL: server.URL, UserAgent: "custom-agent", Interval: 2, Group: "other"}
+	group := "other"
+	input := EditInput{Name: "renamed", URL: server.URL, UserAgent: "custom-agent", Interval: 2, Group: &group}
 	if _, err := m.Edit(ctx, sub.ID, input); err != nil {
 		t.Fatal(err)
 	}
@@ -310,8 +311,7 @@ func TestManualSubscriptionSchedule(t *testing.T) {
 	manual := add("a-manual", 0)
 	assertManual(manual.ID)
 	edited := add("b-edited", 24)
-	edited.Interval = 0
-	if _, err := m.Edit(ctx, edited.ID, edited); err != nil {
+	if _, err := m.Edit(ctx, edited.ID, EditInput{Name: edited.Name, URL: edited.URL, Interval: 0}); err != nil {
 		t.Fatal(err)
 	}
 	assertManual(edited.ID)

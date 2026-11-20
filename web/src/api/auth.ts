@@ -21,3 +21,7 @@ export function login(username: string, password: string): Promise<{ authenticat
 export function logout(): Promise<{ authenticated: boolean }> {
   return request<{ authenticated: boolean }>({ url: '/auth/logout', method: 'post' })
 }
+
+export function changePassword(currentPassword: string, newPassword: string): Promise<{ authenticated: boolean }> {
+  return request<{ authenticated: boolean }>({ url: '/auth/password', method: 'post', data: { current_password: currentPassword, new_password: newPassword } })
+}

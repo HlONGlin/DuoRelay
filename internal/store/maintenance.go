@@ -96,6 +96,27 @@ func (s *Store) ResetAuthPassword(ctx context.Context, username, hash string) er
 	return tx.Commit()
 }
 
+func (s *Store) ChangeAuthPassword(ctx context.Context, username, oldHash, newHash string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, "UPDATE auth_users SET password_hash=? WHERE username=? AND password_hash=?", newHash, username, oldHash)
+	if err != nil {
+		return err
+	}
+	if n, err := result.RowsAffected(); err != nil {
+		return err
+	} else if n != 1 {
+		return ErrConflict
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM auth_sessions WHERE username=?", username); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (s *Store) CreateAuthSessionForPassword(ctx context.Context, tokenHash, username, passwordHash string, expiresAt time.Time) error {
 	result, err := s.db.ExecContext(ctx, `INSERT INTO auth_sessions(token_hash,username,expires_at,created_at)
 		SELECT ?,username,?,? FROM auth_users WHERE username=? AND password_hash=?`, tokenHash, expiresAt.UTC().Format(time.RFC3339Nano), time.Now().UTC().Format(time.RFC3339Nano), username, passwordHash)

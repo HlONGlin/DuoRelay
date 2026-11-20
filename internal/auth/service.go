@@ -120,6 +120,28 @@ func (s *Service) ResetPassword(ctx context.Context, username, password string) 
 	return s.Store.ResetAuthPassword(ctx, strings.TrimSpace(username), string(hash))
 }
 
+func (s *Service) ChangePassword(ctx context.Context, r *http.Request, current, next string) error {
+	username, err := s.Authenticate(ctx, r)
+	if err != nil {
+		return err
+	}
+	if len(next) < 8 || len(next) > 72 {
+		return fmt.Errorf("%w: password must contain 8..72 bytes", store.ErrInvalid)
+	}
+	oldHash, err := s.Store.AuthPasswordHash(ctx, username)
+	if err != nil {
+		return err
+	}
+	if bcrypt.CompareHashAndPassword([]byte(oldHash), []byte(current)) != nil {
+		return ErrInvalid
+	}
+	newHash, err := bcrypt.GenerateFromPassword([]byte(next), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	return s.Store.ChangeAuthPassword(ctx, username, oldHash, string(newHash))
+}
+
 func (s *Service) Authenticate(ctx context.Context, r *http.Request) (string, error) {
 	token := ""
 	if cookie, err := r.Cookie(CookieName); err == nil {

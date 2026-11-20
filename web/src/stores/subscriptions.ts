@@ -6,6 +6,7 @@ import {
   deleteSubscription,
   listSubscriptions,
   refreshSubscription,
+  setSubscriptionSchedule,
   updateSubscription
 } from '@/api/subscriptions'
 import type { Subscription, SubscriptionInput } from '@/types'
@@ -58,6 +59,11 @@ export const useSubscriptionsStore = defineStore('subscriptions', () => {
     items.value = items.value.filter((item) => item.id !== id)
   }
 
+  async function setPaused(id: string, paused: boolean) {
+    const updated = await setSubscriptionSchedule(id, paused)
+    items.value = items.value.map(item => item.id === id ? updated : item)
+  }
+
   async function refresh(id: string) {
     updatingId.value = id
     error.value = null
@@ -90,6 +96,7 @@ export const useSubscriptionsStore = defineStore('subscriptions', () => {
     add,
     edit,
     remove,
+    setPaused,
     refresh
   }
 })

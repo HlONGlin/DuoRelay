@@ -12,7 +12,7 @@ vi.mock('vue-router', () => ({ useRouter: () => ({ push: vi.fn() }) }))
 vi.mock('@/api/nodes', () => ({ listNodes: vi.fn().mockResolvedValue([]) }))
 vi.mock('@/api/subscriptions', () => ({
   listSubscriptions: vi.fn(), createSubscription: vi.fn(), updateSubscription: vi.fn(),
-  refreshSubscription: vi.fn(), deleteSubscription: vi.fn()
+  refreshSubscription: vi.fn(), deleteSubscription: vi.fn(), setSubscriptionSchedule: vi.fn()
 }))
 
 const manual: Subscription = { id: 'manual', name: 'Provider', url: 'https://example.test/sub', interval: 0 }
@@ -54,6 +54,24 @@ describe('SubscriptionList', () => {
     await flushPromises()
     expect(api.updateSubscription).toHaveBeenCalledWith(manual.id, expect.objectContaining({ interval: 0 }))
     expect(wrapper.get('.sub-interval').text()).toBe('Manual updates')
+    wrapper.unmount()
+  })
+
+  it('pauses and resumes automatic updates while keeping manual refresh available', async () => {
+    const automatic = { ...manual, interval: 24, disabled: false }
+    vi.mocked(api.listSubscriptions).mockResolvedValue([automatic])
+    vi.mocked(api.setSubscriptionSchedule).mockResolvedValueOnce({ ...automatic, disabled: true }).mockResolvedValueOnce(automatic)
+    const wrapper = await render()
+    const button = (label: string) => wrapper.findAll('button').find(button => button.text() === label)!
+    await button('Pause automatic updates').trigger('click')
+    await flushPromises()
+    expect(api.setSubscriptionSchedule).toHaveBeenNthCalledWith(1, automatic.id, true)
+    expect(wrapper.text()).toContain('Automatic updates paused')
+    expect(button('Update').attributes('disabled')).toBeUndefined()
+    await button('Resume automatic updates').trigger('click')
+    await flushPromises()
+    expect(api.setSubscriptionSchedule).toHaveBeenNthCalledWith(2, automatic.id, false)
+    expect(wrapper.text()).not.toContain('Automatic updates paused')
     wrapper.unmount()
   })
 

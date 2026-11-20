@@ -17,6 +17,14 @@ export function updateSubscription(id: string, input: SubscriptionInput): Promis
   })
 }
 
+export function setSubscriptionSchedule(id: string, disabled: boolean): Promise<Subscription> {
+  return request<Subscription>({
+    url: `/subscriptions/${encodeURIComponent(id)}/schedule`,
+    method: 'patch',
+    data: { disabled }
+  })
+}
+
 export function deleteSubscription(id: string): Promise<void> {
   return request<void>({ url: `/subscriptions/${encodeURIComponent(id)}`, method: 'delete' })
 }

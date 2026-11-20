@@ -3,6 +3,7 @@
     <div class="sub-head">
       <div class="sub-title">
         <span class="sub-name">{{ subscription.name }}</span>
+        <el-tag v-if="subscription.disabled" size="small" type="info">{{ t('自动更新已暂停', 'Automatic updates paused') }}</el-tag>
         <el-tag size="small" :type="statusType(subscription.last_status)">
           {{ statusLabel }}
         </el-tag>
@@ -37,10 +38,13 @@
     </div>
 
     <div class="sub-actions">
-      <el-button size="small" text :loading="updating" @click="$emit('refresh', subscription)">
+      <el-button size="small" text :loading="updating" :disabled="changingSchedule" @click="$emit('refresh', subscription)">
         {{ t('更新', 'Update') }}
       </el-button>
-      <el-button size="small" text @click="$emit('edit', subscription)">{{ t('编辑', 'Edit') }}</el-button>
+      <el-button v-if="subscription.interval || subscription.disabled" size="small" text :loading="changingSchedule" :disabled="updating" @click="$emit('toggle-schedule', subscription)">
+        {{ subscription.disabled ? t('恢复自动更新', 'Resume automatic updates') : t('暂停自动更新', 'Pause automatic updates') }}
+      </el-button>
+      <el-button size="small" text :disabled="changingSchedule" @click="$emit('edit', subscription)">{{ t('编辑', 'Edit') }}</el-button>
       <el-button size="small" text @click="$emit('remove', subscription)">
         {{ t('删除', 'Delete') }}
       </el-button>
@@ -65,10 +69,12 @@ const props = defineProps<{
   subscription: Subscription
   nodeCount?: number
   updating?: boolean
+  changingSchedule?: boolean
 }>()
 
 defineEmits<{
   (event: 'refresh', subscription: Subscription): void
+  (event: 'toggle-schedule', subscription: Subscription): void
   (event: 'edit', subscription: Subscription): void
   (event: 'remove', subscription: Subscription): void
 }>()

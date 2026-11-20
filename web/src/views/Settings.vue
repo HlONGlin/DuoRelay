@@ -17,6 +17,14 @@
               <el-form-item v-if="hasMihomo" :label="t('mihomo 混合代理端口', 'mihomo mixed proxy port')"><el-input-number v-model="form.mixed_port" :min="1" :max="65535" /></el-form-item>
             </div>
             <el-divider />
+            <div class="account-heading"><div><h3>{{ t('管理员账户', 'Administrator account') }}</h3><p class="field-hint">{{ t('修改密码后，所有已登录设备都会退出，需要重新登录。', 'Changing the password signs out every active session and requires a new login.') }}</p></div></div>
+            <div class="form-grid password-grid">
+              <el-form-item :label="t('当前密码', 'Current password')"><el-input v-model="passwordForm.current" type="password" show-password autocomplete="current-password" /></el-form-item>
+              <el-form-item :label="t('新密码', 'New password')"><el-input v-model="passwordForm.next" type="password" show-password autocomplete="new-password" /></el-form-item>
+              <el-form-item :label="t('确认新密码', 'Confirm new password')"><el-input v-model="passwordForm.confirm" type="password" show-password autocomplete="new-password" /></el-form-item>
+            </div>
+            <el-button type="primary" :loading="passwordChanging" @click="changePassword">{{ t('修改密码并重新登录', 'Change password and log in again') }}</el-button>
+            <el-divider />
             <el-form-item :label="t('仅 SOCKS5 端口使用代理', 'Proxy only through SOCKS5 port')"><el-switch v-model="form.socks_only" :aria-label="t('仅 SOCKS5 端口使用代理', 'Proxy only through SOCKS5 port')" @change="changeSocksOnly" /><div class="field-hint">{{ t('开启后，仅下方独立 SOCKS5 端口按路由规则使用代理；混合端口直连。此模式不能与 TUN 全流量接管同时启用。', 'Only the dedicated SOCKS5 port follows proxy routing rules; mixed ports connect directly. This mode cannot be combined with TUN.') }}</div></el-form-item>
             <el-form-item v-if="form.socks_only" :label="t('独立 SOCKS5 端口', 'Dedicated SOCKS5 port')"><el-input-number v-model="form.socks_port" :min="1" :max="65535" :aria-label="t('独立 SOCKS5 端口', 'Dedicated SOCKS5 port')" /><div class="field-hint">{{ t('请与上方两个混合端口保持不同。SOCKS5 端口会使用当前单节点、负载均衡或代理链。', 'Use a different port from the mixed ports above. SOCKS5 uses the current node, load balancer or proxy chain.') }}</div></el-form-item>
             <el-divider />
@@ -140,6 +148,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { defaultConfig, useConfigStore } from '@/stores/config'
 import { useNodesStore } from '@/stores/nodes'
@@ -151,11 +160,35 @@ import LoadBalanceFields from '@/components/LoadBalanceFields.vue'
 import { formatDate } from '@/utils/format'
 import type { AppConfig, ProxyNode, RoutingMatch, RoutingMode, RoutingRule, UpdateInfo, UpdateProgress } from '@/types'
 import { exportRouting, importRoutingText, validateRoutingText } from '@/api/config'
+import { useAuthStore } from '@/stores/auth'
 
 const store = useConfigStore()
 const nodes = useNodesStore()
 const appearance = useAppearanceStore()
+const auth = useAuthStore()
+const router = useRouter()
 const t = (zh: string, en: string) => appearance.language === 'en' ? en : zh
+const passwordForm = reactive({ current: '', next: '', confirm: '' })
+const passwordChanging = ref(false)
+async function changePassword() {
+  if (!passwordForm.current || passwordForm.next.length < 8 || passwordForm.next.length > 72) {
+    ElMessage.warning(t('新密码长度必须为 8 到 72 个字符', 'The new password must contain 8 to 72 characters'))
+    return
+  }
+  if (passwordForm.next !== passwordForm.confirm) {
+    ElMessage.warning(t('两次输入的新密码不一致', 'The new passwords do not match'))
+    return
+  }
+  passwordChanging.value = true
+  try {
+    await auth.changePassword(passwordForm.current, passwordForm.next)
+    passwordForm.current = ''; passwordForm.next = ''; passwordForm.confirm = ''
+    ElMessage.success(t('密码已修改，请重新登录', 'Password changed; log in again'))
+    await router.replace('/login')
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : t('修改密码失败', 'Unable to change password'))
+  } finally { passwordChanging.value = false }
+}
 const buildInfo = ref<{ version?: string; commit?: string; platform?: string }>({})
 void request<{ version?: string; commit?: string; platform?: string }>({ url: '/version' }).then(info => { buildInfo.value = info ?? {} }).catch(() => {})
 const updateLoading = ref(false)

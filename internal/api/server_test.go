@@ -158,6 +158,27 @@ func TestSubscriptionAPI(t *testing.T) {
 	if !strings.Contains(string(update), `"nodes_total":1`) {
 		t.Fatalf("update result: %s", update)
 	}
+	path := "/api/subscriptions/" + sub.ID
+	call(t, s, "PATCH", path+"/schedule", `{}`, 400)
+	call(t, s, "PATCH", path+"/schedule", `{"disabled":true}`, 200)
+	input = fmt.Sprintf(`{"name":"renamed","url":%q,"interval":0}`, remote.URL)
+	var edited subscription.Subscription
+	if err := json.Unmarshal(call(t, s, "PUT", path, input, 200), &edited); err != nil {
+		t.Fatal(err)
+	}
+	if !edited.Disabled || edited.Group != "group" {
+		t.Fatalf("editing discarded the pause or group: %+v", edited)
+	}
+	if nodes, err := s.Store.Nodes(context.Background(), sub.ID); err != nil || len(nodes) != 1 {
+		t.Fatalf("pausing did not retain nodes: %d, %v", len(nodes), err)
+	}
+	var resumed subscription.Subscription
+	if err := json.Unmarshal(call(t, s, "PATCH", path+"/schedule", `{"disabled":false}`, 200), &resumed); err != nil {
+		t.Fatal(err)
+	}
+	if resumed.Disabled || resumed.Interval != 0 || !resumed.NextUpdate.IsZero() {
+		t.Fatalf("resuming changed the manual schedule: %+v", resumed)
+	}
 	input = fmt.Sprintf(`{"name":"changed","url":%q,"interval":4,"group":"new"}`, remote.URL)
 	call(t, s, "PUT", "/api/subscriptions/"+sub.ID, input, 200)
 	call(t, s, "DELETE", "/api/subscriptions/"+sub.ID, "", 200)

@@ -202,6 +202,31 @@ func (s *Server) authLogout(w http.ResponseWriter, r *http.Request) {
 	auth.ClearSessionCookie(w, s.CookieSecure || r.TLS != nil)
 	WriteJSON(w, http.StatusOK, map[string]bool{"authenticated": false})
 }
+
+func (s *Server) authChangePassword(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Current string `json:"current_password"`
+		Next    string `json:"new_password"`
+	}
+	if err := decode(w, r, &input, false); err != nil {
+		fail(w, err)
+		return
+	}
+	if err := s.Auth.ChangePassword(r.Context(), r, input.Current, input.Next); err != nil {
+		if errors.Is(err, auth.ErrUnauthorized) {
+			WriteError(w, http.StatusUnauthorized, &Error{Code: "AUTH_REQUIRED", What: "请先登录"})
+			return
+		}
+		if errors.Is(err, auth.ErrInvalid) {
+			WriteError(w, http.StatusUnauthorized, &Error{Code: "AUTH_INVALID", What: "当前密码错误"})
+			return
+		}
+		fail(w, err)
+		return
+	}
+	auth.ClearSessionCookie(w, s.CookieSecure || r.TLS != nil)
+	WriteJSON(w, http.StatusOK, map[string]bool{"authenticated": false})
+}
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/version", func(w http.ResponseWriter, r *http.Request) {
 		info := make(map[string]any, len(s.BuildInfo)+4)
@@ -224,10 +249,12 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/auth/register", s.authRegister)
 	s.mux.HandleFunc("POST /api/auth/login", s.authLogin)
 	s.mux.HandleFunc("POST /api/auth/logout", s.authLogout)
+	s.mux.HandleFunc("POST /api/auth/password", s.authChangePassword)
 	s.mux.HandleFunc("GET /api/subscriptions", s.listSubscriptions)
 	s.mux.HandleFunc("POST /api/subscriptions", s.createSubscription)
 	s.mux.HandleFunc("GET /api/subscriptions/{id}", s.getSubscription)
 	s.mux.HandleFunc("PUT /api/subscriptions/{id}", s.editSubscription)
+	s.mux.HandleFunc("PATCH /api/subscriptions/{id}/schedule", s.setSubscriptionSchedule)
 	s.mux.HandleFunc("DELETE /api/subscriptions/{id}", s.deleteSubscription)
 	s.mux.HandleFunc("POST /api/subscriptions/{id}/update", s.updateSubscription)
 	s.mux.HandleFunc("GET /api/subscription-groups", s.groups)
@@ -337,12 +364,31 @@ func (s *Server) createSubscription(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, 201, value)
 }
 func (s *Server) editSubscription(w http.ResponseWriter, r *http.Request) {
-	var input subscription.Subscription
+	var input subscription.EditInput
 	if err := decode(w, r, &input, false); err != nil {
 		fail(w, err)
 		return
 	}
-	value, err := s.Subscriptions.Edit(r.Context(), r.PathValue("id"), &input)
+	value, err := s.Subscriptions.Edit(r.Context(), r.PathValue("id"), input)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	WriteJSON(w, 200, value)
+}
+func (s *Server) setSubscriptionSchedule(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Disabled *bool `json:"disabled"`
+	}
+	if err := decode(w, r, &input, false); err != nil {
+		fail(w, err)
+		return
+	}
+	if input.Disabled == nil {
+		fail(w, fmt.Errorf("%w: disabled is required", store.ErrInvalid))
+		return
+	}
+	value, err := s.Subscriptions.SetDisabled(r.Context(), r.PathValue("id"), *input.Disabled)
 	if err != nil {
 		fail(w, err)
 		return

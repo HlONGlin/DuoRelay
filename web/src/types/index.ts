@@ -144,6 +144,7 @@ export interface Subscription {
   url: string
   user_agent?: string
   interval?: number
+  disabled?: boolean
   last_update?: string
   last_status?: string
   used?: number

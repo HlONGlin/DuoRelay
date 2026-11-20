@@ -235,17 +235,30 @@ func (m *Manager) save(ctx context.Context, sub *Subscription) error {
 	}
 	return err
 }
-func (m *Manager) Edit(ctx context.Context, id string, input *Subscription) (*Subscription, error) {
+
+type EditInput struct {
+	Name      string  `json:"name"`
+	URL       string  `json:"url"`
+	UserAgent string  `json:"user_agent"`
+	Interval  int     `json:"interval"`
+	Group     *string `json:"group"`
+	Disabled  *bool   `json:"disabled"`
+}
+
+func (m *Manager) Edit(ctx context.Context, id string, input EditInput) (*Subscription, error) {
 	unlock := m.lock(id)
 	defer unlock()
 	sub, err := m.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	if input == nil {
-		return nil, fmt.Errorf("%w: missing subscription", store.ErrInvalid)
+	sub.Name, sub.URL, sub.UserAgent, sub.Interval = input.Name, input.URL, input.UserAgent, input.Interval
+	if input.Group != nil {
+		sub.Group = *input.Group
 	}
-	sub.Name, sub.URL, sub.UserAgent, sub.Interval, sub.Group, sub.Disabled = input.Name, input.URL, input.UserAgent, input.Interval, input.Group, input.Disabled
+	if input.Disabled != nil {
+		sub.Disabled = *input.Disabled
+	}
 	if err := validate(sub); err != nil {
 		return nil, err
 	}
@@ -257,6 +270,21 @@ func (m *Manager) Edit(ctx context.Context, id string, input *Subscription) (*Su
 	}
 	return sub, nil
 }
+func (m *Manager) SetDisabled(ctx context.Context, id string, disabled bool) (*Subscription, error) {
+	unlock := m.lock(id)
+	defer unlock()
+	sub, err := m.Get(ctx, id)
+	if err != nil || sub.Disabled == disabled {
+		return sub, err
+	}
+	sub.Disabled = disabled
+	sub.UpdatedAt = time.Now().UTC()
+	if err := m.save(ctx, sub); err != nil {
+		return nil, err
+	}
+	return sub, nil
+}
+
 func (m *Manager) Delete(ctx context.Context, id string) error {
 	unlock := m.lock(id)
 	defer unlock()

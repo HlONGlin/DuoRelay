@@ -66,6 +66,54 @@ func TestLoginRateLimit(t *testing.T) {
 	}
 }
 
+func TestAuthenticatedPasswordChangeRevokesSessions(t *testing.T) {
+	s := apiForTest(t)
+	s.Auth = auth.New(s.Config.Store)
+	call(t, s, http.MethodPost, "/api/auth/register", `{"username":"admin","password":"correct-horse-battery"}`, http.StatusCreated)
+	login := func() *http.Cookie {
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"username":"admin","password":"correct-horse-battery"}`))
+		response := httptest.NewRecorder()
+		s.ServeHTTP(response, req)
+		if response.Code != http.StatusOK {
+			t.Fatalf("login status = %d", response.Code)
+		}
+		return response.Result().Cookies()[0]
+	}
+	first, second := login(), login()
+	bad := httptest.NewRequest(http.MethodPost, "/api/auth/password", strings.NewReader(`{"current_password":"wrong-password","new_password":"new-correct-password"}`))
+	bad.AddCookie(first)
+	badResponse := httptest.NewRecorder()
+	s.ServeHTTP(badResponse, bad)
+	if badResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("wrong current password status = %d", badResponse.Code)
+	}
+	change := httptest.NewRequest(http.MethodPost, "/api/auth/password", strings.NewReader(`{"current_password":"correct-horse-battery","new_password":"new-correct-password"}`))
+	change.AddCookie(first)
+	changed := httptest.NewRecorder()
+	s.ServeHTTP(changed, change)
+	if changed.Code != http.StatusOK {
+		t.Fatalf("change password status = %d: %s", changed.Code, changed.Body.String())
+	}
+	if len(changed.Result().Cookies()) != 1 || changed.Result().Cookies()[0].MaxAge >= 0 {
+		t.Fatalf("password change did not clear cookie: %#v", changed.Result().Cookies())
+	}
+	for name, cookie := range map[string]*http.Cookie{"first": first, "second": second} {
+		req := httptest.NewRequest(http.MethodGet, "/api/config", nil)
+		req.AddCookie(cookie)
+		response := httptest.NewRecorder()
+		s.ServeHTTP(response, req)
+		if response.Code != http.StatusUnauthorized {
+			t.Fatalf("%s session survived password change: %d", name, response.Code)
+		}
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"username":"admin","password":"new-correct-password"}`))
+	response := httptest.NewRecorder()
+	s.ServeHTTP(response, req)
+	if response.Code != http.StatusOK {
+		t.Fatalf("new password login status = %d", response.Code)
+	}
+}
+
 func TestSecureSessionCookie(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
