@@ -50,7 +50,7 @@ type Subscription struct {
 	Name        string      `json:"name"`
 	URL         string      `json:"url"`
 	UserAgent   string      `json:"user_agent"`
-	Interval    int         `json:"interval"` // hours; zero on create means 24 hours
+	Interval    int         `json:"interval"` // hours; zero means manual updates only
 	Group       string      `json:"group"`
 	Disabled    bool        `json:"disabled"`
 	LastUpdate  time.Time   `json:"last_update"`
@@ -104,8 +104,8 @@ func validate(sub *Subscription) error {
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || u.Fragment != "" {
 		return fmt.Errorf("%w: URL must use HTTP(S), without credentials or fragment", store.ErrInvalid)
 	}
-	if sub.Interval < 1 || sub.Interval > 8760 {
-		return fmt.Errorf("%w: interval must be 1..8760 hours", store.ErrInvalid)
+	if sub.Interval < 0 || sub.Interval > 8760 {
+		return fmt.Errorf("%w: interval must be 0..8760 hours", store.ErrInvalid)
 	}
 	if strings.ContainsAny(sub.UserAgent, "\r\n") {
 		return fmt.Errorf("%w: invalid user agent", store.ErrInvalid)
@@ -125,16 +125,14 @@ func (m *Manager) Add(ctx context.Context, sub *Subscription) error {
 	if sub == nil {
 		return fmt.Errorf("%w: missing subscription", store.ErrInvalid)
 	}
-	if sub.Interval == 0 {
-		sub.Interval = 24
-	}
 	if err := validate(sub); err != nil {
 		return err
 	}
 	// IDs and operational metadata are always assigned by the service.
 	sub.ID = uuid.NewString()
 	now := time.Now().UTC()
-	*sub = Subscription{ID: sub.ID, Name: sub.Name, URL: sub.URL, UserAgent: sub.UserAgent, Interval: sub.Interval, Group: sub.Group, Disabled: sub.Disabled, CreatedAt: now, UpdatedAt: now, NextUpdate: now, LastStatus: "pending"}
+	*sub = Subscription{ID: sub.ID, Name: sub.Name, URL: sub.URL, UserAgent: sub.UserAgent, Interval: sub.Interval, Group: sub.Group, Disabled: sub.Disabled, CreatedAt: now, UpdatedAt: now, LastStatus: "pending"}
+	sub.schedule(now)
 	encrypted, err := m.Store.Encrypt(sub.URL)
 	if err != nil {
 		return err
@@ -252,7 +250,7 @@ func (m *Manager) Edit(ctx context.Context, id string, input *Subscription) (*Su
 		return nil, err
 	}
 	sub.UpdatedAt = time.Now().UTC()
-	sub.NextUpdate = sub.UpdatedAt
+	sub.schedule(sub.UpdatedAt)
 	sub.Failures = 0
 	if err := m.save(ctx, sub); err != nil {
 		return nil, err
@@ -398,11 +396,29 @@ func detachSubscriptionNode(ctx context.Context, tx *sql.Tx, node *ir.Node, subs
 
 // Update only replaces subscription-owned nodes after a full successful parse.
 func (m *Manager) Update(ctx context.Context, id string) ([]*ir.Node, error) {
+	return m.update(ctx, id, false)
+}
+
+func (sub *Subscription) schedule(next time.Time) {
+	if sub.Interval == 0 {
+		next = time.Time{}
+	}
+	sub.NextUpdate = next
+}
+
+func (sub *Subscription) due(now time.Time) bool {
+	return !sub.Disabled && sub.Interval > 0 && !sub.NextUpdate.After(now)
+}
+
+func (m *Manager) update(ctx context.Context, id string, scheduled bool) ([]*ir.Node, error) {
 	unlock := m.lock(id)
 	defer unlock()
 	sub, err := m.Get(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if scheduled && !sub.due(time.Now()) {
+		return nil, nil
 	}
 	sub.LastAttempt = time.Now().UTC()
 	nodes, headers, err := m.fetch(ctx, sub)
@@ -418,7 +434,7 @@ func (m *Manager) Update(ctx context.Context, id string) ([]*ir.Node, error) {
 		if delay > 6*time.Hour {
 			delay = 6 * time.Hour
 		}
-		sub.NextUpdate = sub.UpdatedAt.Add(delay)
+		sub.schedule(sub.UpdatedAt.Add(delay))
 		// Preserve failure metadata even when the caller timed out or disconnected.
 		saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
@@ -505,7 +521,7 @@ func (m *Manager) Update(ctx context.Context, id string) ([]*ir.Node, error) {
 	sub.LastError = ""
 	sub.Failures = 0
 	sub.Diff = diff
-	sub.NextUpdate = now.Add(time.Duration(sub.Interval) * time.Hour)
+	sub.schedule(now.Add(time.Duration(sub.Interval) * time.Hour))
 	tx, err := m.Store.DB().BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -641,8 +657,8 @@ func (m *Manager) Run(ctx context.Context, poll time.Duration) error {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			if !sub.Disabled && !sub.NextUpdate.After(time.Now()) {
-				_, _ = m.Update(ctx, sub.ID)
+			if sub.due(time.Now()) {
+				_, _ = m.update(ctx, sub.ID, true)
 			}
 		}
 		select {

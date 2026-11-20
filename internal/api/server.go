@@ -325,7 +325,7 @@ func (s *Server) getSubscription(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, 200, value)
 }
 func (s *Server) createSubscription(w http.ResponseWriter, r *http.Request) {
-	var value subscription.Subscription
+	value := subscription.Subscription{Interval: 24}
 	if err := decode(w, r, &value, false); err != nil {
 		fail(w, err)
 		return

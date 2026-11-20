@@ -165,7 +165,7 @@ func TestUpdateDiffFailureAndCRUD(t *testing.T) {
 		fmt.Fprint(w, content.Load().(string))
 	}))
 	defer server.Close()
-	sub := &Subscription{Name: "test", URL: server.URL + "/?token=private", UserAgent: "custom-agent", Group: "group"}
+	sub := &Subscription{Name: "test", URL: server.URL + "/?token=private", UserAgent: "custom-agent", Group: "group", Interval: 24}
 	if err := m.Add(ctx, sub); err != nil {
 		t.Fatal(err)
 	}
@@ -260,7 +260,7 @@ func TestSchedulerAndCancellation(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	sub := &Subscription{Name: "scheduled", URL: server.URL}
+	sub := &Subscription{Name: "scheduled", URL: server.URL, Interval: 24}
 	if err := m.Add(context.Background(), sub); err != nil {
 		t.Fatal(err)
 	}
@@ -280,6 +280,65 @@ func TestSchedulerAndCancellation(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("scheduler did not stop")
+	}
+}
+
+func TestManualSubscriptionSchedule(t *testing.T) {
+	m := newTestManager(t)
+	ctx := context.Background()
+	requests := make(chan string, 16)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests <- r.URL.Path
+		fmt.Fprint(w, clashOne)
+	}))
+	defer server.Close()
+	add := func(name string, interval int) *Subscription {
+		t.Helper()
+		sub := &Subscription{Name: name, URL: server.URL + "/" + name, Interval: interval}
+		if err := m.Add(ctx, sub); err != nil {
+			t.Fatal(err)
+		}
+		return sub
+	}
+	assertManual := func(id string) {
+		t.Helper()
+		sub, err := m.Get(ctx, id)
+		if err != nil || sub.Interval != 0 || !sub.NextUpdate.IsZero() {
+			t.Fatalf("expected persisted manual schedule: %+v, %v", sub, err)
+		}
+	}
+	manual := add("a-manual", 0)
+	assertManual(manual.ID)
+	edited := add("b-edited", 24)
+	edited.Interval = 0
+	if _, err := m.Edit(ctx, edited.ID, edited); err != nil {
+		t.Fatal(err)
+	}
+	assertManual(edited.ID)
+	add("c-automatic", 24)
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { done <- m.Run(runCtx, 10*time.Millisecond) }()
+	defer func() { cancel(); <-done }()
+	select {
+	case path := <-requests:
+		if path != "/c-automatic" {
+			t.Fatalf("first automatic request = %q", path)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("automatic subscription was not updated")
+	}
+	if nodes, err := m.Update(ctx, manual.ID); err != nil || len(nodes) != 1 {
+		t.Fatalf("manual update returned %d nodes, %v", len(nodes), err)
+	}
+	if path := <-requests; path != "/a-manual" {
+		t.Fatalf("manual request = %q", path)
+	}
+	assertManual(manual.ID)
+	select {
+	case path := <-requests:
+		t.Fatalf("unexpected scheduled retry: %q", path)
+	case <-time.After(50 * time.Millisecond):
 	}
 }
 
