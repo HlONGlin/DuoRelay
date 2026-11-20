@@ -33,25 +33,41 @@
         <el-button v-else type="primary" size="small" :disabled="!sorted.length || mutationBusy" @click="testBatch">{{ selected.size ? t('测速勾选节点', 'Test selected') : t('一键测速', 'Test all') }}</el-button>
       </div>
       <el-progress v-if="batchRunning" :percentage="batchTotal ? Math.round(batchDone / batchTotal * 100) : 0" :stroke-width="2" :show-text="false" />
-      <div ref="scrollArea" v-loading="nodes.loading" class="node-scroll" :style="{ height: sorted.length ? Math.min(560, 36 + sorted.length * rowHeight) + 'px' : '280px' }" @scroll="onScroll">
+      <div ref="scrollArea" v-loading="nodes.loading" class="node-scroll" :class="{ 'node-scroll-narrow': narrow }" :style="narrow ? undefined : { height: sorted.length ? Math.min(560, 36 + sorted.length * rowHeight) + 'px' : '280px' }" @scroll="onScroll">
         <table v-if="sorted.length" class="node-table" :style="{ '--row-height': rowHeight + 'px' }" :aria-label="t('节点列表', 'Node list')" :aria-rowcount="sorted.length + 1">
           <colgroup><col style="width:44px" /><col style="width:240px" /><col style="width:120px" /><col style="width:110px" /><col style="width:210px" /><col style="width:140px" /><col style="width:260px" /></colgroup>
           <thead><tr><th><input type="checkbox" :aria-label="t('勾选全部筛选结果', 'Select all matching nodes')" :checked="allSelected" :indeterminate="someSelected && !allSelected" @change="toggleAll" /></th><th><button type="button" class="sort-button" @click="toggleSort('name')">{{ t('节点名称', 'Node name') }} <span>{{ sortIndicator('name') }}</span></button></th><th>{{ t('协议', 'Protocol') }}</th><th>{{ t('支持内核', 'Kernels') }}</th><th>{{ t('服务器', 'Server') }}</th><th class="numeric"><button type="button" class="sort-button" @click="toggleSort('delay')">{{ t('TCP 延迟', 'TCP latency') }} <span>{{ sortIndicator('delay') }}</span></button></th><th class="row-actions-head">{{ t('操作', 'Actions') }}</th></tr></thead>
           <tbody>
-            <tr v-if="startIndex" aria-hidden="true" class="spacer-row" :style="{ height: startIndex * rowHeight + 'px' }"><td colspan="7" /></tr>
+            <tr v-if="!narrow && startIndex" aria-hidden="true" class="spacer-row" :style="{ height: startIndex * rowHeight + 'px' }"><td colspan="7" /></tr>
             <tr v-for="(node, index) in visibleNodes" :key="node.id" class="node-row" :class="{ 'is-active': node.status === 'active' && (!['manual', 'select'].includes(activeState?.mode ?? '') || activeState?.selected_node_id === node.id), 'is-unavailable': Boolean(nodeUnavailableReason(node)), 'is-failed': (node.last_delay_ms ?? 0) < 0 }" :aria-rowindex="startIndex + index + 2">
               <td><input type="checkbox" :disabled="Boolean(nodeUnavailableReason(node))" :title="unavailableLabel(node)" :checked="selected.has(node.id)" :aria-label="t('勾选 ', 'Select ') + node.name" @change="toggleSelected(node.id)" /></td>
               <td><div class="node-name" :title="node.name"><span v-if="node.status === 'active'" class="status-dot running" /><span>{{ node.name }}</span><span v-if="node.status === 'active'" class="active-label">{{ t('使用中', 'Active') }}</span><span v-else-if="node.status === 'socks'" class="active-label">SOCKS5</span></div></td>
               <td><span class="neutral-badge" :title="protocolDescription(node.protocol)">{{ protocolLabel(node.protocol) }}</span></td>
               <td class="kernel-cell">{{ ownerLabel(node.owner) }}</td>
-              <td class="endpoint mono" :title="nodeEndpointLabel(node)">{{ nodeEndpointLabel(node) }}</td>
+              <td class="endpoint mono" :title="nodeEndpointLabel(node)"><details v-if="narrow"><summary>{{ t('服务器地址', 'Server address') }}</summary><span>{{ nodeEndpointLabel(node) }}</span></details><template v-else>{{ nodeEndpointLabel(node) }}</template></td>
               <td class="numeric"><span v-if="testing.has(node.id)" class="muted type-p-caption">{{ t('测试中…', 'Testing…') }}</span><DelayBadge v-else :delay="node.last_delay_ms" /></td>
-              <td><div class="row-actions"><el-button v-if="node.status !== 'active' || (['manual', 'select'].includes(activeState?.mode ?? '') && node.id !== activeState?.selected_node_id)" class="activate-button" size="small" :loading="activatingId === node.id" :disabled="mutationBusy || kernel.busy || Boolean(nodeUnavailableReason(node))" :title="unavailableLabel(node)" @click="handleActivate(node)">{{ unavailableLabel(node) || (['manual', 'select'].includes(activeState?.mode ?? '') && activeState?.node_ids.includes(node.id) ? t('切换到此节点', 'Switch to this node') : t('选择并启动', 'Select and start')) }}</el-button><el-button v-else size="small" :loading="kernel.busy" :disabled="mutationBusy" @click="handleStopCurrent">{{ activeMemberCount > 1 ? t('停止组合', 'Stop group') : t('取消选择', 'Deselect') }}</el-button><el-button size="small" text :disabled="Boolean(node.composition) || testing.has(node.id) || batchRunning || groupBusy" @click="handleTest(node)">{{ t('测速', 'Test') }}</el-button><el-button size="small" text :disabled="mutationBusy" @click="openEdit(node)">{{ t('编辑', 'Edit') }}</el-button><el-button size="small" text :disabled="node.status === 'active' || node.status === 'socks' || testing.has(node.id) || batchRunning || mutationBusy" :title="node.status === 'socks' ? t('先移除 SOCKS5 端口绑定', 'Remove SOCKS5 port bindings first') : undefined" @click="handleRemove(node)">{{ t('删除', 'Delete') }}</el-button></div></td>
+              <td><div class="row-actions">
+                <el-button v-if="node.status !== 'active' || (['manual', 'select'].includes(activeState?.mode ?? '') && node.id !== activeState?.selected_node_id)" class="activate-button" size="small" :loading="activatingId === node.id" :disabled="mutationBusy || kernel.busy || Boolean(nodeUnavailableReason(node))" :title="unavailableLabel(node)" @click="handleActivate(node)">{{ unavailableLabel(node) || (['manual', 'select'].includes(activeState?.mode ?? '') && activeState?.node_ids.includes(node.id) ? t('切换到此节点', 'Switch to this node') : t('选择并启动', 'Select and start')) }}</el-button>
+                <el-button v-else size="small" :loading="kernel.busy" :disabled="mutationBusy" @click="handleStopCurrent">{{ activeMemberCount > 1 ? t('停止组合', 'Stop group') : t('取消选择', 'Deselect') }}</el-button>
+                <details :key="String(narrow)" class="secondary-actions" :open="!narrow">
+                  <summary v-if="narrow">{{ t('更多操作', 'More actions') }}</summary>
+                  <div class="secondary-buttons">
+                    <el-button size="small" text :disabled="Boolean(node.composition) || testing.has(node.id) || batchRunning || groupBusy" @click="handleTest(node)">{{ t('测速', 'Test') }}</el-button>
+                    <el-button size="small" text :disabled="mutationBusy" @click="openEdit(node)">{{ t('编辑', 'Edit') }}</el-button>
+                    <el-button size="small" text :disabled="node.status === 'active' || node.status === 'socks' || testing.has(node.id) || batchRunning || mutationBusy" :title="node.status === 'socks' ? t('先移除 SOCKS5 端口绑定', 'Remove SOCKS5 port bindings first') : undefined" @click="handleRemove(node)">{{ t('删除', 'Delete') }}</el-button>
+                  </div>
+                </details>
+              </div></td>
             </tr>
-            <tr v-if="endIndex < sorted.length" aria-hidden="true" class="spacer-row" :style="{ height: (sorted.length - endIndex) * rowHeight + 'px' }"><td colspan="7" /></tr>
+            <tr v-if="!narrow && endIndex < sorted.length" aria-hidden="true" class="spacer-row" :style="{ height: (sorted.length - endIndex) * rowHeight + 'px' }"><td colspan="7" /></tr>
           </tbody>
         </table>
         <EmptyState v-else :title="hasFilters ? t('没有匹配的节点', 'No matching nodes') : t('暂无节点', 'No nodes yet')" :description="hasFilters ? t('请调整搜索或筛选条件。', 'Adjust your search or filters.') : t('支持导入节点链接或订阅内容。', 'Import node links or subscription content.')"><el-button v-if="hasFilters" @click="nodes.resetFilters">{{ t('清除筛选', 'Clear filters') }}</el-button><el-button v-else @click="importVisible = true">{{ t('导入节点', 'Import nodes') }}</el-button></EmptyState>
+      </div>
+      <div v-if="narrow && pageCount > 1" class="mobile-pagination">
+        <el-button size="small" :disabled="page === 1" @click="changePage(-1)">{{ t('上一页', 'Previous') }}</el-button>
+        <span class="mono" aria-live="polite">{{ page }} / {{ pageCount }}</span>
+        <el-button size="small" :disabled="page === pageCount" @click="changePage(1)">{{ t('下一页', 'Next') }}</el-button>
       </div>
       <div class="table-footer"><span>{{ t('勾选普通节点后可配置并生成负载均衡或链式代理节点；生成后从列表中单独启动。', 'Select regular nodes to configure and create a load balancing or proxy chain node, then start it separately from the list.') }}</span><span class="mono">{{ sorted.length }} {{ t('个节点', 'nodes') }}</span></div>
     </section>
@@ -132,6 +148,9 @@ async function startManual() {
 }
 const density = ref('compact')
 const isTouch = ref(false)
+const narrow = ref(false)
+const page = ref(1)
+const pageSize = 25
 const rowHeight = computed(() => density.value === 'compact' && !isTouch.value ? 36 : 44)
 const scrollArea = ref<HTMLElement>()
 const scrollTop = ref(0), viewportHeight = ref(520)
@@ -145,9 +164,15 @@ const sorted = computed(() => {
     return ((a.last_delay_ms ?? 0) - (b.last_delay_ms ?? 0)) * (sortDescending.value ? -1 : 1)
   })
 })
-const startIndex = computed(() => Math.min(Math.max(0, sorted.value.length - 1), Math.max(0, Math.floor(Math.max(0, scrollTop.value - 36) / rowHeight.value) - 6)))
-const endIndex = computed(() => Math.min(sorted.value.length, startIndex.value + Math.ceil(viewportHeight.value / rowHeight.value) + 12))
+const pageCount = computed(() => Math.max(1, Math.ceil(sorted.value.length / pageSize)))
+const startIndex = computed(() => narrow.value ? (Math.min(page.value, pageCount.value) - 1) * pageSize : Math.min(Math.max(0, sorted.value.length - 1), Math.max(0, Math.floor(Math.max(0, scrollTop.value - 36) / rowHeight.value) - 6)))
+const endIndex = computed(() => Math.min(sorted.value.length, startIndex.value + (narrow.value ? pageSize : Math.ceil(viewportHeight.value / rowHeight.value) + 12)))
 const visibleNodes = computed(() => sorted.value.slice(startIndex.value, endIndex.value))
+function changePage(delta: number) {
+  page.value = Math.min(pageCount.value, Math.max(1, page.value + delta))
+  scrollArea.value?.scrollIntoView({ block: 'start' })
+}
+watch(pageCount, count => { page.value = Math.min(page.value, count) })
 const allSelected = computed(() => sorted.value.length > 0 && sorted.value.filter(n => !nodeUnavailableReason(n)).every(n => selected.value.has(n.id)))
 const someSelected = computed(() => sorted.value.some(n => selected.value.has(n.id)))
 const selectedProtected = computed(() => nodes.items.some(node => selected.value.has(node.id) && (node.status === 'active' || node.status === 'socks')))
@@ -156,7 +181,7 @@ function toggleAll() { const remove = allSelected.value; for (const n of sorted.
 function toggleSort(key: 'name' | 'delay') { sortDescending.value = sortKey.value === key ? !sortDescending.value : false; sortKey.value = key }
 function sortIndicator(key: string) { return sortKey.value === key ? (sortDescending.value ? '↓' : '↑') : '↕' }
 function onScroll(event: Event) { scrollTop.value = (event.target as HTMLElement).scrollTop }
-watch([() => nodes.search, () => nodes.protocolFilter, () => nodes.subscriptionFilter, sortKey, sortDescending, rowHeight], () => { scrollTop.value = 0; if (scrollArea.value) scrollArea.value.scrollTop = 0 })
+watch([() => nodes.search, () => nodes.protocolFilter, () => nodes.subscriptionFilter, sortKey, sortDescending, rowHeight, narrow], () => { page.value = 1; scrollTop.value = 0; if (scrollArea.value) scrollArea.value.scrollTop = 0 })
 watch(() => nodes.items, items => { const ids = new Set(items.map(n => n.id)); selected.value = new Set([...selected.value].filter(id => ids.has(id))) })
 
 const batchRunning = ref(false), batchDone = ref(0), batchTotal = ref(0)
@@ -279,9 +304,11 @@ async function handleRemoveSelected() {
 }
 let observer: ResizeObserver | undefined
 let media: MediaQueryList | undefined
+let narrowMedia: MediaQueryList | undefined
 let disposed = false
 let proxyStatusTimer: number | undefined
 function touchChange(event: MediaQueryListEvent | MediaQueryList) { isTouch.value = event.matches }
+function narrowChange(event: MediaQueryListEvent | MediaQueryList) { narrow.value = event.matches }
 onMounted(() => {
   void refresh()
   proxyStatusTimer = window.setInterval(() => { void fetchActiveState() }, 5000)
@@ -289,9 +316,10 @@ onMounted(() => {
   if (route.query.import === '1') importVisible.value = true
   if (!subscriptions.items.length) void subscriptions.fetchSubscriptions()
   media = window.matchMedia('(max-width: 768px), (pointer: coarse)'); touchChange(media); media.addEventListener('change', touchChange)
+  narrowMedia = window.matchMedia('(max-width: 768px)'); narrowChange(narrowMedia); narrowMedia.addEventListener('change', narrowChange)
   if (scrollArea.value) { observer = new ResizeObserver(([entry]) => { viewportHeight.value = entry.contentRect.height }); observer.observe(scrollArea.value) }
 })
-onBeforeUnmount(() => { disposed = true; cancelBatch.value = true; observer?.disconnect(); media?.removeEventListener('change', touchChange); if (proxyStatusTimer) window.clearInterval(proxyStatusTimer) })
+onBeforeUnmount(() => { disposed = true; cancelBatch.value = true; observer?.disconnect(); media?.removeEventListener('change', touchChange); narrowMedia?.removeEventListener('change', narrowChange); if (proxyStatusTimer) window.clearInterval(proxyStatusTimer) })
 </script>
 
 <style scoped>
@@ -336,6 +364,7 @@ onBeforeUnmount(() => { disposed = true; cancelBatch.value = true; observer?.dis
 .active-label { font-size: var(--typography-p-micro-font-size); flex-shrink: 0; color: var(--primary-deep); }
 .kernel-cell { font-size: var(--typography-p-caption-font-size); }.endpoint { font-size: var(--typography-p-caption-font-size); color: var(--ink-subtle); }
 .row-actions { display: flex; align-items: center; gap: 4px; justify-content: flex-end; }
+.secondary-buttons { display: flex; flex-wrap: wrap; gap: 4px; }
 .row-actions :deep(.el-button + .el-button) { margin-left: 0; }
 .node-table .row-actions-head { text-align: right; }
 .node-table td:last-child, .node-table th:last-child { position: sticky; right: 0; background: var(--surface-1); border-left: 1px solid var(--hairline); }
@@ -343,5 +372,29 @@ onBeforeUnmount(() => { disposed = true; cancelBatch.value = true; observer?.dis
 .node-table .is-active td:last-child { background: var(--primary-soft); }
 .table-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid var(--hairline); padding: 12px 16px; font-size: var(--typography-p-micro-font-size); color: var(--ink-subtle); }
 .import-hint { font-size: var(--typography-p-body-sm-font-size); color: var(--ink-subtle); margin-bottom: 16px; }
-@media (max-width: 768px) { .search-input { width: 100%; } .filter-select { width: calc(50% - 4px); } .density-select { display: none; } .active-banner { flex-wrap: wrap; padding: 16px; } .table-footer span:first-child { max-width: 220px; } .node-table td:last-child, .node-table th:last-child { position: static; border-left: 0; } }
+@media (max-width: 768px) {
+  .search-input { width: 100%; }
+  .filter-select { width: calc(50% - 4px); }
+  .density-select { display: none; }
+  .batch-bar, .active-banner { flex-wrap: wrap; }
+  .active-banner { padding: 16px; }
+  .table-footer span:first-child { max-width: 220px; }
+  .node-scroll-narrow { height: auto; max-height: none; overflow: visible; }
+  .node-table, .node-table thead, .node-table tbody { display: block; min-width: 0; }
+  .node-table thead { position: static; }
+  .node-table tr { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px 10px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--hairline); }
+  .node-table .is-active { background: var(--primary-soft); }
+  .node-table colgroup, .node-table th:nth-child(3), .node-table th:nth-child(4), .node-table th:nth-child(5), .node-table th:last-child, .node-table .kernel-cell { display: none; }
+  .node-table td, .node-table th { padding: 0; height: auto; min-width: 0; border: 0; }
+  .node-table .node-name { white-space: normal; overflow-wrap: anywhere; }
+  .node-table td:nth-child(3) { grid-column: 3; justify-self: end; }
+  .node-table td.numeric { grid-column: 3; grid-row: 2; }
+  .node-table .endpoint { grid-column: 2; grid-row: 2; white-space: normal; overflow-wrap: anywhere; }
+  .node-table td:last-child { grid-column: 2 / -1; position: static; background: transparent; border: 0; overflow: visible; white-space: normal; }
+  .row-actions { flex-wrap: wrap; justify-content: flex-start; gap: 8px; }
+  .row-actions :deep(.el-button) { min-height: 32px; max-width: 100%; white-space: normal; }
+  .secondary-actions summary, .endpoint summary { font-family: inherit; cursor: pointer; color: var(--ink-muted); }
+  .secondary-actions[open] { flex-basis: 100%; }
+  .mobile-pagination { display: flex; gap: 12px; align-items: center; justify-content: center; padding: 12px; }
+}
 </style>
