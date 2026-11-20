@@ -43,17 +43,20 @@
               <el-select v-model="form.transparent_mode" @change="changeTransparentMode">
                 <el-option v-for="mode in transparentModes" :key="mode.mode" :value="mode.mode" :label="transparentModeLabel(mode.mode)" :disabled="!mode.supported"><span>{{ transparentModeLabel(mode.mode) }}</span><small v-if="!mode.supported">{{ translateCapability(mode.reason) }}</small></el-option>
               </el-select>
+              <div class="field-hint">{{ selectedTransparentMode?.supported ? t('当前环境通过能力探测', 'Capability detected in this environment') : t('当前环境不支持所选模式', 'Selected mode is unavailable in this environment') }}<template v-if="selectedTransparentMode?.reason">：{{ translateCapability(selectedTransparentMode.reason) }}</template></div>
               <div class="field-hint">{{ translateCapability(selectedTransparentMode?.prerequisites) }}</div>
               <div class="field-hint">DNS: {{ translateCapability(selectedTransparentMode?.dns_description) }}</div>
+              <div v-if="form.transparent_mode === 'redirect'" class="field-hint">{{ t('Linux redirect 只接管 TCP，不接管 UDP DNS。', 'Linux redirect captures TCP only and does not intercept UDP DNS.') }}</div>
               <div class="field-hint">{{ t('当前生效：', 'Currently active: ') }}{{ transparentModeLabel(form.transparent_active ?? 'off') }}</div>
+              <div class="field-hint">{{ t('能力探测和生效状态不代表真实流量或 DNS 防泄漏验收通过。Windows TUN、Windows 系统代理恢复及 macOS TUN 尚未完成真实系统验收。', 'Capability detection and active status do not verify real traffic or DNS leak protection. Windows TUN, Windows system proxy restoration and macOS TUN remain unverified on real systems.') }}</div>
               <el-alert v-if="form.transparent_mode !== (form.transparent_active || 'off')" type="warning" :closable="false" :title="t('所选模式尚未生效。保存后重新启动节点；若启动失败，请查看权限预检提示。', 'The selected mode is pending. Save and restart the node; check preflight details if startup fails.')" :description="translateCapability(form.transparent_reason)" />
             </el-form-item>
-            <el-form-item :label="t('TUN 全流量接管', 'TUN system traffic capture')"><el-switch v-model="form.enable_tun" :disabled="!transparentModes.find((mode) => mode.mode === 'tun')?.supported" :aria-label="t('TUN 全流量接管', 'TUN system traffic capture')" @change="changeTun" /><div class="field-hint">{{ t('接管 IPv4/IPv6 系统流量并劫持 TCP/UDP DNS。需要管理员或 NET_ADMIN 权限及可用的 TUN 设备；路由规则决定哪些流量直连。', 'Captures IPv4/IPv6 system traffic and intercepts TCP/UDP DNS. Requires administrator or NET_ADMIN privileges and a TUN device; routing rules determine direct traffic.') }}</div></el-form-item>
+            <el-form-item :label="t('TUN 系统流量接管', 'TUN system traffic capture')"><el-switch v-model="form.enable_tun" :disabled="!transparentModes.find((mode) => mode.mode === 'tun')?.supported" :aria-label="t('TUN 系统流量接管', 'TUN system traffic capture')" @change="changeTun" /><div class="field-hint">{{ t('TUN 设备和权限要求见上方模式说明；内核按配置处理系统流量和 DNS，路由规则决定哪些流量直连。', 'See the mode details for device and privilege requirements. The kernel handles system traffic and DNS according to its configuration; routing rules determine direct traffic.') }}</div></el-form-item>
             <el-form-item :label="t('TUN 网络栈', 'TUN network stack')"><el-select v-model="form.tun_stack" :disabled="!form.enable_tun"><el-option v-for="stack in ['system', 'gvisor', 'mixed']" :key="stack" :value="stack" :label="stack" /></el-select></el-form-item>
             <el-divider />
             <el-alert v-if="form.enable_tun" :title="t('TUN 会接管系统流量；当前代理节点不可达时，系统网络可能中断。', 'TUN captures system traffic; system connectivity may be interrupted if the selected proxy node is unreachable.')" type="warning" :closable="false" />
             <el-form-item :label="t('本地控制器端口', 'Local controller port')"><el-input-number v-model="form.controller_port" :min="0" :max="65535" /><div class="field-hint">{{ t('设为 0 自动分配端口。', 'Set to 0 to assign a port automatically.') }}</div></el-form-item>
-            <el-form-item :label="t('系统代理', 'System proxy')"><el-switch v-model="form.system_proxy" :disabled="!form.system_proxy_supported" /><div class="field-hint">{{ form.system_proxy_supported ? t('将系统代理指向本地入口，退出或启动失败时恢复原设置。只接管遵循系统代理设置的应用；要接管设备的全部流量，请启用 TUN。', 'Points the system proxy to the local inbound and restores settings on exit or startup failure. Only applications using system proxy settings are affected; enable TUN for all device traffic.') : t('当前环境不支持系统代理接管；Windows 或带 GNOME D-Bus 会话的 Linux 可用。要接管设备的全部流量，请启用 TUN。', 'System proxy is unavailable in this environment. It is available on Windows or Linux with a GNOME D-Bus session. Enable TUN for all device traffic.') }}</div></el-form-item>
+            <el-form-item :label="t('系统代理', 'System proxy')"><el-switch v-model="form.system_proxy" :disabled="!form.system_proxy_supported" /><div class="field-hint">{{ form.system_proxy_supported ? t('仅影响遵循系统代理设置的应用。退出或启动失败时会尝试恢复原设置；Windows 恢复尚未完成真实系统验收。', 'Affects only applications that honor system proxy settings. DuoRelay attempts to restore the previous settings on exit or startup failure; restoration remains unverified on real Windows systems.') : t('当前环境不支持。该功能需要 Windows 或带 GNOME D-Bus 会话的 Linux。', 'Unavailable in this environment. Requires Windows or Linux with a GNOME D-Bus session.') }}</div></el-form-item>
             <router-link to="/kernel" class="settings-link">{{ t('查看运行状态与日志 →', 'View status and logs →') }}</router-link>
           </template>
           <template v-if="category === 'routing'">
@@ -314,8 +317,10 @@ const fallbackTransparentModes = [
 ] as AppConfig['transparent_modes']
 const transparentModes = computed(() => (store.config.transparent_modes?.length ? store.config.transparent_modes : fallbackTransparentModes) as NonNullable<AppConfig['transparent_modes']>)
 const selectedTransparentMode = computed(() => transparentModes.value.find((mode) => mode.mode === form.transparent_mode))
-function transparentModeLabel(mode: string) { return ({ off: t('关闭', 'Off'), redirect: 'Linux redirect', tproxy: 'Linux TPROXY', tun: t('TUN 全流量', 'TUN system traffic') } as Record<string, string>)[mode] ?? mode }
+function transparentModeLabel(mode: string) { return ({ off: t('关闭', 'Off'), redirect: 'Linux redirect', tproxy: 'Linux TPROXY', tun: t('TUN 系统流量', 'TUN system traffic') } as Record<string, string>)[mode] ?? mode }
 function translateCapability(value?: string) {
+  if (value === 'TUN 通过内核 DNS hijack 接管 TCP/UDP 53；内部 DNS 分流规则先于用户规则，避免 DNS 泄漏。') return t('内核为 TUN 配置 TCP/UDP 53 的 DNS 接管；实际效果需在目标系统验证。', 'The kernel configures TUN DNS interception for TCP/UDP port 53; verify actual behavior on the target system.')
+  if (value === 'redirect 不接管 UDP DNS；使用系统 DNS 会产生 DNS 泄漏，面板会明确标记。') return t('不接管 UDP DNS；系统 DNS 查询可能绕过代理。', 'Does not intercept UDP DNS; system DNS queries may bypass the proxy.')
   if (!value || appearance.language !== 'en') return value ?? ''
   const translations: Record<string, string> = {
     '所选模式尚未应用或内核未运行；保存后重新启动节点。': 'The selected mode has not been applied or its kernel is stopped. Save and restart the node.',
@@ -336,7 +341,11 @@ function translateCapability(value?: string) {
     '缺少 nftables/iptables 或 iproute2': 'Missing nftables/iptables or iproute2.',
     '/dev/net/tun 不可用；服务需 DeviceAllow 或容器需显式映射': '/dev/net/tun is unavailable; the service needs DeviceAllow or the container must explicitly map it.',
     '仅需 CAP_NET_ADMIN 与 CAP_NET_RAW，并可读写 /dev/net/tun；内核负责 TUN 路由和 DNS hijack。': 'Requires CAP_NET_ADMIN, CAP_NET_RAW and read/write access to /dev/net/tun; the kernel handles TUN routing and DNS hijacking.',
-    'TUN 通过内核 DNS hijack 接管 TCP/UDP 53；内部 DNS 分流规则先于用户规则，避免 DNS 泄漏。': 'TUN intercepts TCP/UDP port 53 using kernel DNS hijacking; internal DNS routing rules precede user rules to prevent DNS leaks.',
+    '当前进程未以管理员权限运行；请使用提升的 PowerShell 或服务账户': 'The process is not elevated. Use an elevated PowerShell or service account.',
+    '需要管理员权限、Wintun 驱动和防火墙确认；内核负责 TUN 路由和 DNS hijack。': 'Requires administrator privileges, a Wintun driver and firewall confirmation. The kernel configures TUN routing and DNS interception.',
+    'macOS TUN 需要 root 权限；请通过系统服务启动': 'macOS TUN requires root privileges; launch through a system service.',
+    '需要 root 权限以创建 utun 和管理路由': 'Requires root privileges to create utun and manage routes.',
+    '内核负责 TUN 与 DNS 劫持': 'The kernel configures TUN and DNS interception.',
     '当前系统未报告可用能力': 'The current system did not report this capability.',
     '需要 Linux nftables/iptables、iproute2 和 NET_ADMIN。': 'Requires Linux nftables/iptables, iproute2 and NET_ADMIN.',
     '不接管 UDP DNS。': 'Does not capture UDP DNS.',
@@ -344,7 +353,6 @@ function translateCapability(value?: string) {
     '需要显式配置代理 DNS。': 'Proxy DNS must be configured explicitly.',
     '需要 /dev/net/tun 和 NET_ADMIN。': 'Requires /dev/net/tun and NET_ADMIN.',
     '由内核 DNS hijack 接管。': 'Captured by kernel DNS hijacking.',
-    'redirect 不接管 UDP DNS；使用系统 DNS 会产生 DNS 泄漏，面板会明确标记。': 'Redirect does not capture UDP DNS. Using system DNS causes a DNS leak, which the panel marks explicitly.',
     'TPROXY 可接管 TCP/UDP，但 DuoRelay 当前只建立代理流量链，DNS 仍需显式配置到代理 DNS，避免把系统 DNS 当成已接管。': 'TPROXY can capture TCP/UDP, but DuoRelay currently creates only a proxy traffic chain. Configure proxy DNS explicitly; system DNS is not automatically captured.'
   }
   if (translations[value]) return translations[value]

@@ -185,7 +185,7 @@ make build
 | Windows | 系统代理仅操作当前用户；系统代理恢复和 TUN 仍需真实 Windows 环境验收 |
 | macOS | TUN 尚未完成真实系统验证，不作为已验证支持声明 |
 
-透明代理不能等同于完整接管或 DNS 防泄漏保证。Linux redirect 不接管 UDP DNS；各模式的前提和结果见 [透明代理验收](docs/transparent-proxy-acceptance.md)。容器结果与真实主机结果分开记录在 [容器验收](docs/container-acceptance.md)。
+透明代理的能力探测和生效状态不代表真实流量验收通过，也不保证完整接管或 DNS 防泄漏。Linux redirect 只接管 TCP，不接管 UDP DNS。各模式的前提和结果见 [透明代理验收](docs/transparent-proxy-acceptance.md)，容器结果另见 [容器验收](docs/container-acceptance.md)。
 
 ## 验证与开发
 

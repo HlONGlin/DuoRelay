@@ -136,10 +136,25 @@ describe('settings workflows', () => {
     const wrapper = await render()
     await wrapper.find('[aria-label="仅 SOCKS5 端口使用代理"]').trigger('click')
     await wrapper.findAll('.category-nav button').find(button => button.text() === '内核')!.trigger('click')
-    await wrapper.find('[aria-label="TUN 全流量接管"]').trigger('click')
+    await wrapper.get('[aria-label="TUN 系统流量接管"]').trigger('click')
     await wrapper.find('.save-bar button').trigger('click')
     await flushPromises()
     expect(configApi.updateConfig).toHaveBeenCalledWith(expect.objectContaining({ socks_only: false, enable_tun: true }))
+    wrapper.unmount()
+  })
+
+  it('distinguishes supported redirect from active mode and real traffic verification', async () => {
+    const config = defaultConfig()
+    config.transparent_mode = 'redirect'
+    config.transparent_modes = [{ mode: 'redirect', supported: true, prerequisites: '需要 NET_ADMIN', dns_description: '不接管 UDP DNS。' }]
+    vi.mocked(configApi.getConfig).mockResolvedValue(config)
+    const wrapper = await render()
+    await wrapper.findAll('.category-nav button').find(button => button.text() === '内核')!.trigger('click')
+    expect(wrapper.text()).toContain('当前环境通过能力探测')
+    expect(wrapper.text()).toContain('需要 NET_ADMIN')
+    expect(wrapper.text()).toContain('Linux redirect 只接管 TCP，不接管 UDP DNS。')
+    expect(wrapper.text()).toContain('当前生效：关闭')
+    expect(wrapper.text()).toContain('尚未完成真实系统验收')
     wrapper.unmount()
   })
 

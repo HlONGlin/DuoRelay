@@ -131,7 +131,7 @@ Internal routing, bypass rules and user rules are matched in that order. The def
 | Windows | System proxy affects the current user; restoration and TUN still require real Windows acceptance testing. |
 | macOS | TUN has not been verified on a real system. |
 
-Transparent proxy does not guarantee capture of all traffic or DNS leak protection. Linux redirect does not capture UDP DNS. See [transparent proxy acceptance](docs/transparent-proxy-acceptance.en.md) and [container acceptance](docs/container-acceptance.en.md).
+Capability detection and active status do not verify real transparent traffic or guarantee full traffic capture or DNS leak protection. Linux redirect captures TCP only and does not intercept UDP DNS. See [transparent proxy acceptance](docs/transparent-proxy-acceptance.en.md) and [container acceptance](docs/container-acceptance.en.md).
 
 ## Testing and development
 
