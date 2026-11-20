@@ -77,7 +77,8 @@ if [[ "$WITH_KERNELS" == 1 ]]; then
   fi
 fi
 
-cp -a "$ROOT/deploy" "$STAGING/deploy"
+mkdir -p "$STAGING/deploy"
+cp -a "$ROOT/deploy/systemd" "$STAGING/deploy/systemd"
 cp -a "$ROOT/README.md" "$STAGING/README.md"
 [[ ! -f "$ROOT/docs/single-kernel.md" ]] || cp -a "$ROOT/docs/single-kernel.md" "$STAGING/single-kernel.md"
 [[ -f "$ROOT/LICENSE" ]] && cp -a "$ROOT/LICENSE" "$STAGING/LICENSE"
