@@ -181,7 +181,10 @@ elif name=='curl':
                  'BOOTSTRAP_TEST_SOURCE':str(fixture),
                  'BOOTSTRAP_TEST_BIN':str(bindir),
                  'BOOTSTRAP_TEST_DOWNLOADS':str(downloads),
-                 'BOOTSTRAP_TEST_SCRIPT_LOG':str(script_log),**extra}\n            if extra.get('CLEAR_VARIANT'):\n                env.pop('DUORELAY_VARIANT',None)
+                 'BOOTSTRAP_TEST_SCRIPT_LOG':str(script_log),**extra}
+            if extra.get('CLEAR_VARIANT'):
+                env.pop('DUORELAY_VARIANT',None)
+
             result=subprocess.run(['bash',str(runner),*args],env=env,text=True,capture_output=True)
             for command in hidden:
                 if not (bindir/command).exists():
