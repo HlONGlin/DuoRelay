@@ -552,6 +552,15 @@ func TestDeleteNodeRequiresRemovingSOCKSListenerAssignment(t *testing.T) {
 	if _, err := s.Store.Node(ctx, node.ID); err != nil {
 		t.Fatalf("active assignment node was deleted: %v", err)
 	}
+	if err := s.Store.SaveState(ctx, "current_config", &configuration.State{NodeIDs: []string{node.ID}, Mode: "single"}); err != nil {
+		t.Fatal(err)
+	}
+	request = httptest.NewRequest(http.MethodDelete, "/api/nodes/"+node.ID, nil)
+	response = httptest.NewRecorder()
+	s.ServeHTTP(response, request)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("delete active node status = %d, want %d: %s", response.Code, http.StatusConflict, response.Body.String())
+	}
 
 }
 

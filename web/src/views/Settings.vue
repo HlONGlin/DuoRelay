@@ -13,8 +13,8 @@
             <div class="form-grid">
               <el-form-item :label="t('监听地址', 'Listen address')"><el-input v-model="form.inbound_host" placeholder="127.0.0.1" /><div class="field-hint">{{ t('仅本机使用时保留 127.0.0.1。', 'Keep 127.0.0.1 for local access only.') }}</div></el-form-item>
               <el-form-item :label="t('允许局域网连接', 'Allow LAN connections')"><el-switch v-model="form.allow_lan" /><div class="field-hint">{{ t('仅控制代理端口是否接受局域网连接；关闭后 TUN 仍会接管本机流量。', 'Controls LAN access to proxy listeners. TUN still captures local traffic when this is off.') }}</div></el-form-item>
-              <el-form-item :label="isLite ? t('透明代理监听端口', 'Transparent proxy listen port') : t('sing-box 混合代理端口', 'sing-box mixed proxy port')"><el-input-number v-model="form.inbound_port" :min="1" :max="65535" /></el-form-item>
-              <el-form-item :label="t('mihomo 混合代理端口', 'mihomo mixed proxy port')"><el-input-number v-model="form.mixed_port" :min="1" :max="65535" /></el-form-item>
+              <el-form-item :label="form.kernel === 'mihomo' ? t('透明代理监听端口', 'Transparent proxy listen port') : t('sing-box 混合代理端口', 'sing-box mixed proxy port')"><el-input-number v-model="form.inbound_port" :min="1" :max="65535" /></el-form-item>
+              <el-form-item v-if="hasMihomo" :label="t('mihomo 混合代理端口', 'mihomo mixed proxy port')"><el-input-number v-model="form.mixed_port" :min="1" :max="65535" /></el-form-item>
             </div>
             <el-divider />
             <el-form-item :label="t('仅 SOCKS5 端口使用代理', 'Proxy only through SOCKS5 port')"><el-switch v-model="form.socks_only" :aria-label="t('仅 SOCKS5 端口使用代理', 'Proxy only through SOCKS5 port')" @change="changeSocksOnly" /><div class="field-hint">{{ t('开启后，仅下方独立 SOCKS5 端口按路由规则使用代理；混合端口直连。此模式不能与 TUN 全流量接管同时启用。', 'Only the dedicated SOCKS5 port follows proxy routing rules; mixed ports connect directly. This mode cannot be combined with TUN.') }}</div></el-form-item>
@@ -48,10 +48,10 @@
               <div class="field-hint">{{ t('当前生效：', 'Currently active: ') }}{{ transparentModeLabel(form.transparent_active ?? 'off') }}</div>
               <el-alert v-if="form.transparent_mode !== (form.transparent_active || 'off')" type="warning" :closable="false" :title="t('所选模式尚未生效。保存后重新启动节点；若启动失败，请查看权限预检提示。', 'The selected mode is pending. Save and restart the node; check preflight details if startup fails.')" :description="translateCapability(form.transparent_reason)" />
             </el-form-item>
-            <el-form-item :label="t('TUN 全流量接管', 'TUN system traffic capture')"><el-switch v-model="form.enable_tun" :disabled="!transparentModes.find((mode) => mode.mode === 'tun')?.supported" :aria-label="t('TUN 全流量接管', 'TUN system traffic capture')" @change="changeTun" /><div class="field-hint">{{ t('接管 IPv4/IPv6 系统流量并劫持 TCP/UDP DNS；启用严格路由防止流量回落直连。需要管理员或 NET_ADMIN 权限及可用的 TUN 设备。路由规则仍决定哪些流量直连。', 'Captures IPv4/IPv6 system traffic and intercepts TCP/UDP DNS; strict routing prevents fallback to direct connections. Requires administrator or NET_ADMIN privileges and a TUN device. Routing rules still determine direct traffic.') }}</div></el-form-item>
+            <el-form-item :label="t('TUN 全流量接管', 'TUN system traffic capture')"><el-switch v-model="form.enable_tun" :disabled="!transparentModes.find((mode) => mode.mode === 'tun')?.supported" :aria-label="t('TUN 全流量接管', 'TUN system traffic capture')" @change="changeTun" /><div class="field-hint">{{ t('接管 IPv4/IPv6 系统流量并劫持 TCP/UDP DNS。需要管理员或 NET_ADMIN 权限及可用的 TUN 设备；路由规则决定哪些流量直连。', 'Captures IPv4/IPv6 system traffic and intercepts TCP/UDP DNS. Requires administrator or NET_ADMIN privileges and a TUN device; routing rules determine direct traffic.') }}</div></el-form-item>
             <el-form-item :label="t('TUN 网络栈', 'TUN network stack')"><el-select v-model="form.tun_stack" :disabled="!form.enable_tun"><el-option v-for="stack in ['system', 'gvisor', 'mixed']" :key="stack" :value="stack" :label="stack" /></el-select></el-form-item>
             <el-divider />
-            <el-alert v-if="form.enable_tun" :title="t('TUN 严格路由已启用。代理节点不可达时，经过代理的系统流量可能中断。', 'TUN strict routing is enabled. System traffic routed through the proxy may stop if the selected node is unreachable.')" type="warning" :closable="false" />
+            <el-alert v-if="form.enable_tun" :title="t('TUN 会接管系统流量；当前代理节点不可达时，系统网络可能中断。', 'TUN captures system traffic; system connectivity may be interrupted if the selected proxy node is unreachable.')" type="warning" :closable="false" />
             <el-form-item :label="t('本地控制器端口', 'Local controller port')"><el-input-number v-model="form.controller_port" :min="0" :max="65535" /><div class="field-hint">{{ t('设为 0 自动分配端口。', 'Set to 0 to assign a port automatically.') }}</div></el-form-item>
             <el-form-item :label="t('系统代理', 'System proxy')"><el-switch v-model="form.system_proxy" :disabled="!form.system_proxy_supported" /><div class="field-hint">{{ form.system_proxy_supported ? t('将系统代理指向本地入口，退出或启动失败时恢复原设置。只接管遵循系统代理设置的应用；要接管设备的全部流量，请启用 TUN。', 'Points the system proxy to the local inbound and restores settings on exit or startup failure. Only applications using system proxy settings are affected; enable TUN for all device traffic.') : t('当前环境不支持系统代理接管；Windows 或带 GNOME D-Bus 会话的 Linux 可用。要接管设备的全部流量，请启用 TUN。', 'System proxy is unavailable in this environment. It is available on Windows or Linux with a GNOME D-Bus session. Enable TUN for all device traffic.') }}</div></el-form-item>
             <router-link to="/kernel" class="settings-link">{{ t('查看运行状态与日志 →', 'View status and logs →') }}</router-link>
@@ -140,7 +140,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { defaultConfig, useConfigStore } from '@/stores/config'
 import { useNodesStore } from '@/stores/nodes'
-import { canSwitchKernel, hasMihomo, isLite, kernels, nodeUnavailableReason, variant } from '@/stores/variant'
+import { canSwitchKernel, hasMihomo, kernels, nodeUnavailableReason, variant } from '@/stores/variant'
 import { ApiError, request } from '@/api/client'
 import { useAppearanceStore } from '@/stores/appearance'
 import UiIcon from '@/components/UiIcon.vue'
@@ -235,7 +235,12 @@ const categories = computed(() => (appearance.language === 'en' ? [
   { id: 'appearance', title: '外观', icon: 'sun', description: '浅色与深色主题' },
   { id: 'about', title: '关于', icon: 'grid', description: '版本与构建变体' },
   { id: 'advanced', title: '高级', icon: 'grid', description: '日志与配置恢复' }
-]).filter(item => hasMihomo.value || item.id !== 'balance'))
+]).map(item => item.id === 'kernel' ? {
+  ...item,
+  description: canSwitchKernel.value
+    ? (appearance.language === 'en' ? 'Kernel preference and TUN' : '内核偏好与 TUN')
+    : (appearance.language === 'en' ? 'Kernel-specific options and TUN' : '当前内核与流量接管'),
+} : item).filter(item => hasMihomo.value || item.id !== 'balance'))
 const currentCategory = computed(() => categories.value.find(item => item.id === category.value)!)
 
 
@@ -251,7 +256,7 @@ const availableSOCKSNodes = computed(() => nodes.items.filter(node => {
 }))
 function addSOCKSListener() {
   if (form.socks_listeners.length >= 32) return
-  const occupied = new Set([form.inbound_port, form.mixed_port, ...(form.socks_only ? [form.socks_port] : []), ...form.socks_listeners.map(item => item.port)])
+  const occupied = new Set([form.inbound_port, ...(hasMihomo.value ? [form.mixed_port] : []), ...(form.socks_only ? [form.socks_port] : []), ...form.socks_listeners.map(item => item.port)])
   let port = 10809
   while (port <= 65535 && occupied.has(port)) port++
   if (port > 65535) { ElMessage.warning(t('没有可用端口', 'No available port')); return }
@@ -500,13 +505,13 @@ async function readRoutingFile(event: Event) {
 }
 
 async function handleSave() {
-  if (form.socks_only && (form.socks_port === form.inbound_port || form.socks_port === form.mixed_port)) {
+  if (form.socks_only && (form.socks_port === form.inbound_port || (hasMihomo.value && form.socks_port === form.mixed_port))) {
     ElMessage.warning(t('独立 SOCKS5 端口不能与混合代理端口相同', 'The dedicated SOCKS5 port must differ from the mixed proxy ports'))
     return
   }
   const listenerPorts = new Set<number>()
   for (const listener of form.socks_listeners) {
-    if (!Number.isInteger(listener.port) || listener.port < 1 || listener.port > 65535 || !listener.node_id || listenerPorts.has(listener.port) || [form.inbound_port, form.mixed_port, ...(form.socks_only ? [form.socks_port] : []), ...(form.transparent_mode === 'tproxy' ? [form.inbound_port + 1] : [])].includes(listener.port)) {
+    if (!Number.isInteger(listener.port) || listener.port < 1 || listener.port > 65535 || !listener.node_id || listenerPorts.has(listener.port) || [form.inbound_port, ...(hasMihomo.value ? [form.mixed_port] : []), ...(form.socks_only ? [form.socks_port] : []), ...(form.transparent_mode === 'tproxy' ? [form.inbound_port + 1] : [])].includes(listener.port)) {
       ElMessage.warning(t('请检查 SOCKS5 端口：端口需有效、不重复、不冲突且已分配节点', 'Check SOCKS5 ports: each must be valid, unique, conflict-free and assigned to a node'))
       return
     }

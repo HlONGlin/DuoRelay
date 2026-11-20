@@ -48,7 +48,7 @@ func (s *Service) ActivateManual(ctx context.Context, id string, requested ir.Ke
 	if err != nil {
 		return nil, err
 	}
-	if state.Mode != "manual" || (requested != "" && state.Kernel != requested) || !slices.Contains(state.NodeIDs, id) {
+	if (state.Mode != "manual" && state.Mode != "select") || (requested != "" && state.Kernel != requested) || !slices.Contains(state.NodeIDs, id) {
 		return nil, nil
 	}
 	if _, err := os.Stat(state.Path); err != nil {

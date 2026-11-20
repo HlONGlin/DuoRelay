@@ -232,6 +232,61 @@ func (b *linuxBackend) Cleanup() error {
 	return nil
 }
 
+// Recover cleans only DuoRelay's uniquely named tables/chains and reserved
+// TProxy mark/table, including artifacts left by a previous process lifetime.
+func (b *linuxBackend) Recover() error {
+	var errs []error
+	if commandAvailable("nft") {
+		for _, args := range [][]string{{"delete", "table", "ip", redirectTable}, {"delete", "table", "inet", redirectTable}} {
+			if err := runCommand("nft", args...); err != nil && !isMissing(err) {
+				errs = append(errs, err)
+			}
+		}
+	}
+	if commandAvailable("iptables") {
+		for _, args := range [][]string{
+			{"-t", "nat", "-D", "PREROUTING", "-p", "tcp", "-j", "DUORELAY_REDIRECT"},
+			{"-t", "mangle", "-D", "PREROUTING", "-p", "tcp", "-j", "DUORELAY_TPROXY"},
+			{"-t", "mangle", "-D", "PREROUTING", "-p", "udp", "-j", "DUORELAY_TPROXY"},
+		} {
+			if err := deleteOwnedRule("iptables", args...); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		for _, args := range [][]string{
+			{"-t", "nat", "-F", "DUORELAY_REDIRECT"}, {"-t", "nat", "-X", "DUORELAY_REDIRECT"},
+			{"-t", "mangle", "-F", "DUORELAY_TPROXY"}, {"-t", "mangle", "-X", "DUORELAY_TPROXY"},
+		} {
+			if err := runCommand("iptables", args...); err != nil && !isMissing(err) {
+				errs = append(errs, err)
+			}
+		}
+	}
+	if commandAvailable("ip") {
+		for _, args := range [][]string{
+			{"rule", "del", "fwmark", tproxyMark, "table", strconv.Itoa(tproxyTable)},
+			{"route", "del", "local", "0.0.0.0/0", "dev", "lo", "table", strconv.Itoa(tproxyTable)},
+		} {
+			if err := deleteOwnedRule("ip", args...); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func deleteOwnedRule(command string, args ...string) error {
+	for range 64 {
+		if err := runCommand(command, args...); err != nil {
+			if isMissing(err) {
+				return nil
+			}
+			return err
+		}
+	}
+	return fmt.Errorf("refusing to remove more than 64 duplicate DuoRelay rules with %s %s", command, strings.Join(args, " "))
+}
+
 func runInput(name, input string) error {
 	cmd := exec.Command(name, "-f", "-")
 	cmd.Stdin = strings.NewReader(input)
@@ -268,6 +323,7 @@ func isMissing(err error) bool {
 		strings.Contains(message, "not found") ||
 		strings.Contains(message, "does not exist") ||
 		strings.Contains(message, "no such process") ||
+		strings.Contains(message, "bad rule") ||
 		strings.Contains(message, "no chain/target/match") ||
 		strings.Contains(message, "chain .* does not exist")
 }

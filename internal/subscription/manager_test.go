@@ -320,6 +320,11 @@ func TestSubscriptionUpdateRetainsAssignedNodeAfterUpstreamRemoval(t *testing.T)
 	if err := m.Store.SaveState(ctx, "settings", settings); err != nil {
 		t.Fatal(err)
 	}
+	if err := m.Store.SaveState(ctx, "current_config", map[string]any{
+		"node_ids": []string{assignedID}, "mode": "single",
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	content = "proxies:\n  - {name: beta, type: http, server: beta.example, port: 8080}\n"
 	nodes, err = m.Update(ctx, sub.ID)
@@ -331,7 +336,7 @@ func TestSubscriptionUpdateRetainsAssignedNodeAfterUpstreamRemoval(t *testing.T)
 		t.Fatalf("assigned node was deleted: %v", err)
 	}
 	if pinned.Source.Type != "import" || pinned.Source.SubscriptionID != "" || pinned.GroupID != "" {
-		t.Fatalf("assigned node was not detached cleanly: %#v", pinned)
+		t.Fatalf("active node was not detached cleanly: %#v", pinned)
 	}
 	subscriptionNodes, err := m.Store.Nodes(ctx, sub.ID)
 	if err != nil || len(subscriptionNodes) != 1 || subscriptionNodes[0].ID == assignedID {

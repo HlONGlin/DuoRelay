@@ -4,21 +4,23 @@ set -Eeuo pipefail
 REPO_URL="${DUORELAY_REPO_URL:-https://github.com/HlONGlin/DuoRelay.git}"
 REF="${DUORELAY_REF:-master}"
 VERSION="bootstrap"
-VARIANT="${DUORELAY_VARIANT:-full}"
+VARIANT="${DUORELAY_VARIANT:-mihomo}"
 STAGE="检查环境"
 
 fail() { printf '错误：%s\n' "$*" >&2; exit 1; }
 trap 'status=$?; printf "错误：%s失败（退出码 %s），未完成安装。\n" "$STAGE" "$status" >&2; exit "$status"' ERR
-usage() { printf 'usage: sudo bash %s [--full|--lite]\n' "$0"; }
+usage() { printf 'usage: sudo bash %s [--mihomo|--singbox|--full|--lite]\n' "$0"; }
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --mihomo) VARIANT=mihomo; shift ;;
+    --singbox) VARIANT=singbox; shift ;;
     --full) VARIANT=full; shift ;;
     --lite) VARIANT=lite; shift ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; fail "未知选项：$1" ;;
   esac
 done
-[[ "$VARIANT" == full || "$VARIANT" == lite ]] || fail 'DUORELAY_VARIANT 必须为 full 或 lite。'
+[[ "$VARIANT" == full || "$VARIANT" == lite || "$VARIANT" == mihomo || "$VARIANT" == singbox ]] || fail 'DUORELAY_VARIANT 必须为 mihomo、singbox、full 或 lite。'
 
 [[ "$(uname -s)" == Linux ]] || fail '此安装入口仅支持 Linux。'
 [[ "$(id -u)" == 0 ]] || fail '安装系统服务需要 root，请使用 sudo bash 运行。'
@@ -167,15 +169,13 @@ npm --version
 STAGE="安装前端依赖和下载内核"
 printf '正在安装前端依赖并下载内核……\n'
 (cd web && npm ci)
-package_args=("$VERSION" "$ARCH")
-package_dir="$WORK_DIR/source/dist/duorelay-linux-$ARCH-$VERSION"
-if [[ "$VARIANT" == lite ]]; then
-  go run ./deploy/docker/download-kernels.go -arch "$ARCH" -variant lite -out kernels
-  package_args+=(--lite)
-  package_dir="$WORK_DIR/source/dist/staging-linux/duorelay-lite-$VERSION-$ARCH"
-else
-  bash scripts/download-kernels.sh
-fi
+package_args=("$VERSION" "$ARCH" --variant "$VARIANT")
+case "$VARIANT" in
+  full) package_dir="$WORK_DIR/source/dist/duorelay-linux-$ARCH-$VERSION" ;;
+  lite) package_dir="$WORK_DIR/source/dist/staging-linux/duorelay-lite-$VERSION-$ARCH" ;;
+  mihomo|singbox) package_dir="$WORK_DIR/source/dist/duorelay-$VARIANT-linux-$ARCH-$VERSION" ;;
+esac
+bash scripts/download-kernels.sh --variant "$VARIANT"
 printf '正在构建 Linux %s 发布包……\n' "$ARCH"
 STAGE="构建发布包"
 bash scripts/package-linux.sh "${package_args[@]}"

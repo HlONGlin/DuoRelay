@@ -136,7 +136,7 @@ func (g *Generator) Generate(nodes []*ir.Node, opts *generator.GenerateOptions) 
 			"enable":                true,
 			"stack":                 opts.TUNStack,
 			"auto-route":            true,
-			"strict-route":          true,
+			"strict-route":          false,
 			"auto-detect-interface": true,
 			"dns-mode":              "hijack",
 			"dns-hijack":            []string{"any:53", "tcp://any:53"},

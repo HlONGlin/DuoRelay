@@ -112,13 +112,15 @@ elif name=='curl':
         for script in ['download-kernels.sh','package-linux.sh','install-linux.sh']:
             text='#!/bin/bash\nset -eu\nprintf \'%s\\n\' "'+script+' $*" >> "$BOOTSTRAP_TEST_SCRIPT_LOG"\n'
             if script=='package-linux.sh':
-                text+='if [[ "${3:-}" == --lite ]]; then mkdir -p "dist/staging-linux/duorelay-lite-$1-$2"; else mkdir -p "dist/duorelay-linux-$2-$1"; fi\n'
+                text+='variant=full\nif [[ "${3:-}" == --variant ]]; then variant="${4}"; elif [[ "${3:-}" == --lite ]]; then variant=lite; fi\nif [[ "$variant" == lite ]]; then mkdir -p "dist/staging-linux/duorelay-lite-$1-$2"; elif [[ "$variant" == full ]]; then mkdir -p "dist/duorelay-linux-$2-$1"; else mkdir -p "dist/duorelay-$variant-linux-$2-$1"; fi\n'
             if script=='install-linux.sh':
                 text+='test "$1" = --package\ntest -d "$2"\n'
             (fixture/'scripts'/script).write_text(text)
         script_log=work/'scripts.log'
         cases = [
-            ('default-full', [], {}, 0, 'full', 'amd64'),
+            ('default-mihomo', [], {'CLEAR_VARIANT':'1'}, 0, 'mihomo', 'amd64'),
+            ('explicit-mihomo', ['--mihomo'], {}, 0, 'mihomo', 'amd64'),
+            ('explicit-singbox', ['--singbox'], {}, 0, 'singbox', 'amd64'),
             ('explicit-full', ['--full'], {}, 0, 'full', 'amd64'),
             ('lite-amd64', ['--lite'], {}, 0, 'lite', 'amd64'),
             ('lite-arm64', ['--lite'], {'TEST_ARCH':'aarch64'}, 0, 'lite', 'arm64'),
@@ -179,7 +181,7 @@ elif name=='curl':
                  'BOOTSTRAP_TEST_SOURCE':str(fixture),
                  'BOOTSTRAP_TEST_BIN':str(bindir),
                  'BOOTSTRAP_TEST_DOWNLOADS':str(downloads),
-                 'BOOTSTRAP_TEST_SCRIPT_LOG':str(script_log),**extra}
+                 'BOOTSTRAP_TEST_SCRIPT_LOG':str(script_log),**extra}\n            if extra.get('CLEAR_VARIANT'):\n                env.pop('DUORELAY_VARIANT',None)
             result=subprocess.run(['bash',str(runner),*args],env=env,text=True,capture_output=True)
             for command in hidden:
                 if not (bindir/command).exists():
@@ -189,15 +191,16 @@ elif name=='curl':
             scripts=script_log.read_text()
             if variant:
                 if variant=='lite':
-                    assert any(c in calls for c in [
-                        [go,'run','./deploy/docker/download-kernels.go','-arch',arch,'-variant','lite','-out','kernels']
-                        for go in ['go','go-private']]),(name,calls)
-                    assert 'download-kernels.sh' not in scripts
-                    assert f'package-linux.sh bootstrap {arch} --lite' in scripts
+                    assert 'download-kernels.sh --variant lite' in scripts
+                    assert f'package-linux.sh bootstrap {arch} --variant lite' in scripts
                     assert f'/dist/staging-linux/duorelay-lite-bootstrap-{arch}' in scripts
+                elif variant in ('mihomo','singbox'):
+                    assert f'download-kernels.sh --variant {variant}' in scripts
+                    assert f'package-linux.sh bootstrap {arch} --variant {variant}' in scripts
+                    assert f'/dist/duorelay-{variant}-linux-{arch}-bootstrap' in scripts
                 else:
-                    assert 'download-kernels.sh' in scripts
-                    assert f'package-linux.sh bootstrap {arch}\n' in scripts
+                    assert 'download-kernels.sh --variant full' in scripts
+                    assert f'package-linux.sh bootstrap {arch} --variant full' in scripts
                     assert f'/dist/duorelay-linux-{arch}-bootstrap' in scripts
                 assert 'install-linux.sh --package ' in scripts
             else:

@@ -32,6 +32,29 @@ func TestTrafficSamplesRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSaveConfigurationForNodesValidatesAndCommitsAtomically(t *testing.T) {
+	s, err := New(&Config{Path: ":memory:"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	node := &ir.Node{Name: "active", Protocol: ir.ProtocolHTTP, Owner: ir.KernelSetBoth, Server: ir.Server{Host: "127.0.0.1", Port: 8080}}
+	if err := s.SaveNode(ctx, node); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveConfigurationForNodes(ctx, map[string]int{"version": 1}, map[string]string{"id": "first"}, []string{node.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveConfigurationForNodes(ctx, map[string]int{"version": 2}, map[string]string{"id": "missing"}, []string{"missing"}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing source node was accepted: %v", err)
+	}
+	var current map[string]string
+	if err := s.State(ctx, "current_config", &current); err != nil || current["id"] != "first" {
+		t.Fatalf("failed apply changed durable config: %#v, %v", current, err)
+	}
+}
+
 func TestEncryptionPersistenceAndMigration(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "existing.db")
 	legacy, err := sql.Open("sqlite", path)

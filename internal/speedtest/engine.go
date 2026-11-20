@@ -40,6 +40,7 @@ type HTTPProbe func(context.Context, *ir.Node, string, time.Duration) (int64, er
 type Engine struct {
 	Store     *store.Store
 	Queue     *task.Queue
+	ProbeTCP  func(context.Context, string) (int64, error)
 	ProbeHTTP HTTPProbe
 }
 
@@ -71,13 +72,17 @@ func Normalize(options Options) (Options, error) {
 	return options, nil
 }
 func TCPDelay(ctx context.Context, address string) (int64, error) {
+	return tcpDelay(ctx, &net.Dialer{}, address)
+}
+
+func tcpDelay(ctx context.Context, dialer *net.Dialer, address string) (int64, error) {
 	start := time.Now()
-	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", address)
+	conn, err := dialer.DialContext(ctx, "tcp", address)
 	if err != nil {
 		return 0, err
 	}
 	defer conn.Close()
-	return time.Since(start).Milliseconds(), nil
+	return max(1, time.Since(start).Milliseconds()), nil
 }
 
 // HTTPDelay measures a request using an explicit HTTP(S) proxy. Callers choose
@@ -122,7 +127,11 @@ func (e *Engine) Test(ctx context.Context, id string, options Options) (*Result,
 	defer cancel()
 	result := &Result{ID: uuid.NewString(), NodeID: id, Type: options.Type, TestedAt: time.Now().UTC()}
 	if options.Type == "tcp" {
-		result.DelayMS, err = TCPDelay(probeCtx, net.JoinHostPort(node.Server.Host, strconv.Itoa(node.Server.Port)))
+		probe := e.ProbeTCP
+		if probe == nil {
+			probe = TCPDelay
+		}
+		result.DelayMS, err = probe(probeCtx, net.JoinHostPort(node.Server.Host, strconv.Itoa(node.Server.Port)))
 	} else if e.ProbeHTTP != nil {
 		result.DelayMS, err = e.ProbeHTTP(probeCtx, node, options.URL, time.Duration(options.TimeoutMS)*time.Millisecond)
 	} else if node.Protocol == ir.ProtocolHTTP {
@@ -146,6 +155,8 @@ func (e *Engine) Test(ctx context.Context, id string, options Options) (*Result,
 			result.Error = "test timed out"
 		case errors.Is(probeCtx.Err(), context.Canceled):
 			result.Error = "test cancelled"
+		case errors.Is(err, ErrDirectRoute):
+			result.Error = ErrDirectRoute.Error()
 		default:
 			result.Error = "connection or outbound probe failed"
 		}

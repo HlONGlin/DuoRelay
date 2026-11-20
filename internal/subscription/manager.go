@@ -350,6 +350,8 @@ func assignedSOCKSNodes(ctx context.Context, tx *sql.Tx) (map[string]struct{}, e
 			return nil, err
 		}
 		var state struct {
+			NodeIDs        []string `json:"node_ids"`
+			SelectedNodeID string   `json:"selected_node_id"`
 			SOCKSListeners []struct {
 				NodeID string `json:"node_id"`
 			} `json:"socks_listeners"`
@@ -361,6 +363,14 @@ func assignedSOCKSNodes(ctx context.Context, tx *sql.Tx) (map[string]struct{}, e
 			if listener.NodeID != "" {
 				assigned[listener.NodeID] = struct{}{}
 			}
+		}
+		for _, id := range state.NodeIDs {
+			if id != "" {
+				assigned[id] = struct{}{}
+			}
+		}
+		if state.SelectedNodeID != "" {
+			assigned[state.SelectedNodeID] = struct{}{}
 		}
 	}
 	if err := rows.Err(); err != nil {

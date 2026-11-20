@@ -19,6 +19,7 @@ import (
 	"github.com/holi/duorelay/internal/generator"
 	"github.com/holi/duorelay/internal/ir"
 	"github.com/holi/duorelay/internal/kernel"
+	"github.com/holi/duorelay/internal/speedtest"
 	"github.com/holi/duorelay/internal/store"
 	"github.com/holi/duorelay/internal/systemproxy"
 	"github.com/holi/duorelay/internal/transparent"
@@ -129,6 +130,8 @@ func (s *State) Public() *State {
 
 type Service struct {
 	mu          sync.Mutex
+	probeMu     sync.RWMutex
+	probeRoute  *speedtest.DirectRoute
 	Store       *store.Store
 	Runtime     Runtime
 	Directory   string
@@ -367,6 +370,8 @@ func (s *Service) settings(ctx context.Context) (Settings, error) {
 func (s *Service) SaveSettings(ctx context.Context, value Settings) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.probeMu.Lock()
+	defer s.probeMu.Unlock()
 	if value.DNSBootstrap == "" {
 		value.DNSBootstrap = defaults().DNSBootstrap
 	}
@@ -537,6 +542,13 @@ func (s *Service) Current(ctx context.Context) (*State, error) {
 func (s *Service) Resume(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.probeMu.Lock()
+	defer s.probeMu.Unlock()
+	if s.Transparent != nil {
+		if err := s.Transparent.Recover(); err != nil {
+			return fmt.Errorf("recover transparent proxy state: %w", err)
+		}
+	}
 	var state State
 	if err := s.Store.State(ctx, "current_config", &state); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -582,7 +594,7 @@ func (s *Service) Resume(ctx context.Context) error {
 			return err
 		}
 	}
-	if err := s.startState(&state); err != nil {
+	if err := s.startState(&state, settings.DNSBootstrap); err != nil {
 		_ = s.Runtime.StopAll()
 		_ = s.cleanupTransparent()
 		if state.SystemProxy != nil {
@@ -614,6 +626,8 @@ func (s *Service) Resume(ctx context.Context) error {
 func (s *Service) Shutdown(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.probeMu.Lock()
+	defer s.probeMu.Unlock()
 	var state State
 	err := s.Store.State(ctx, "current_config", &state)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
@@ -640,6 +654,8 @@ func (s *Service) Shutdown(ctx context.Context) error {
 func (s *Service) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.probeMu.Lock()
+	defer s.probeMu.Unlock()
 
 	var state State
 	err := s.Store.State(ctx, "current_config", &state)
@@ -654,6 +670,7 @@ func (s *Service) Stop(ctx context.Context) error {
 	if cleanupErr := s.cleanupTransparent(); cleanupErr != nil {
 		return cleanupErr
 	}
+	s.probeRoute = nil
 	if err == nil {
 		if state.SystemProxy != nil {
 			if restoreErr := systemproxy.Restore(*state.SystemProxy); restoreErr != nil {
@@ -687,6 +704,8 @@ func (s *Service) start(kernel ir.KernelType, path string) error {
 func (s *Service) Apply(ctx context.Context, request ApplyRequest) (*State, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.probeMu.Lock()
+	defer s.probeMu.Unlock()
 	settings, err := s.settings(ctx)
 	if err != nil {
 		return nil, err
@@ -894,12 +913,15 @@ func (s *Service) applyPrepared(ctx context.Context, request ApplyRequest, setti
 	if err := s.Runtime.StopAll(); err != nil {
 		return nil, fmt.Errorf("%w: stop: %v", ErrApply, err)
 	}
+	s.prepareProbeRoute(settings.TransparentMode, request.Content != "", request.Kernel, path, settings.DNSBootstrap)
 	rollback := func(cause error) error {
 		stopErr := s.Runtime.StopAll()
 		cleanupErr := s.cleanupTransparent()
 		var restoreErr error
 		if previous != nil && variant.SupportsKernel(string(previous.Kernel)) && (variant.Enabled() || len(previous.Auxiliary) == 0) {
-			restoreErr = s.startState(previous)
+			restoreErr = s.startState(previous, "")
+		} else if stopErr == nil {
+			s.probeRoute = nil
 		}
 		if previous != nil && previous.SystemProxy != nil && previous.SystemProxyTarget != "" {
 			restoreErr = errors.Join(restoreErr, setSystemProxyTarget(previous.SystemProxyTarget))
@@ -970,7 +992,7 @@ func (s *Service) applyPrepared(ctx context.Context, request ApplyRequest, setti
 		}
 	}
 	settings.Kernel = state.Kernel
-	if err := s.Store.SaveConfiguration(persistCtx, settings, state); err != nil {
+	if err := s.Store.SaveConfigurationForNodes(persistCtx, settings, state, state.NodeIDs); err != nil {
 		return nil, rollback(err)
 	}
 	retained = true

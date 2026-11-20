@@ -15,7 +15,7 @@ COPY . .
 COPY --from=frontend /src/web/dist ./web/dist
 ARG TARGETOS
 ARG TARGETARCH
-ARG DUORELAY_VARIANT=full
+ARG DUORELAY_VARIANT=mihomo
 RUN go run ./deploy/docker/download-kernels.go -arch "$TARGETARCH" -variant "$DUORELAY_VARIANT" -out /out/kernels
 RUN case "$DUORELAY_VARIANT" in \
       full) tags="" ;; \

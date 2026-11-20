@@ -55,23 +55,24 @@ const (
 // Process holds a managed lifetime, including all restart attempts.
 // Mutable fields are protected by Manager.mu; callers use Status and GetLogs.
 type Process struct {
-	Name          string
-	Binary        string
-	Config        string
-	Cmd           *exec.Cmd
-	Ctx           context.Context
-	Cancel        context.CancelFunc
-	Running       bool
-	LogBuffer     *RingBuffer
-	RestartPolicy *RestartPolicy
-	ExitCode      int
-	ExitReason    string
-	StartTime     time.Time
-	Healthy       bool
-	HealthError   string
-	controller    string
-	secret        string
-	done          chan struct{}
+	Name                 string
+	Binary               string
+	Config               string
+	Cmd                  *exec.Cmd
+	Ctx                  context.Context
+	Cancel               context.CancelFunc
+	Running              bool
+	LogBuffer            *RingBuffer
+	RestartPolicy        *RestartPolicy
+	ExitCode             int
+	ExitReason           string
+	StartTime            time.Time
+	Healthy              bool
+	HealthError          string
+	restartWarningLogged bool
+	controller           string
+	secret               string
+	done                 chan struct{}
 }
 
 type attempt struct {
@@ -89,8 +90,8 @@ func NewManager(kernelsDir ...string) *Manager {
 	}
 	return &Manager{
 		mode: ModeSingleSwitch, kernelsDir: dir, command: exec.CommandContext,
-		validationTimeout: 10 * time.Second, healthTimeout: 30 * time.Second,
-		stopTimeout: 5 * time.Second, stableUptime: 30 * time.Second,
+		validationTimeout: 10 * time.Second, healthTimeout: 60 * time.Second,
+		stopTimeout: 5 * time.Second, stableUptime: 10 * time.Second,
 		restartPolicy: NewRestartPolicy,
 		logSubs:       map[string]map[chan LogEntry]struct{}{},
 		logHistory:    map[string]*RingBuffer{},
@@ -174,12 +175,12 @@ func (m *Manager) start(name, configPath string) error {
 	p := &Process{Name: name, Binary: binary, Config: config, Ctx: ctx, Cancel: cancel,
 		LogBuffer: buffer, RestartPolicy: m.restartPolicy(),
 		controller: controller, secret: secret, done: make(chan struct{})}
-	m.mu.Lock()
 	a, err := m.launch(p)
 	if err == nil {
+		m.mu.Lock()
 		m.setProcess(name, p)
+		m.mu.Unlock()
 	}
-	m.mu.Unlock()
 	if err != nil {
 		cancel()
 		return err
@@ -232,9 +233,10 @@ func (m *Manager) validate(name, binary, config string) error {
 	return nil
 }
 
-// launch is called with m.mu held. Each command has exactly one Wait caller.
+// launch does not hold m.mu across process creation. Each command has one Wait caller.
 func (m *Manager) launch(p *Process) (*attempt, error) {
 	cmd := m.command(p.Ctx, p.Binary, kernelArgs(p.Name, p.Config, false)...)
+	configureParentDeath(cmd)
 	if p.Name == "mihomo" && runtime.GOOS == "linux" && mihomoTUNEnabled(p.Config) {
 		// Keep the configured IPv6 TUN route active on IPv4-only Linux hosts.
 		cmd.Env = withEnvironment(os.Environ(), "SKIP_SYSTEM_IPV6_CHECK", "1")
@@ -255,7 +257,9 @@ func (m *Manager) launch(p *Process) (*attempt, error) {
 		return nil, fmt.Errorf("start %s: %w", p.Name, err)
 	}
 	a := &attempt{cmd: cmd, done: make(chan struct{}), started: time.Now()}
+	m.mu.Lock()
 	p.Cmd, p.StartTime, p.Running, p.Healthy = cmd, a.started, true, false
+	m.mu.Unlock()
 	go func() {
 		a.err = cmd.Wait()
 		stdout.Flush()
@@ -441,6 +445,7 @@ func (m *Manager) waitHealthy(p *Process, a *attempt) error {
 	ctx, cancel := context.WithTimeout(p.Ctx, m.healthTimeout)
 	defer cancel()
 	var lastErr error
+	probeBackoff := 50 * time.Millisecond
 	for {
 		select {
 		case <-a.done:
@@ -465,7 +470,7 @@ func (m *Manager) waitHealthy(p *Process, a *attempt) error {
 			}
 			return p.Ctx.Err()
 		}
-		timer := time.NewTimer(50 * time.Millisecond)
+		timer := time.NewTimer(probeBackoff)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
@@ -474,8 +479,17 @@ func (m *Manager) waitHealthy(p *Process, a *attempt) error {
 			timer.Stop()
 			return m.startupExitError(p, a)
 		case <-timer.C:
+			probeBackoff = nextHealthProbeDelay(probeBackoff)
 		}
 	}
+}
+
+func nextHealthProbeDelay(current time.Duration) time.Duration {
+	current *= 2
+	if current > time.Second {
+		return time.Second
+	}
+	return current
 }
 
 func (m *Manager) startupExitError(p *Process, a *attempt) error {

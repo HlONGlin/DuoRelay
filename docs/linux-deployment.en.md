@@ -9,20 +9,20 @@ Linux is DuoRelay's primary target. This guide covers building and systemd insta
 For Linux amd64/arm64 with systemd and glibc 2.28 or newer; requires root and network access:
 
 ```bash
-# Full (default): sing-box + mihomo
-curl -fsSL https://raw.githubusercontent.com/HlONGlin/DuoRelay/master/scripts/bootstrap-linux.sh | sudo bash -s -- --full
+# mihomo (default): mihomo kernel only
+curl -fsSL https://raw.githubusercontent.com/HlONGlin/DuoRelay/master/scripts/bootstrap-linux.sh | sudo bash -s -- --mihomo
 
-# Lite: mihomo only, complete panel
-curl -fsSL https://raw.githubusercontent.com/HlONGlin/DuoRelay/master/scripts/bootstrap-linux.sh | sudo bash -s -- --lite
+# sing-box: sing-box kernel only
+curl -fsSL https://raw.githubusercontent.com/HlONGlin/DuoRelay/master/scripts/bootstrap-linux.sh | sudo bash -s -- --singbox
 ```
 
-Choose one command. Without an argument, full is installed; `DUORELAY_VARIANT=full|lite` also selects the variant, with command-line arguments taking precedence. The script clones source into a temporary directory, installs frontend dependencies, downloads the selected kernels, builds a package and invokes `scripts/install-linux.sh`. Temporary build files are removed after success or failure. The defaults are `/opt/duorelay` for the application, `/var/lib/duorelay` for data and `127.0.0.1:8080` for the panel. For remote access use SSH port forwarding, for example `ssh -L 8080:127.0.0.1:8080 user@server`, then open the local browser.
+Choose one command. Without an argument, the mihomo edition is installed; `DUORELAY_VARIANT=mihomo|singbox` selects an edition, with command-line arguments taking precedence. Legacy `full` and `lite` variants remain available explicitly. The script clones source into a temporary directory, installs frontend dependencies, downloads the selected kernels, builds a package and invokes `scripts/install-linux.sh`. Temporary build files are removed after success or failure. The defaults are `/opt/duorelay` for the application, `/var/lib/duorelay` for data and `127.0.0.1:8080` for the panel. For remote access use SSH port forwarding, for example `ssh -L 8080:127.0.0.1:8080 user@server`, then open the local browser.
 
 The script reads `ID` / `ID_LIKE` from `/etc/os-release` and uses apt-get, dnf/yum, pacman or zypper to install missing basic dependencies: Git, curl, CA certificates, tar, gzip, coreutils, findutils, awk/sed, account management tools and libstdc++ for Node.js. On Fedora/RHEL, an existing curl-minimal avoids a conflicting curl installation. On Arch the script uses the existing package database without a separate `pacman -Sy`; if it is stale, run a full system update with `sudo pacman -Syu` before retrying.
 
 Go must meet `go.mod` (currently `1.27.0`); Node.js 18 or 20+ and npm are required. Compatible existing tools are reused. Otherwise the script downloads the required Go from `dl.google.com/go` and Node.js 22 LTS from `nodejs.org`, verifies SHA-256 against official HTTPS checksums, and extracts them. These temporary toolchains are added only to the build PATH, do not replace system Go or Node.js/npm, and are removed with the temporary directory. Downloads use HTTPS, retries and timeouts; download, verification or build failure stops installation and identifies the stage.
 
-Lite uses a pinned, SHA-256-verified mihomo downloader for amd64/arm64, does not download sing-box or Cronet, and does not rewrite `kernels.lock`. It downloads a Geo cache on first start and reports network failures. Full retains the dual-kernel download flow and records local SHA-256 hashes without verifying pinned hashes. The Linux full package does not automatically include Cronet; Naive's extra dynamic library must be deployed separately.
+The mihomo and sing-box release packages each contain only their named kernel. Linux supports amd64/arm64, and the sing-box package includes Cronet. The mihomo edition downloads its Geo cache on first start and reports network failures. Legacy full/lite transition packages remain available through the build scripts.
 
 ### Supported Environment for the Installer
 

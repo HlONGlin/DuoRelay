@@ -161,7 +161,9 @@ func chainAppend(root map[string]any, key string, entry any) {
 	root[key] = append(chainArray(root, key), entry)
 }
 
-func (s *Service) startState(state *State) error {
+func (s *Service) startState(state *State, dns string) error {
+	raw := state.Raw || (len(state.NodeIDs) == 0 && len(state.RuntimeNames) == 0 && state.Mode == "single")
+	s.prepareProbeRoute(state.TransparentMode, raw, state.Kernel, state.Path, dns)
 	if s.Transparent != nil {
 		port, err := stateTransparentPort(state)
 		if err != nil {
@@ -330,7 +332,9 @@ func (s *Service) installChain(ctx context.Context, request ApplyRequest, plan *
 		cleanupErr := s.cleanupTransparent()
 		var restoreErr error
 		if previous != nil && variant.SupportsKernel(string(previous.Kernel)) && (variant.Enabled() || len(previous.Auxiliary) == 0) {
-			restoreErr = s.startState(previous)
+			restoreErr = s.startState(previous, "")
+		} else if stopErr == nil {
+			s.probeRoute = nil
 		}
 		if previous != nil && previous.SystemProxyTarget != "" {
 			restoreErr = errors.Join(restoreErr, setSystemProxyTarget(previous.SystemProxyTarget))
@@ -340,7 +344,7 @@ func (s *Service) installChain(ctx context.Context, request ApplyRequest, plan *
 		return errors.Join(fmt.Errorf("%w: %v", ErrApply, cause), stopErr, cleanupErr, restoreErr)
 	}
 	release()
-	if err := s.startState(state); err != nil {
+	if err := s.startState(state, settings.DNSBootstrap); err != nil {
 		return nil, rollback(err)
 	}
 	if state.SystemProxyTarget != "" {
@@ -355,7 +359,7 @@ func (s *Service) installChain(ctx context.Context, request ApplyRequest, plan *
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	settings.Kernel = state.Kernel
-	if err := s.Store.SaveConfiguration(persistCtx, settings, state); err != nil {
+	if err := s.Store.SaveConfigurationForNodes(persistCtx, settings, state, state.NodeIDs); err != nil {
 		return nil, rollback(err)
 	}
 	retained = true

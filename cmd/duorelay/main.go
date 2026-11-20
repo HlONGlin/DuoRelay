@@ -173,6 +173,7 @@ func run() (runErr error) {
 	}()
 	subs := subscription.NewManager(database)
 	speed := speedtest.NewEngine(database, queue)
+	speed.ProbeTCP = config.ProbeTCP
 	speed.ProbeHTTP = config.ProbeHTTP
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()

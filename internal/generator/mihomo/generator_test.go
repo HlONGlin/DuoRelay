@@ -68,7 +68,7 @@ func TestGenerateShadowsocks(t *testing.T) {
 	assertGolden(t, generated, "mihomo-ss-basic.yaml")
 }
 
-func TestTUNEnablesStrictDualStackRoutingAndDNSHijack(t *testing.T) {
+func TestTUNUsesNonStrictDualStackRoutingAndDNSHijack(t *testing.T) {
 	opts := generator.DefaultGenerateOptions()
 	opts.EnableTUN = true
 	generated, err := NewGenerator().Generate([]*ir.Node{ir.ExampleShadowsocksNode()}, opts)
@@ -80,7 +80,7 @@ func TestTUNEnablesStrictDualStackRoutingAndDNSHijack(t *testing.T) {
 		t.Fatal(err)
 	}
 	tun, _ := config["tun"].(map[string]any)
-	if tun["strict-route"] != true || tun["dns-mode"] != "hijack" || tun["auto-detect-interface"] != true {
+	if tun["strict-route"] != false || tun["dns-mode"] != "hijack" || tun["auto-detect-interface"] != true {
 		t.Fatalf("TUN hardening missing: %#v", tun)
 	}
 	if config["ipv6"] != true {

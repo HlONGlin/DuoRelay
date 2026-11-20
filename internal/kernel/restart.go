@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 )
@@ -31,9 +32,9 @@ type RestartEvent struct {
 func NewRestartPolicy() *RestartPolicy {
 	return &RestartPolicy{
 		enabled:        true,
-		maxRetries:     5,
+		maxRetries:     0,
 		backoffBase:    1 * time.Second,
-		maxBackoff:     16 * time.Second,
+		maxBackoff:     60 * time.Second,
 		restartHistory: make([]RestartEvent, 0),
 	}
 }
@@ -69,7 +70,7 @@ func (rp *RestartPolicy) ShouldRestart(exitCode int, reason string) (bool, error
 		return false, fmt.Errorf("restart disabled")
 	}
 
-	if rp.consecutiveFails >= rp.maxRetries {
+	if rp.maxRetries > 0 && rp.consecutiveFails >= rp.maxRetries {
 		return false, fmt.Errorf("max consecutive failures (%d) reached", rp.maxRetries)
 	}
 
@@ -174,6 +175,9 @@ func (m *Manager) monitorProcess(p *Process, a *attempt) {
 		}
 		if time.Since(a.started) >= m.stableUptime {
 			p.RestartPolicy.Reset()
+			m.mu.Lock()
+			p.restartWarningLogged = false
+			m.mu.Unlock()
 		}
 		for {
 			if ok, err := p.RestartPolicy.ShouldRestart(code, reason); !ok {
@@ -189,14 +193,15 @@ func (m *Manager) monitorProcess(p *Process, a *attempt) {
 				return
 			case <-timer.C:
 			}
-			m.mu.Lock()
-			if p.Ctx.Err() != nil {
-				m.mu.Unlock()
+			m.mu.RLock()
+			stopping := p.Ctx.Err() != nil
+			m.mu.RUnlock()
+			if stopping {
 				return
 			}
 			next, err := m.launch(p)
-			m.mu.Unlock()
 			p.RestartPolicy.RecordRestart(code, reason, err == nil)
+			m.reportRestartFailures(p)
 			if err != nil {
 				code, reason = -1, err.Error()
 				m.mu.Lock()
@@ -215,4 +220,26 @@ func (m *Manager) monitorProcess(p *Process, a *attempt) {
 			break
 		}
 	}
+}
+
+func (m *Manager) reportRestartFailures(p *Process) {
+	const warningThreshold = 11
+	failures := p.RestartPolicy.GetConsecutiveFailures()
+	if failures < warningThreshold {
+		return
+	}
+	m.mu.Lock()
+	if p.restartWarningLogged {
+		m.mu.Unlock()
+		return
+	}
+	p.restartWarningLogged = true
+	message := fmt.Sprintf("automatic restart has failed %d consecutive times; retrying with backoff", failures)
+	p.HealthError = message
+	m.mu.Unlock()
+
+	entry := LogEntry{Timestamp: time.Now().UTC(), Source: "stderr", Line: "ERROR: " + message}
+	p.LogBuffer.Append(entry)
+	m.recordLog(p.Name, entry)
+	slog.Error(message, "kernel", p.Name, "consecutive_failures", failures)
 }

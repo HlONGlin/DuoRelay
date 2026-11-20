@@ -664,6 +664,59 @@ func (s *Server) deleteNodeIDs(w http.ResponseWriter, r *http.Request, ids []str
 		return
 	}
 	defer tx.Rollback()
+	stateRows, err := tx.QueryContext(r.Context(), "SELECT value FROM backend_state WHERE key IN ('settings','current_config')")
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	for stateRows.Next() {
+		var data string
+		var state struct {
+			NodeIDs        []string `json:"node_ids"`
+			SelectedNodeID string   `json:"selected_node_id"`
+			SOCKSListeners []struct {
+				NodeID string `json:"node_id"`
+			} `json:"socks_listeners"`
+		}
+		if err := stateRows.Scan(&data); err != nil {
+			stateRows.Close()
+			fail(w, err)
+			return
+		}
+		if err := json.Unmarshal([]byte(data), &state); err != nil {
+			stateRows.Close()
+			fail(w, err)
+			return
+		}
+		for _, id := range state.NodeIDs {
+			if _, exists := wanted[id]; exists {
+				stateRows.Close()
+				WriteError(w, http.StatusConflict, &Error{Code: "NODE_ACTIVE", What: "删除运行中的节点前请先停止代理"})
+				return
+			}
+		}
+		if _, exists := wanted[state.SelectedNodeID]; state.SelectedNodeID != "" && exists {
+			stateRows.Close()
+			WriteError(w, http.StatusConflict, &Error{Code: "NODE_ACTIVE", What: "删除运行中的节点前请先停止代理"})
+			return
+		}
+		for _, listener := range state.SOCKSListeners {
+			if _, exists := wanted[listener.NodeID]; listener.NodeID != "" && exists {
+				stateRows.Close()
+				WriteError(w, http.StatusConflict, &Error{Code: "SOCKS_NODE_ASSIGNED", What: "删除节点前请先移除或重新配置 SOCKS5 端口绑定"})
+				return
+			}
+		}
+	}
+	if err := stateRows.Err(); err != nil {
+		stateRows.Close()
+		fail(w, err)
+		return
+	}
+	if err := stateRows.Close(); err != nil {
+		fail(w, err)
+		return
+	}
 	for id := range wanted {
 		var exists int
 		if err := tx.QueryRowContext(r.Context(), "SELECT 1 FROM nodes WHERE id=?", id).Scan(&exists); err != nil {

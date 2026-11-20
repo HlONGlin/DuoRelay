@@ -27,6 +27,28 @@ func engineForTest(t *testing.T) *Engine {
 	t.Cleanup(func() { q.Close(); s.Close() })
 	return NewEngine(s, q)
 }
+
+func TestDirectRouteDetectsAddressFamilyFromLiteral(t *testing.T) {
+	for _, test := range []struct {
+		network string
+		address string
+		wantV6  bool
+	}{
+		{network: "tcp", address: "192.0.2.1:443"},
+		{network: "tcp", address: "[2001:db8::1]:443", wantV6: true},
+		{network: "udp", address: "[2001:db8::53]:53", wantV6: true},
+		{network: "tcp6", address: "example.com:443", wantV6: true},
+	} {
+		host, _, err := net.SplitHostPort(test.address)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if gotV6 := usesIPv6(test.network, host); gotV6 != test.wantV6 {
+			t.Errorf("family for %s %s = IPv6 %t, want %t", test.network, test.address, gotV6, test.wantV6)
+		}
+	}
+}
+
 func nodeAt(t *testing.T, e *Engine, address string) *ir.Node {
 	t.Helper()
 	host, port, err := net.SplitHostPort(address)

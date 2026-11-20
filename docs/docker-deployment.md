@@ -67,7 +67,7 @@ sudo docker compose version
 ```bash
 git clone https://github.com/HlONGlin/DuoRelay.git
 cd DuoRelay
-# full（默认）
+# mihomo（默认）
 docker compose up -d --build
 
 # 或 lite；不要与上面的命令同时运行
@@ -80,7 +80,7 @@ docker compose logs -f duorelay
 
 数据保存在 Compose 命名卷 `duorelay-data` 中，包括数据库、对应 `.key` 文件、配置和日志。不要使用 `docker compose down -v`，除非确定要删除全部数据。容器以 UID/GID `10001:10001` 运行；改用宿主机目录挂载时，需先确保该目录对这两个 ID 可写。
 
-lite 的后续 `ps`、`logs`、`build`、`up` 等命令均带 `-f compose.yaml -f compose.lite.yaml`，例如 `docker compose -f compose.yaml -f compose.lite.yaml logs -f duorelay`。full 继续使用默认命令。固定 Compose 项目名与目录，两个配置组合才会复用同一数据卷。
+lite 的后续 `ps`、`logs`、`build`、`up` 等命令均带 `-f compose.yaml -f compose.lite.yaml`，例如 `docker compose -f compose.yaml -f compose.lite.yaml logs -f duorelay`。mihomo 版继续使用默认命令。固定 Compose 项目名与目录，两个配置组合才会复用同一数据卷。
 
 ### 切换 full / lite
 
@@ -97,10 +97,11 @@ docker compose up -d --build
 
 两种配置的服务名和数据卷一致，不需要复制数据库。lite 保留不支持的节点和订阅数据，但不恢复 sing-box / 跨核运行配置，需重新选择兼容节点。完整迁移边界见 [full / lite 数据互通](lite.md#数据互通与覆盖安装)。
 
-直接使用 Dockerfile 时，通过 `--build-arg DUORELAY_VARIANT=full|lite` 选择，缺省 full：
+直接使用 Dockerfile 时，通过 `--build-arg DUORELAY_VARIANT=mihomo|singbox` 选择，缺省 mihomo；旧 `full/lite` 变体仍可用于迁移：
 
 ```bash
-docker build --build-arg DUORELAY_VARIANT=full -t duorelay:local .
+docker build --build-arg DUORELAY_VARIANT=mihomo -t duorelay:local .
+docker build --build-arg DUORELAY_VARIANT=singbox -t duorelay-singbox:local .
 docker build --build-arg DUORELAY_VARIANT=lite -t duorelay-lite:local .
 # 在支持跨架构构建的 buildx 环境中构建 arm64 lite
 docker buildx build --platform linux/arm64 --build-arg DUORELAY_VARIANT=lite --load -t duorelay-lite:arm64 .

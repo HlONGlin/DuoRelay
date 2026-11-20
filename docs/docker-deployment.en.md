@@ -67,7 +67,7 @@ Clone the project and run from its root:
 ```bash
 git clone https://github.com/HlONGlin/DuoRelay.git
 cd DuoRelay
-# Full (default)
+# mihomo (default)
 docker compose up -d --build
 
 # Or lite; do not run both variants simultaneously
@@ -97,10 +97,11 @@ docker compose up -d --build
 
 Both configurations use the same service and volume, so database copying is unnecessary. Lite retains unsupported nodes and subscription data but does not restore sing-box or cross-kernel runtime configurations; select compatible nodes again. See [full / lite data compatibility](lite.en.md#data-compatibility-and-in-place-upgrades) for migration boundaries.
 
-When using the Dockerfile directly, select `--build-arg DUORELAY_VARIANT=full|lite` (default full):
+When using the Dockerfile directly, select `--build-arg DUORELAY_VARIANT=mihomo|singbox` (default mihomo). Legacy `full` and `lite` variants remain available for migration:
 
 ```bash
-docker build --build-arg DUORELAY_VARIANT=full -t duorelay:local .
+docker build --build-arg DUORELAY_VARIANT=mihomo -t duorelay:local .
+docker build --build-arg DUORELAY_VARIANT=singbox -t duorelay-singbox:local .
 docker build --build-arg DUORELAY_VARIANT=lite -t duorelay-lite:local .
 # Build arm64 lite with cross-architecture buildx support
 docker buildx build --platform linux/arm64 --build-arg DUORELAY_VARIANT=lite --load -t duorelay-lite:arm64 .

@@ -9,20 +9,20 @@ DuoRelay 的主要运行目标是 Linux。本文介绍构建和 systemd 安装�
 适用于使用 systemd、glibc 2.28+ 的 Linux amd64/arm64 系统，需 root 权限及网络连接：
 
 ```bash
-# full（默认）：sing-box + mihomo
-curl -fsSL https://raw.githubusercontent.com/HlONGlin/DuoRelay/master/scripts/bootstrap-linux.sh | sudo bash -s -- --full
+# mihomo（默认）：仅携带 mihomo
+curl -fsSL https://raw.githubusercontent.com/HlONGlin/DuoRelay/master/scripts/bootstrap-linux.sh | sudo bash -s -- --mihomo
 
-# lite：仅 mihomo，完整面板
-curl -fsSL https://raw.githubusercontent.com/HlONGlin/DuoRelay/master/scripts/bootstrap-linux.sh | sudo bash -s -- --lite
+# sing-box：仅携带 sing-box
+curl -fsSL https://raw.githubusercontent.com/HlONGlin/DuoRelay/master/scripts/bootstrap-linux.sh | sudo bash -s -- --singbox
 ```
 
-两条命令二选一；不传参数时仍安装 full，也可通过 `DUORELAY_VARIANT=full|lite` 选择，命令行参数优先。脚本将源码克隆到临时目录，安装前端依赖、下载所选版本的内核、构建发布包，并调用 `scripts/install-linux.sh` 安装服务；完成或失败后删除临时构建目录。默认程序目录为 `/opt/duorelay`，数据目录为 `/var/lib/duorelay`，服务只监听 `127.0.0.1:8080`。远程访问可使用 SSH 端口转发，例如在自己的电脑执行 `ssh -L 8080:127.0.0.1:8080 user@server`，再访问本机浏览器。
+两条命令二选一；不传参数时安装 mihomo 版，也可通过 `DUORELAY_VARIANT=mihomo|singbox` 选择，命令行参数优先。旧 `full/lite` 变体仍可显式选择。脚本将源码克隆到临时目录，安装前端依赖、下载所选版本的内核、构建发布包，并调用 `scripts/install-linux.sh` 安装服务；完成或失败后删除临时构建目录。默认程序目录为 `/opt/duorelay`，数据目录为 `/var/lib/duorelay`，服务只监听 `127.0.0.1:8080`。远程访问可使用 SSH 端口转发，例如在自己的电脑执行 `ssh -L 8080:127.0.0.1:8080 user@server`，再访问本机浏览器。
 
 脚本读取 `/etc/os-release` 的 `ID` / `ID_LIKE`，在缺少基础依赖时选择 apt-get、dnf/yum、pacman 或 zypper，补装 Git、curl、CA 证书、tar、gzip、coreutils、findutils、awk/sed、账号管理工具及 Node.js 所需的 libstdc++。Fedora/RHEL 已有 curl-minimal 时不强装 curl，避免包冲突。Arch 使用已有软件包数据库，不执行单独的 `pacman -Sy`；若数据库过旧导致安装失败，先手动执行完整系统更新 `sudo pacman -Syu` 再重试。
 
 Go 须满足仓库 `go.mod` 要求（当前 `1.27.0`）；Node.js 支持 18 或 20+，且 npm 必须可用。脚本优先复用兼容的现有工具；缺失或不兼容时，从 `dl.google.com/go` 下载模块要求的 Go，从 `nodejs.org` 下载 Node.js 22 LTS，并对照各自官方 HTTPS 摘要完成 SHA-256 校验后解压。临时工具链仅加入本次构建的 PATH，不写入 `/usr/local/go` 或替换系统 Node.js/npm，随临时目录一起清理。下载使用 HTTPS、重试和超时；下载、校验或构建失败会终止并指出失败阶段，不继续安装。
 
-lite 使用锁定版本和 SHA-256 校验的 mihomo 下载器，支持 amd64/arm64，不下载 sing-box 或 Cronet，也不重写 `kernels.lock`。首次启动另行下载 Geo 缓存，网络失败会明确报错。full 继续使用原双核下载流程，生成本地 SHA-256 记录，但不验证预先锁定的散列值；Linux full 包仍不自动补入 Cronet，Naive 的额外动态库部署需单独处理。
+mihomo 和 sing-box 发行包分别只携带对应内核；Linux 支持 amd64/arm64，sing-box 版附带 Cronet。mihomo 首次启动会下载 Geo 缓存，网络失败会明确报错。旧 full/lite 过渡包仍可通过构建脚本生成。
 
 ### 一键脚本的系统范围
 

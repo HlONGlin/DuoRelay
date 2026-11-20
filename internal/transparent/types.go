@@ -57,3 +57,15 @@ func (m *Manager) Cleanup() error {
 	}
 	return m.backend.Cleanup()
 }
+
+// Recover removes stale DuoRelay-owned transparent rules left by a process
+// crash. Backends without persistent system rules do not need recovery.
+func (m *Manager) Recover() error {
+	if m == nil || m.backend == nil {
+		return nil
+	}
+	if recoverable, ok := m.backend.(interface{ Recover() error }); ok {
+		return recoverable.Recover()
+	}
+	return nil
+}

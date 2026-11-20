@@ -4,7 +4,7 @@ param(
     [string]$OutputDirectory = "dist",
     [switch]$Lite,
     [ValidateSet("full", "lite", "mihomo", "singbox")]
-    [string]$Variant = "full"
+    [string]$Variant = "mihomo"
 )
 
 $ErrorActionPreference = "Stop"

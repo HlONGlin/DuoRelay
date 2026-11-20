@@ -456,6 +456,39 @@ func (s *Store) SaveConfiguration(ctx context.Context, settings, current any) er
 	return err
 }
 
+// SaveConfigurationForNodes commits a generated configuration only while all
+// of its source nodes still exist. This closes the gap between generation and
+// persistence when a concurrent node removal or subscription refresh occurs.
+func (s *Store) SaveConfigurationForNodes(ctx context.Context, settings, current any, nodeIDs []string) error {
+	settingsData, err := json.Marshal(settings)
+	if err != nil {
+		return err
+	}
+	currentData, err := json.Marshal(current)
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, id := range nodeIDs {
+		var exists int
+		if err := tx.QueryRowContext(ctx, "SELECT 1 FROM nodes WHERE id=?", id).Scan(&exists); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("%w: node %q was removed while applying configuration", ErrNotFound, id)
+			}
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO backend_state(key,value) VALUES('settings',?),('current_config',?)
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value`, string(settingsData), string(currentData)); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // SuspendConfiguration keeps an incompatible configuration for recovery
 // and clears it from the active slot in the same transaction.
 func (s *Store) SuspendConfiguration(ctx context.Context, settings any) error {

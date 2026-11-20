@@ -13,6 +13,11 @@ import (
 
 const DefaultLogViewLimit = 100
 
+const (
+	defaultLogBufferMaxBytes = 16 * 1024 * 1024
+	maxLogEntryBytes         = 1024 * 1024
+)
+
 var logANSI = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 var logPrefix = regexp.MustCompile(`^(?:\+\d{4}\s+)?\d{4}[-/]\d{2}[-/]\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?\s*`)
 var logTimeField = regexp.MustCompile(`\btime="[^"]+"\s*`)
@@ -37,21 +42,31 @@ type LogEntry struct {
 
 // RingBuffer implements a fixed-size circular buffer for log entries
 type RingBuffer struct {
-	mu       sync.RWMutex
-	buffer   []LogEntry
-	capacity int
-	head     int // next write position
-	size     int // current number of entries
+	mu        sync.RWMutex
+	buffer    []LogEntry
+	capacity  int
+	maxBytes  int
+	usedBytes int
+	head      int // next write position
+	size      int // current number of entries
 }
 
 // NewRingBuffer creates a new ring buffer with the specified capacity
 func NewRingBuffer(capacity int) *RingBuffer {
+	return newRingBuffer(capacity, defaultLogBufferMaxBytes)
+}
+
+func newRingBuffer(capacity, maxBytes int) *RingBuffer {
 	if capacity <= 0 {
 		capacity = 10000
+	}
+	if maxBytes <= 0 {
+		maxBytes = defaultLogBufferMaxBytes
 	}
 	return &RingBuffer{
 		buffer:   make([]LogEntry, capacity),
 		capacity: capacity,
+		maxBytes: maxBytes,
 		head:     0,
 		size:     0,
 	}
@@ -61,8 +76,20 @@ func NewRingBuffer(capacity int) *RingBuffer {
 func (rb *RingBuffer) Append(entry LogEntry) {
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
+	lineLimit := min(maxLogEntryBytes, max(0, rb.maxBytes-len(entry.Source)))
+	if len(entry.Line) > lineLimit {
+		entry.Line = entry.Line[:lineLimit]
+	}
+	entryBytes := len(entry.Source) + len(entry.Line)
+	for rb.size > 0 && (rb.size == rb.capacity || rb.usedBytes+entryBytes > rb.maxBytes) {
+		oldest := (rb.head - rb.size + rb.capacity) % rb.capacity
+		rb.usedBytes -= len(rb.buffer[oldest].Source) + len(rb.buffer[oldest].Line)
+		rb.buffer[oldest] = LogEntry{}
+		rb.size--
+	}
 
 	rb.buffer[rb.head] = entry
+	rb.usedBytes += entryBytes
 	rb.head = (rb.head + 1) % rb.capacity
 
 	if rb.size < rb.capacity {
@@ -108,12 +135,19 @@ func (rb *RingBuffer) Size() int {
 	return rb.size
 }
 
+func (rb *RingBuffer) used() int {
+	rb.mu.RLock()
+	defer rb.mu.RUnlock()
+	return rb.usedBytes
+}
+
 // Clear removes all entries from the buffer
 func (rb *RingBuffer) Clear() {
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
 	rb.head = 0
 	rb.size = 0
+	rb.usedBytes = 0
 	clear(rb.buffer)
 }
 
@@ -130,6 +164,10 @@ func (rb *RingBuffer) PruneBefore(cutoff time.Time) {
 	clear(rb.buffer)
 	copy(rb.buffer, kept)
 	rb.size, rb.head = len(kept), len(kept)%rb.capacity
+	rb.usedBytes = 0
+	for _, entry := range kept {
+		rb.usedBytes += len(entry.Source) + len(entry.Line)
+	}
 }
 
 // SnapshotRecent returns the latest distinct messages with occurrence counts.

@@ -13,9 +13,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -182,6 +184,7 @@ func testManager(t *testing.T) *Manager {
 	m.stopTimeout = time.Second
 	m.restartPolicy = func() *RestartPolicy {
 		p := NewRestartPolicy()
+		p.maxRetries = 5
 		p.backoffBase, p.maxBackoff = 20*time.Millisecond, 80*time.Millisecond
 		return p
 	}
@@ -484,6 +487,44 @@ func TestManagerRestartBudget(t *testing.T) {
 	}
 }
 
+func TestManagerRestartLaunchDoesNotBlockStatus(t *testing.T) {
+	if !variant.SupportsKernel("sing-box") {
+		t.Skip("full-only sing-box restart test")
+	}
+	m := testManager(t)
+	base := m.command
+	restarting := make(chan struct{})
+	release := make(chan struct{})
+	var runCount atomic.Int32
+	m.command = func(ctx context.Context, binary string, args ...string) *exec.Cmd {
+		if len(args) > 0 && args[0] == "run" && runCount.Add(1) == 2 {
+			close(restarting)
+			<-release
+		}
+		return base(ctx, binary, args...)
+	}
+	if err := m.StartSingBox(writeConfig(t, "sing-box", map[string]any{"crash_after": 150, "exit_code": 4})); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-restarting:
+	case <-time.After(3 * time.Second):
+		t.Fatal("restart did not reach process creation")
+	}
+	statusDone := make(chan struct{})
+	go func() {
+		defer close(statusDone)
+		_ = m.Status()
+	}()
+	select {
+	case <-statusDone:
+	case <-time.After(250 * time.Millisecond):
+		close(release)
+		t.Fatal("status blocked while a restart was being launched")
+	}
+	close(release)
+}
+
 func TestManagerRestartLaunchFailure(t *testing.T) {
 	if !variant.SupportsKernel("sing-box") {
 		t.Skip("full-only sing-box / cross-kernel assertions")
@@ -680,8 +721,32 @@ func TestRingBufferAndLogCapture(t *testing.T) {
 	wg.Wait()
 }
 
+func TestRingBufferBoundsBytesAndTruncatesOversizedEntries(t *testing.T) {
+	buffer := newRingBuffer(10, 1024)
+	for range 3 {
+		buffer.Append(LogEntry{Line: strings.Repeat("x", 400)})
+	}
+	if got := buffer.GetAll(); len(got) != 2 || buffer.used() > 1024 {
+		t.Fatalf("byte bound failed: entries=%d bytes=%d", len(got), buffer.used())
+	}
+	buffer.Append(LogEntry{Line: strings.Repeat("y", 4096)})
+	if got := buffer.GetAll(); len(got) != 1 || len(got[0].Line) != 1024 || buffer.used() > 1024 {
+		t.Fatalf("oversized entry was not bounded: entries=%d bytes=%d", len(got), buffer.used())
+	}
+	buffer.PruneBefore(time.Now().Add(time.Hour))
+	if buffer.used() != 0 {
+		t.Fatalf("prune retained byte accounting: %d", buffer.used())
+	}
+	buffer.Append(LogEntry{Line: "after prune"})
+	buffer.Clear()
+	if buffer.used() != 0 {
+		t.Fatalf("clear retained byte accounting: %d", buffer.used())
+	}
+}
+
 func TestRestartPolicy(t *testing.T) {
 	p := NewRestartPolicy()
+	p.maxRetries = 5
 	for i, want := range []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second} {
 		if ok, err := p.ShouldRestart(1, "crash"); !ok || err != nil {
 			t.Fatalf("attempt %d denied: %v", i, err)
@@ -716,6 +781,55 @@ func TestRestartPolicy(t *testing.T) {
 	history[0].Reason = "mutated"
 	if p.GetRestartHistory()[0].Reason != "crash" {
 		t.Fatal("history aliases storage")
+	}
+}
+
+func TestRestartPolicyRetriesWithoutLimitByDefault(t *testing.T) {
+	p := NewRestartPolicy()
+	for i := 0; i < 12; i++ {
+		if ok, err := p.ShouldRestart(1, "crash"); !ok || err != nil {
+			t.Fatalf("restart %d denied: %v", i+1, err)
+		}
+		p.RecordRestart(1, "crash", false)
+	}
+	if got := p.GetConsecutiveFailures(); got != 12 {
+		t.Fatalf("consecutive failures = %d, want 12", got)
+	}
+	if ok, err := p.ShouldRestart(1, "crash"); !ok || err != nil {
+		t.Fatalf("restart after 12 failures denied: %v", err)
+	}
+	if got := p.GetBackoffDuration(); got != 60*time.Second {
+		t.Fatalf("backoff = %s, want 1m0s", got)
+	}
+}
+
+func TestHealthProbeBackoffCapsAtOneSecond(t *testing.T) {
+	var got []time.Duration
+	delay := 50 * time.Millisecond
+	for range 8 {
+		got = append(got, delay)
+		delay = nextHealthProbeDelay(delay)
+	}
+	want := []time.Duration{50 * time.Millisecond, 100 * time.Millisecond, 200 * time.Millisecond, 400 * time.Millisecond, 800 * time.Millisecond, time.Second, time.Second, time.Second}
+	if !slices.Equal(got, want) {
+		t.Fatalf("health probe backoff = %v, want %v", got, want)
+	}
+}
+
+func TestRestartFailureWarningIsLoggedOncePerFailureStreak(t *testing.T) {
+	m := NewManager(t.TempDir())
+	p := &Process{Name: "mihomo", RestartPolicy: NewRestartPolicy(), LogBuffer: NewRingBuffer(20)}
+	for range 11 {
+		p.RestartPolicy.RecordRestart(1, "crash", false)
+	}
+	m.reportRestartFailures(p)
+	m.reportRestartFailures(p)
+	entries := p.LogBuffer.GetAll()
+	if len(entries) != 1 || !strings.HasPrefix(entries[0].Line, "ERROR:") {
+		t.Fatalf("restart warning log = %#v", entries)
+	}
+	if !strings.Contains(p.HealthError, "11 consecutive times") {
+		t.Fatalf("restart warning status missing: %q", p.HealthError)
 	}
 }
 

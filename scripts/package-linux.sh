@@ -4,7 +4,7 @@ set -euo pipefail
 VERSION="${1:-dev}"
 ARCH="${2:-$(uname -m)}"
 WITH_KERNELS=1
-VARIANT=full
+VARIANT=mihomo
 TAGS=()
 KERNELS_DIR=""
 shift "$(( $# >= 2 ? 2 : $# ))"

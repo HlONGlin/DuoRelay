@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 KERNELS_DIR="$PROJECT_ROOT/kernels"
 LOCK_FILE="$PROJECT_ROOT/kernels.lock"
-VARIANT=full
+VARIANT=mihomo
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --variant) VARIANT="${2:?missing variant}"; shift 2 ;;
