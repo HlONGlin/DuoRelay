@@ -23,7 +23,7 @@ export const useSubscriptionsStore = defineStore('subscriptions', () => {
     items.value.reduce((sum, item) => sum + (item.total ?? 0), 0)
   )
   const updatedCount = computed(
-    () => items.value.filter((item) => item.last_status === 'success').length
+    () => items.value.filter((item) => item.last_status === 'ok' || item.last_status === 'success').length
   )
 
   async function fetchSubscriptions() {
@@ -64,13 +64,7 @@ export const useSubscriptionsStore = defineStore('subscriptions', () => {
     try {
       const result = await refreshSubscription(id)
       items.value = items.value.map((item) =>
-        item.id === id
-          ? {
-              ...item,
-              last_status: 'success',
-              last_update: new Date().toISOString()
-            }
-          : item
+        item.id === id ? result.subscription : item
       )
       return result
     } catch (err) {

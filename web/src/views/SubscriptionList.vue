@@ -193,10 +193,12 @@ async function handleRefresh(subscription: Subscription) {
   try {
     const result = await subscriptions.refresh(subscription.id)
     await nodes.fetchAllNodes()
-    const added = result?.nodes_added
-    ElMessage.success(
-      added === undefined ? t('订阅已更新', 'Subscription updated') : (appearance.language === 'en' ? `Subscription updated; ${added} nodes added` : `订阅已更新，新增 ${added} 个节点`)
-    )
+    const skipped = result.skipped?.length ?? 0
+    if (skipped) {
+      ElMessage.warning(t(`订阅部分更新成功，跳过 ${skipped} 条`, `Subscription partially updated; ${skipped} entries skipped`))
+    } else {
+      ElMessage.success(t(`订阅已更新，新增 ${result.nodes_added} 个节点`, `Subscription updated; ${result.nodes_added} nodes added`))
+    }
   } catch (err) {
     ElMessage.error(err instanceof Error ? err.message : t('更新订阅失败', 'Failed to update subscription'))
   }

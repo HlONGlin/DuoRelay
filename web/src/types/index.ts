@@ -130,10 +130,15 @@ export interface NodeComposition {
   load_balance?: LoadBalanceOptions
 }
 
+export interface SubscriptionSkip {
+  line: number
+  reason: string
+}
+
 export interface Subscription {
-	last_error?: string
-	skipped?: { line: number; reason: string }[]
-	diff?: { duplicates?: number }
+  last_error?: string
+  skipped?: SubscriptionSkip[]
+  diff?: { added: number; removed: number; changed: number; duplicates: number }
   id: string
   name: string
   url: string

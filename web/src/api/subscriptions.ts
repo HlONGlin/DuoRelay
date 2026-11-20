@@ -1,5 +1,5 @@
 import { request } from './client'
-import type { Subscription, SubscriptionInput } from '@/types'
+import type { Subscription, SubscriptionInput, SubscriptionSkip } from '@/types'
 
 export function listSubscriptions(): Promise<Subscription[]> {
   return request<Subscription[]>({ url: '/subscriptions', method: 'get' })
@@ -22,8 +22,13 @@ export function deleteSubscription(id: string): Promise<void> {
 }
 
 export interface UpdateResult {
-  nodes_added?: number
-  nodes_total?: number
+  nodes_added: number
+  nodes_removed: number
+  nodes_changed: number
+  nodes_total: number
+  duplicates: number
+  skipped: SubscriptionSkip[] | null
+  subscription: Subscription
 }
 
 export function refreshSubscription(id: string): Promise<UpdateResult> {
